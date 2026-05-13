@@ -1,0 +1,232 @@
+{
+  "$id": "ENeScMfNCKVvDf2bWYzi74Z8Rmo6q0dA9zhBzVHBR2SR",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "GL1 Ethereum Wallet Attestation",
+  "description": "A GL1 ACDC binding an Ethereum wallet to a Legal Entity through an Official Organizational Role holder.",
+  "type": "object",
+  "credentialType": "GL1EthereumWalletAttestation",
+  "version": "1.0.0",
+  "properties": {
+    "v": {
+      "description": "ACDC version",
+      "type": "string"
+    },
+    "d": {
+      "description": "Credential SAID",
+      "type": "string"
+    },
+    "u": {
+      "description": "One-time use nonce",
+      "type": "string"
+    },
+    "i": {
+      "description": "OOR holder issuer AID",
+      "type": "string"
+    },
+    "ri": {
+      "description": "Credential status registry",
+      "type": "string"
+    },
+    "s": {
+      "description": "Schema SAID",
+      "type": "string"
+    },
+    "a": {
+      "oneOf": [
+        {
+          "description": "Attributes block SAID",
+          "type": "string"
+        },
+        {
+          "description": "Attributes block",
+          "type": "object",
+          "properties": {
+            "d": {
+              "description": "Attributes block SAID",
+              "type": "string"
+            },
+            "legalEntityAid": {
+              "description": "Legal Entity AID",
+              "type": "string"
+            },
+            "LEI": {
+              "description": "Legal Entity Identifier",
+              "type": "string"
+            },
+            "oorAid": {
+              "description": "Official Organizational Role holder AID",
+              "type": "string"
+            },
+            "wallet": {
+              "description": "Ethereum wallet address",
+              "type": "string"
+            },
+            "chainId": {
+              "description": "EVM chain id",
+              "type": "integer"
+            },
+            "vleiToken": {
+              "description": "vLEI ERC-20 contract address",
+              "type": "string"
+            },
+            "wrapper": {
+              "description": "wvLEI wrapper contract address",
+              "type": "string"
+            },
+            "identityRegistry": {
+              "description": "Chainlink CCID IdentityRegistry address",
+              "type": "string"
+            },
+            "credentialRegistry": {
+              "description": "Chainlink CCID CredentialRegistry address",
+              "type": "string"
+            },
+            "oracleRegistry": {
+              "description": "VLEIOracleRegistry address",
+              "type": "string"
+            },
+            "walletSignatureType": {
+              "description": "Wallet signature profile",
+              "type": "string",
+              "const": "EIP712_GL1_ETHEREUM_WALLET_ATTESTATION_V1"
+            },
+            "walletSignature": {
+              "description": "Ethereum signature over the GL1 EIP-712 wallet binding",
+              "type": "string"
+            },
+            "nonce": {
+              "description": "Replay-protection nonce",
+              "type": "string"
+            },
+            "issuedAt": {
+              "description": "Oracle challenge issue timestamp",
+              "type": "integer"
+            },
+            "expiresAt": {
+              "description": "Unix expiration timestamp",
+              "type": "integer"
+            },
+            "purpose": {
+              "description": "Bound operation purpose",
+              "type": "string"
+            },
+            "i": {
+              "description": "Legal Entity subject AID injected by KERIpy from --recipient",
+              "type": "string"
+            },
+            "dt": {
+              "description": "ACDC subject timestamp injected by KERIpy",
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "LEI",
+            "chainId",
+            "credentialRegistry",
+            "dt",
+            "expiresAt",
+            "i",
+            "identityRegistry",
+            "issuedAt",
+            "legalEntityAid",
+            "nonce",
+            "oorAid",
+            "oracleRegistry",
+            "purpose",
+            "vleiToken",
+            "wallet",
+            "walletSignature",
+            "walletSignatureType",
+            "wrapper"
+          ]
+        }
+      ]
+    },
+    "e": {
+      "oneOf": [
+        {
+          "description": "Edges block SAID",
+          "type": "string"
+        },
+        {
+          "description": "Edges block",
+          "type": "object",
+          "properties": {
+            "d": {
+              "description": "Edges block SAID",
+              "type": "string"
+            },
+            "le": {
+              "description": "Legal Entity vLEI credential edge",
+              "type": "object",
+              "properties": {
+                "n": {
+                  "description": "Legal Entity credential SAID",
+                  "type": "string"
+                },
+                "s": {
+                  "description": "Legal Entity vLEI schema SAID",
+                  "type": "string",
+                  "const": "ENPXp1vQzRF6JwIuS-mp2U8Uf1MoADoP_GqQ62VsDZWY"
+                },
+                "o": {
+                  "description": "Edge operator for self-attested OOR wallet attestation to Legal Entity credential",
+                  "type": "string",
+                  "const": "NI2I"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "n",
+                "s",
+                "o"
+              ]
+            },
+            "oor": {
+              "description": "Official Organizational Role credential edge",
+              "type": "object",
+              "properties": {
+                "n": {
+                  "description": "OOR credential SAID",
+                  "type": "string"
+                },
+                "s": {
+                  "description": "OOR vLEI schema SAID",
+                  "type": "string",
+                  "const": "EBNaNu-M9P5cgrnfl2Fvymy4E_jvxxyjb70PRtiANlJy"
+                },
+                "o": {
+                  "description": "Edge operator for self-attested OOR wallet attestation to OOR credential",
+                  "type": "string",
+                  "const": "NI2I"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "n",
+                "s",
+                "o"
+              ]
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "d",
+            "le",
+            "oor"
+          ]
+        }
+      ]
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "i",
+    "ri",
+    "s",
+    "d",
+    "e",
+    "a"
+  ]
+}

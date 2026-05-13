@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vlei-oracle"
+version = "0.1.0"
+description = "GL1 vLEI Oracle verifier and on-chain posting CLI"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+authors = [
+  { name = "GLEIF IT" }
+]
+dependencies = [
+  "eth-account>=0.13.7",
+  "keri>=1.2.13"
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=9"
+]
+
+[project.scripts]
+vlei-oracle = "vlei_oracle.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
