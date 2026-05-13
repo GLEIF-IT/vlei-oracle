@@ -7,8 +7,14 @@ from typing import Any
 
 from eth_account import Account
 from eth_account.messages import encode_typed_data
+from keri.core import coring
 
-from .constants import EIP712_DOMAIN_NAME, EIP712_DOMAIN_VERSION, EIP712_PRIMARY_TYPE, WALLET_SIGNATURE_TYPE
+from .constants import EIP712_DOMAIN_NAME, EIP712_DOMAIN_VERSION, EIP712_PRIMARY_TYPE
+
+
+ETH_SIGNATURE_SIZE = 65
+SMALL_CESR_TRIPLET_LIMIT = 64**2 - 1
+BIG_CESR_TRIPLET_LIMIT = 64**4 - 1
 
 
 def _checksum_passthrough(address: str) -> str:
@@ -109,11 +115,9 @@ def verify_typed_signature(
     typed_data: dict[str, Any],
     wallet: str,
     signature: str,
-    cast_bin: str | None = None,
 ) -> bool:
     """Verify an EIP-712 signature by recovering the signer in Python."""
 
-    _ = cast_bin
     try:
         signable = encode_typed_data(full_message=typed_data)
         recovered = Account.recover_message(signable, signature=signature)
@@ -123,15 +127,72 @@ def verify_typed_signature(
     return recovered.lower() == wallet.lower()
 
 
+def encode_eth_signature_cesr(signature: str | bytes) -> str:
+    """Encode a 65-byte Ethereum signature as a CESR Matter qb64 string."""
+
+    raw = _signature_to_bytes(signature)
+    return coring.Matter(raw=raw, code=_cesr_bytes_code_for_raw_size(len(raw))).qb64
+
+
+def decode_eth_signature_cesr(signature: str) -> str:
+    """Decode a CESR Matter qb64 Ethereum signature to a 0x-prefixed hex string."""
+
+    try:
+        matter = coring.Matter(qb64=signature)
+    except Exception as exc:
+        raise ValueError("signature is not valid CESR Matter qb64") from exc
+    if len(matter.raw) != ETH_SIGNATURE_SIZE:
+        raise ValueError(f"Ethereum signature must be {ETH_SIGNATURE_SIZE} bytes")
+    expected_code = _cesr_bytes_code_for_raw_size(ETH_SIGNATURE_SIZE)
+    if matter.code != expected_code:
+        raise ValueError(f"Ethereum signature must use CESR {expected_code} bytes primitive")
+    return "0x" + bytes(matter.raw).hex()
+
+
+def _signature_to_bytes(signature: str | bytes) -> bytes:
+    if isinstance(signature, bytes):
+        raw = signature
+    elif isinstance(signature, str):
+        sig = signature[2:] if signature.startswith("0x") else signature
+        try:
+            raw = bytes.fromhex(sig)
+        except ValueError as exc:
+            raise ValueError("Ethereum signature must be hex") from exc
+    else:
+        raise TypeError("signature must be bytes or hex string")
+    if len(raw) != ETH_SIGNATURE_SIZE:
+        raise ValueError(f"Ethereum signature must be {ETH_SIGNATURE_SIZE} bytes")
+    return raw
+
+
+def _cesr_bytes_code_for_raw_size(raw_size: int) -> str:
+    """Return the smallest CESR bytes primitive aligned for raw_size bytes."""
+
+    lead_size = (3 - (raw_size % 3)) % 3
+    triplets = (raw_size + lead_size) // 3
+    if triplets <= SMALL_CESR_TRIPLET_LIMIT:
+        return {
+            0: coring.MtrDex.Bytes_L0,
+            1: coring.MtrDex.Bytes_L1,
+            2: coring.MtrDex.Bytes_L2,
+        }[lead_size]
+    if triplets <= BIG_CESR_TRIPLET_LIMIT:
+        return {
+            0: coring.MtrDex.Bytes_Big_L0,
+            1: coring.MtrDex.Bytes_Big_L1,
+            2: coring.MtrDex.Bytes_Big_L2,
+        }[lead_size]
+    raise ValueError(f"raw CESR bytes payload too large: {raw_size}")
+
+
 def wallet_attributes_from_typed_data(
     *,
     typed_data: dict[str, Any],
-    signature: str,
 ) -> dict[str, Any]:
     """Return GL1 Wallet Attestation ACDC attributes from typed data."""
 
     message = dict(typed_data["message"])
-    return {
+    attrs = {
         "legalEntityAid": message["legalEntityAid"],
         "LEI": message["lei"],
         "oorAid": message["oorAid"],
@@ -142,10 +203,9 @@ def wallet_attributes_from_typed_data(
         "identityRegistry": message["identityRegistry"],
         "credentialRegistry": message["credentialRegistry"],
         "oracleRegistry": message["oracleRegistry"],
-        "walletSignatureType": WALLET_SIGNATURE_TYPE,
-        "walletSignature": signature,
         "nonce": message["nonce"],
         "issuedAt": message["issuedAt"],
         "expiresAt": message["expiresAt"],
         "purpose": message["purpose"],
     }
+    return attrs

@@ -22,6 +22,8 @@ RPC_URL="${RPC_URL:-http://127.0.0.1:8545}"
 CHAIN_ID="${CHAIN_ID:-31337}"
 ANVIL_PORT="${ANVIL_PORT:-8545}"
 VLEI_SCHEMA_PORT="${VLEI_SCHEMA_PORT:-7723}"
+ORACLE_HTTP_PORT="${ORACLE_HTTP_PORT:-9723}"
+ORACLE_URL="${ORACLE_URL:-http://127.0.0.1:${ORACLE_HTTP_PORT}}"
 
 ADMIN_PK="${ADMIN_PK:-0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80}"
 ORIGINATOR_PK="${ORIGINATOR_PK:-0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d}"
@@ -39,7 +41,7 @@ OOR_SCHEMA="EBNaNu-M9P5cgrnfl2Fvymy4E_jvxxyjb70PRtiANlJy"
 VLEI_SCHEMA_EMHVW="EMhvwOlyEJ9kN4PrwCpr9Jsv7TxPhiYveZ0oP3lJzdEi"
 VLEI_SCHEMA_EEY9="EEy9PkikFcANV1l7EHukCeXqrzT1hNZjGlUk7wuMO5jw"
 VLEI_SCHEMA_EH6E="EH6ekLjSr8V32WyFbGe1zXjTzFs9PkTYmupJ9H65O14g"
-WALLET_SCHEMA="ENeScMfNCKVvDf2bWYzi74Z8Rmo6q0dA9zhBzVHBR2SR"
+WALLET_SCHEMA="EORcMutKdscrCxXLEhMnnjxrZocxDwSo7-VItx6lh6Z7"
 
 QVI_LEI="${QVI_LEI:-6383001AJTYIGC8Y1X37}"
 ORIGINATOR_LEI="${ORIGINATOR_LEI:-5493001KJTIIGC8Y1R17}"
@@ -160,9 +162,19 @@ reset_demo_witness_state() {
 
 write_kli_config() {
   local config_file="${KERI_RUN_CONFIG_DIR}/keri/cf/gl1-demo-oobis-schema.json"
+  local oracle_config_file="${KERI_RUN_CONFIG_DIR}/keri/cf/gl1-demo-oobis-schema-oracle.json"
   mkdir -p "$(dirname "$config_file")"
 
+  write_kli_config_file "$config_file" true
+  write_kli_config_file "$oracle_config_file" false
+}
+
+write_kli_config_file() {
+  local config_file="$1"
+  local include_wallet="$2"
+
   "$JQ" -n \
+    --argjson includeWallet "$include_wallet" \
     --arg dt "2022-01-20T12:57:59.823350+00:00" \
     --arg qvi "$QVI_SCHEMA" \
     --arg le "$LE_SCHEMA" \
@@ -180,16 +192,15 @@ write_kli_config() {
         "http://127.0.0.1:5643/oobi/BLskRTInXnMxWaGqcpSyMgo0nYbalW99cGZESrz3zapM/controller",
         "http://127.0.0.1:5644/oobi/BIKKuvBwpmDVA4Ds-EpL5bt9OqPzWPja2LigFYZN2YfX/controller"
       ],
-      durls: [
+      durls: ([
         ("http://127.0.0.1:" + $port + "/oobi/" + $oor),
         ("http://127.0.0.1:" + $port + "/oobi/" + $emhvw),
         ("http://127.0.0.1:" + $port + "/oobi/" + $oorAuth),
         ("http://127.0.0.1:" + $port + "/oobi/" + $eey9),
         ("http://127.0.0.1:" + $port + "/oobi/" + $le),
         ("http://127.0.0.1:" + $port + "/oobi/" + $eh6e),
-        ("http://127.0.0.1:" + $port + "/oobi/" + $qvi),
-        ("http://127.0.0.1:" + $port + "/oobi/" + $wallet)
-      ]
+        ("http://127.0.0.1:" + $port + "/oobi/" + $qvi)
+      ] + (if $includeWallet then [("http://127.0.0.1:" + $port + "/oobi/" + $wallet)] else [] end))
     }' >"$config_file"
 }
 
@@ -254,6 +265,32 @@ expect_transfer_bool() {
   log "Expected ${expected} transfer result observed: ${label}"
 }
 
+wait_oracle_posted() {
+  wait_oracle_state "$1" posted "$2"
+}
+
+wait_oracle_state() {
+  local wallet_said="$1"
+  local expected="$2"
+  local out="$3"
+  for _ in $(seq 1 120); do
+    if curl -fsS "${ORACLE_URL}/presentations/${wallet_said}" >"$out" 2>/dev/null; then
+      local state
+      state="$("$JQ" -r .state "$out")"
+      if [[ "$state" == "$expected" ]]; then
+        return
+      fi
+      if [[ "$state" == "failed" ]]; then
+        cat "$out" >&2
+        exit 1
+      fi
+    fi
+    sleep 1
+  done
+  printf 'Timed out waiting for vLEI Oracle presentation %s to reach state %s\n' "$wallet_said" "$expected" >&2
+  exit 1
+}
+
 aid_for() {
   "$KLI" status --name "$1" --base "$KERI_BASE" --alias "$2" \
     | awk '/^Identifier:/ {print $2; exit}'
@@ -298,9 +335,10 @@ incept_actor() {
   local alias="$2"
   local salt="$3"
   local wit="$4"
+  local config_file="${5:-gl1-demo-oobis-schema}"
 
   "$KLI" init --name "$name" --base "$KERI_BASE" --salt "$salt" --nopasscode \
-    --config-dir "$KERI_RUN_CONFIG_DIR" --config-file gl1-demo-oobis-schema >/dev/null
+    --config-dir "$KERI_RUN_CONFIG_DIR" --config-file "$config_file" >/dev/null
   "$KLI" incept --name "$name" --base "$KERI_BASE" --alias "$alias" \
     --transferable \
     --wits "$wit" --toad 1 --icount 1 --isith 1 --ncount 1 --nsith 1 >/dev/null
@@ -515,13 +553,8 @@ issue_wallet_attestation() {
     --purpose GL1_WVLEI_TRANSFER \
     --out "$dir/wallet-challenge.json"
 
-  local signature
-  signature=$("$CAST" wallet sign --data --from-file "$dir/wallet-challenge.json" --private-key "$wallet_pk" \
-    | awk '/^0x/ {sig=$0} END {print sig}')
-
   "$VLEI_ORACLE" wallet-data \
     --typed-data "$dir/wallet-challenge.json" \
-    --signature "$signature" \
     --out "$dir/wallet-data.json"
 
   write_json "$dir/wallet-edges.json" \
@@ -550,27 +583,32 @@ issue_wallet_attestation() {
     --said "$wallet_said" --recipient "$ORACLE_AID")"
   local grant_said
   grant_said="$(grant_said_from_output "$grant_output")"
-  admit_grant oracle oracle "$grant_said"
 
-  "$VLEI_ORACLE" presentation-from-keri \
-    --name oracle \
-    --base "$KERI_BASE" \
-    --alias oracle \
-    --said "$wallet_said" \
-    --out "$dir/presentation.json"
+  "$JQ" -n \
+    --arg walletSaid "$wallet_said" \
+    --arg grantSaid "$grant_said" \
+    '{walletSaid:$walletSaid, grantSaid:$grantSaid}' \
+    >"$dir/wallet-presentation.json"
+}
 
-  "$VLEI_ORACLE" verify-presentation \
-    --presentation "$dir/presentation.json" \
-    --trusted-geda-aid "$GEDA_AID" \
-    --wallet-schema "$WALLET_SCHEMA" \
-    --out "$dir/verified.json"
+present_wallet_attestation() {
+  local party="$1"
+  local wallet_pk="$2"
+  local oor_name="$3"
+  local dir="${RUN_DIR}/${party}"
+  local wallet_said
+  wallet_said="$("$JQ" -r .walletSaid "$dir/wallet-presentation.json")"
 
-  "$VLEI_ORACLE" --cast-bin "$CAST" post-verified \
-    --verified "$dir/verified.json" \
-    --contracts "$CONTRACTS_JSON" \
-    --rpc-url "$RPC_URL" \
-    --private-key "$ADMIN_PK"
+  wait_oracle_state "$wallet_said" awaiting_signature "$dir/oracle-awaiting-signature.json"
 
+  "$VLEI_ORACLE" client post-signature \
+    --oracle-url "$ORACLE_URL" \
+    --wallet-said "$wallet_said" \
+    --typed-data "$dir/wallet-challenge.json" \
+    --private-key "$wallet_pk"
+
+  wait_oracle_posted "$wallet_said" "$dir/oracle-status.json"
+  "$JQ" .verified "$dir/oracle-status.json" >"$dir/verified.json"
   "$JQ" -r .legalEntityAid "$dir/verified.json" >"$dir/legal-entity-aid.txt"
 }
 
@@ -616,7 +654,7 @@ main() {
   ) | tee "$DEPLOY_LOG" >/dev/null
 
   CONTRACTS_JSON="$RUN_DIR/contracts.json"
-  "$VLEI_ORACLE" --cast-bin "$CAST" parse-deploy-log --log "$DEPLOY_LOG" --out "$CONTRACTS_JSON"
+  "$VLEI_ORACLE" parse-deploy-log --log "$DEPLOY_LOG" --out "$CONTRACTS_JSON"
 
   ADMIN_CONTROLS="$("$JQ" -r .adminControls "$CONTRACTS_JSON")"
   IDENTITY_REGISTRY="$("$JQ" -r .identityRegistry "$CONTRACTS_JSON")"
@@ -635,7 +673,7 @@ main() {
   incept_actor originator-oor originator-oor 0ACDEyMzQ1Njc4OWxtbm9dEf BBilc4-L3tFUnfM_wJr4S4OJanAv_VmF_dJNN6vkf2Ha
   incept_actor beneficiary-le beneficiary-le 0ACDEyMzQ1Njc4OWxtbm9HiJ BIKKuvBwpmDVA4Ds-EpL5bt9OqPzWPja2LigFYZN2YfX
   incept_actor beneficiary-oor beneficiary-oor 0ACDEyMzQ1Njc4OWxtbm9KlM BLskRTInXnMxWaGqcpSyMgo0nYbalW99cGZESrz3zapM
-  incept_actor oracle oracle 0ACDEyMzQ1Njc4OWxtbm9NoP BBilc4-L3tFUnfM_wJr4S4OJanAv_VmF_dJNN6vkf2Ha
+  incept_actor oracle oracle 0ACDEyMzQ1Njc4OWxtbm9NoP BBilc4-L3tFUnfM_wJr4S4OJanAv_VmF_dJNN6vkf2Ha gl1-demo-oobis-schema-oracle
 
   GEDA_AID="$(aid_for geda geda)"
   QVI_AID="$(aid_for qvi qvi)"
@@ -645,7 +683,7 @@ main() {
   BENEFICIARY_OOR_AID="$(aid_for beneficiary-oor beneficiary-oor)"
   ORACLE_AID="$(aid_for oracle oracle)"
 
-  log "Resolving participant and wallet schema OOBIs"
+  log "Resolving participant OOBIs and wallet schema OOBIs for KLI issuers"
   declare -a ACTOR_NAMES=(geda qvi originator-le originator-oor beneficiary-le beneficiary-oor oracle)
   declare -a ACTOR_ALIASES=(geda qvi originator-le originator-oor beneficiary-le beneficiary-oor oracle)
   declare -a ACTOR_WITS=(
@@ -669,7 +707,9 @@ main() {
         resolve_oobi "$receiver" "${OOBIS[$subject_index]}" "$subject"
       fi
     done
-    resolve_schema_oobi "$receiver" "$WALLET_SCHEMA" gl1-ethereum-wallet-attestation
+    if [[ "$receiver" != "oracle" ]]; then
+      resolve_schema_oobi "$receiver" "$WALLET_SCHEMA" gl1-ethereum-wallet-attestation
+    fi
   done
 
   log "Creating credential registries"
@@ -710,9 +750,25 @@ main() {
 
   expect_transfer_bool false "before oracle posting"
 
-  log "Issuing wallet attestations, verifying with vlei-oracle, and posting on-chain evidence"
+  start_service_if_needed "$ORACLE_HTTP_PORT" "vLEI Oracle service" "$RUN_DIR/vlei-oracle.log" \
+    "$VLEI_ORACLE" server start \
+      --name oracle \
+      --base "$KERI_BASE" \
+      --alias oracle \
+      --http-port "$ORACLE_HTTP_PORT" \
+      --trusted-geda-aid "$GEDA_AID" \
+      --contracts "$CONTRACTS_JSON" \
+      --rpc-url "$RPC_URL" \
+      --private-key "$ADMIN_PK"
+  require_http "${ORACLE_URL}/health" "vLEI Oracle service"
+
+  log "Issuing wallet attestations via standard KLI IPEX Grant to vLEI Oracle"
   issue_wallet_attestation originator "$ORIGINATOR_WALLET" "$ORIGINATOR_PK" originator-oor originator-oor
   issue_wallet_attestation beneficiary "$BENEFICIARY_WALLET" "$BENEFICIARY_PK" beneficiary-oor beneficiary-oor
+
+  log "Presenting wallet attestations to vLEI Oracle and posting on-chain evidence"
+  present_wallet_attestation originator "$ORIGINATOR_PK" originator-oor
+  present_wallet_attestation beneficiary "$BENEFICIARY_PK" beneficiary-oor
 
   expect_transfer_bool false "before AID allowlist"
 

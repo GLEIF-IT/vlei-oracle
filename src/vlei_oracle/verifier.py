@@ -7,12 +7,12 @@ from dataclasses import dataclass
 from typing import Any
 
 from .constants import (
-    DEFAULT_WALLET_SCHEMA,
     LE_SCHEMA,
     OOR_AUTH_SCHEMA,
     OOR_SCHEMA,
     QVI_SCHEMA,
     WALLET_EDGE_OPERATOR,
+    WALLET_SCHEMA,
     WALLET_SIGNATURE_TYPE,
 )
 from .keri_acdc import verify_acdc_raw, verify_said
@@ -67,14 +67,38 @@ class VerifiedWalletBinding:
         }
 
 
+def binding_from_json(data: dict[str, Any]) -> VerifiedWalletBinding:
+    """Build a verified binding object from its durable JSON representation."""
+
+    return VerifiedWalletBinding(
+        legal_entity_aid=data["legalEntityAid"],
+        lei=data["lei"],
+        wallet=data["wallet"],
+        chain_id=int(data["chainId"]),
+        le_credential_said=data["leCredentialSaid"],
+        oor_credential_said=data["oorCredentialSaid"],
+        wallet_credential_said=data["walletCredentialSaid"],
+        wallet_schema=data["walletSchema"],
+        vlei_token=data["vleiToken"],
+        wrapper=data["wrapper"],
+        identity_registry=data["identityRegistry"],
+        credential_registry=data["credentialRegistry"],
+        oracle_registry=data["oracleRegistry"],
+        nonce=data["nonce"],
+        issued_at=int(data.get("issuedAt") or 0),
+        expires_at=int(data["expiresAt"]),
+        purpose=data["purpose"],
+    )
+
+
 def verify_presentation(
     presentation: dict[str, Any],
     *,
     trusted_geda_aid: str,
-    wallet_schema: str = DEFAULT_WALLET_SCHEMA,
-    cast_bin: str | None = None,
     verify_saids: bool = True,
     now: int | None = None,
+    wallet_signature: str | None = None,
+    wallet_signature_type: str | None = None,
 ) -> VerifiedWalletBinding:
     """Verify a GL1 wallet attestation presentation.
 
@@ -104,7 +128,7 @@ def verify_presentation(
     current_time = int(time.time()) if now is None else now
 
     wallet_cred = _credential(
-        credentials, wallet_said, wallet_schema, revoked, credential_raws=credential_raws, verify_saids=verify_saids
+        credentials, wallet_said, WALLET_SCHEMA, revoked, credential_raws=credential_raws, verify_saids=verify_saids
     )
     wallet_attrs = _attrs(wallet_cred)
     wallet_edges = _edges(wallet_cred)
@@ -155,9 +179,6 @@ def verify_presentation(
 
     _check_lei_consistency(lei, wallet_attrs, oor_attrs, auth_attrs)
     _check_oor_auth_matches_oor(auth_attrs, oor_attrs)
-    if _required_str(wallet_attrs, "walletSignatureType") != WALLET_SIGNATURE_TYPE:
-        raise VerificationError("wallet signature type is not supported")
-
     expires_at = _required_int(wallet_attrs, "expiresAt")
     if expires_at <= current_time:
         raise VerificationError("wallet attestation is expired")
@@ -183,9 +204,13 @@ def verify_presentation(
         purpose=_required_str(wallet_attrs, "purpose"),
         issued_at=issued_at,
     )
-    signature = _required_str(wallet_attrs, "walletSignature")
+    signature = _resolve_wallet_signature(
+        wallet_attrs,
+        wallet_signature=wallet_signature,
+        wallet_signature_type=wallet_signature_type,
+    )
     wallet = _required_str(wallet_attrs, "wallet")
-    if not verify_typed_signature(typed_data=typed_data, wallet=wallet, signature=signature, cast_bin=cast_bin):
+    if not verify_typed_signature(typed_data=typed_data, wallet=wallet, signature=signature):
         raise VerificationError("wallet signature did not verify against GL1 typed data")
 
     return VerifiedWalletBinding(
@@ -196,7 +221,7 @@ def verify_presentation(
         le_credential_said=le_said,
         oor_credential_said=oor_said,
         wallet_credential_said=wallet_said,
-        wallet_schema=wallet_schema,
+        wallet_schema=WALLET_SCHEMA,
         vlei_token=_required_str(wallet_attrs, "vleiToken"),
         wrapper=_required_str(wallet_attrs, "wrapper"),
         identity_registry=_required_str(wallet_attrs, "identityRegistry"),
@@ -207,6 +232,22 @@ def verify_presentation(
         expires_at=expires_at,
         purpose=_required_str(wallet_attrs, "purpose"),
     )
+
+
+def _resolve_wallet_signature(
+    wallet_attrs: dict[str, Any],
+    *,
+    wallet_signature: str | None,
+    wallet_signature_type: str | None,
+) -> str:
+    if wallet_signature is None:
+        raise VerificationError("external wallet signature is required for wallet attestation")
+
+    if wallet_signature_type != WALLET_SIGNATURE_TYPE:
+        raise VerificationError("wallet signature type is not supported")
+    if "walletSignature" in wallet_attrs or "walletSignatureType" in wallet_attrs:
+        raise VerificationError("wallet attestation must not embed wallet signature fields")
+    return wallet_signature
 
 
 def _credential(

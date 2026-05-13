@@ -1,8 +1,8 @@
 {
-  "$id": "ENeScMfNCKVvDf2bWYzi74Z8Rmo6q0dA9zhBzVHBR2SR",
+  "$id": "EORcMutKdscrCxXLEhMnnjxrZocxDwSo7-VItx6lh6Z7",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "GL1 Ethereum Wallet Attestation",
-  "description": "A GL1 ACDC binding an Ethereum wallet to a Legal Entity through an Official Organizational Role holder.",
+  "description": "A GL1 ACDC binding an Ethereum wallet to a Legal Entity through an Official Organizational Role holder. The Ethereum wallet signature is supplied separately as CESR-encoded presentation evidence.",
   "type": "object",
   "credentialType": "GL1EthereumWalletAttestation",
   "version": "1.0.0",
@@ -85,15 +85,6 @@
               "description": "VLEIOracleRegistry address",
               "type": "string"
             },
-            "walletSignatureType": {
-              "description": "Wallet signature profile",
-              "type": "string",
-              "const": "EIP712_GL1_ETHEREUM_WALLET_ATTESTATION_V1"
-            },
-            "walletSignature": {
-              "description": "Ethereum signature over the GL1 EIP-712 wallet binding",
-              "type": "string"
-            },
             "nonce": {
               "description": "Replay-protection nonce",
               "type": "string"
@@ -136,8 +127,6 @@
             "purpose",
             "vleiToken",
             "wallet",
-            "walletSignature",
-            "walletSignatureType",
             "wrapper"
           ]
         }

@@ -5,29 +5,16 @@ from __future__ import annotations
 from dataclasses import asdict
 from typing import Any
 
-from keri.app.cli.common import existing
 from keri.core import coring
 from keri.vdr import credentialing
 
 
-def presentation_from_keri_store(
-    *,
-    name: str,
-    alias: str,
-    said: str,
-    base: str = "",
-    passcode: str | None = None,
-) -> dict[str, Any]:
-    """Build a verifier presentation from a KERIpy credential store.
+class MissingCredentialArtifactsError(Exception):
+    """Raised when the local KERI store does not yet contain a credential chain artifact."""
 
-    This intentionally reads KERIpy's verified credential cache instead of
-    reparsing CLI text. The shell e2e script can still own orchestration while
-    the oracle package owns the KERI/ACDC extraction model.
-    """
 
-    hby = existing.setupHby(name=name, base=base, bran=passcode)
-    hby.habByName(alias)
-    rgy = credentialing.Regery(hby=hby, name=name, base=base)
+def presentation_from_reger(*, rgy: credentialing.Regery, said: str) -> dict[str, Any]:
+    """Build a verifier presentation from an open KERIpy credential registry."""
 
     credentials: dict[str, Any] = {}
     credential_raws: dict[str, str] = {}
@@ -38,7 +25,12 @@ def presentation_from_keri_store(
         if credential_said in credentials:
             return
 
-        creder, *_ = rgy.reger.cloneCred(said=credential_said)
+        try:
+            creder, *_ = rgy.reger.cloneCred(said=credential_said)
+        except Exception as exc:
+            raise MissingCredentialArtifactsError(f"credential {credential_said} is not available yet") from exc
+        if creder is None:
+            raise MissingCredentialArtifactsError(f"credential {credential_said} is not available yet")
         credentials[creder.said] = creder.sad
         credential_raws[creder.said] = creder.raw.decode("utf-8")
         state = _credential_state(rgy, creder)
