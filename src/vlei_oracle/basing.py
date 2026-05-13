@@ -1,4 +1,10 @@
-"""LMDB-backed state for long-running vLEI Oracle presentation operations."""
+"""LMDB-backed state for long-running vLEI Oracle presentation operations.
+
+Operations are keyed by wallet credential SAID and survive process restarts.
+The store is intentionally small: it records where the two-step presentation
+workflow is, what signature and verified binding were attached, and which
+on-chain transactions were submitted.
+"""
 
 from __future__ import annotations
 
@@ -22,7 +28,12 @@ STATE_EXPIRED = "expired"
 
 @dataclass
 class OperationRecord:
-    """Durable state for one GL1 wallet presentation workflow."""
+    """Durable state for one GL1 wallet presentation workflow.
+
+    A record is created by an IPEX Grant notification, advanced by the REST
+    signature endpoint, verified by ``PresentationVerifierDoer``, and posted by
+    ``ContractPosterDoer``.
+    """
 
     walletCredentialSaid: str
     state: str = STATE_GRANT_RECEIVED
@@ -42,6 +53,8 @@ class OperationRecord:
 
     @classmethod
     def new(cls, *, wallet_said: str, grant_said: str, grant_sender: str, wallet_schema: str) -> "OperationRecord":
+        """Create a fresh operation that is waiting for the wallet signature."""
+
         now = helping.nowIso8601()
         return cls(
             walletCredentialSaid=wallet_said,
@@ -54,9 +67,13 @@ class OperationRecord:
         )
 
     def touch(self) -> None:
+        """Refresh the durable update timestamp before persisting."""
+
         self.updatedAt = helping.nowIso8601()
 
     def to_json(self) -> dict[str, Any]:
+        """Return the public status shape exposed by the REST endpoint."""
+
         return {
             "walletCredentialSaid": self.walletCredentialSaid,
             "state": self.state,
@@ -87,14 +104,20 @@ class OracleBaser(dbing.LMDBer):
         super().__init__(name=name, reopen=reopen, **kwa)
 
     def reopen(self, **kwa: Any):
+        """Open the LMDB environment and bind the operation Komer."""
+
         super().reopen(**kwa)
         self.ops = koming.Komer(db=self, subkey="ops.", schema=OperationRecord)
         return self.env
 
     def get_operation(self, wallet_said: str) -> OperationRecord | None:
+        """Return the operation keyed by wallet credential SAID, if present."""
+
         return self.ops.get(keys=(wallet_said,))
 
     def pin_operation(self, op: OperationRecord) -> OperationRecord:
+        """Persist an operation after refreshing its update timestamp."""
+
         op.touch()
         self.ops.pin(keys=(op.walletCredentialSaid,), val=op)
         return op
@@ -107,6 +130,8 @@ class OracleBaser(dbing.LMDBer):
         grant_sender: str,
         wallet_schema: str,
     ) -> OperationRecord:
+        """Create an operation from an IPEX Grant, preserving idempotency."""
+
         existing = self.get_operation(wallet_said)
         if existing is not None and existing.state != STATE_FAILED:
             return existing
@@ -128,6 +153,8 @@ class OracleBaser(dbing.LMDBer):
         wallet: str,
         chain_id: int,
     ) -> OperationRecord:
+        """Attach the REST-supplied signature and advance to verification."""
+
         op = self.get_operation(wallet_said)
         if op is None:
             raise KeyError(wallet_said)
@@ -144,16 +171,22 @@ class OracleBaser(dbing.LMDBer):
         return self.pin_operation(op)
 
     def mark_awaiting_artifacts(self, op: OperationRecord, reason: str) -> OperationRecord:
+        """Record that source-chain artifacts are still arriving."""
+
         op.state = STATE_AWAITING_ARTIFACTS
         op.failureReason = reason
         return self.pin_operation(op)
 
     def mark_failed(self, op: OperationRecord, reason: str) -> OperationRecord:
+        """Mark an operation terminal after verification or posting failure."""
+
         op.state = STATE_FAILED
         op.failureReason = reason
         return self.pin_operation(op)
 
     def operations_by_state(self, *states: str):
+        """Yield operations currently in any requested state."""
+
         wanted = set(states)
         for _, op in self.ops.getItemIter():
             if op.state in wanted:
@@ -161,4 +194,6 @@ class OracleBaser(dbing.LMDBer):
 
 
 def now_dater() -> coring.Dater:
+    """Return a KERI dater for the current wall-clock instant."""
+
     return coring.Dater(dts=helping.nowIso8601())

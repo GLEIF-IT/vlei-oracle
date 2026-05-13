@@ -1,4 +1,9 @@
-"""Schema constants used by the GL1 vLEI Oracle verifier."""
+"""Schema, edge, signature, and EIP-712 constants accepted by the oracle.
+
+These values are policy, not discovery. The verifier should reject wallet
+presentations that do not match this pinned schema/signature/domain set instead
+of resolving alternate GL1 definitions at runtime.
+"""
 
 QVI_SCHEMA = "EBfdlu8R27Fbx-ehrqwImnK-8Cm79sqbAQ4MmvEAYqao"
 LE_SCHEMA = "ENPXp1vQzRF6JwIuS-mp2U8Uf1MoADoP_GqQ62VsDZWY"

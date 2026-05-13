@@ -1,4 +1,15 @@
-"""GL1 vLEI chain and wallet attestation verification."""
+"""GL1 vLEI chain and wallet attestation verification.
+
+The verifier reduces a local KERI credential store plus one external wallet
+signature into a compact ``VerifiedWalletBinding`` suitable for on-chain
+posting. It expects the credential chain:
+
+GEDA -> QVI -> Legal Entity -> OOR Auth -> OOR -> GL1 Wallet Attestation.
+
+The wallet ACDC is self-attested by the OOR holder, so its LE and OOR edges must
+use ``NI2I``. The Ethereum signature is supplied out of band by the presentation
+workflow and is verified against EIP-712 typed data rebuilt from ACDC fields.
+"""
 
 from __future__ import annotations
 
@@ -25,7 +36,12 @@ class VerificationError(Exception):
 
 @dataclass(frozen=True)
 class VerifiedWalletBinding:
-    """Compact verified evidence that can be posted on chain."""
+    """Compact verified evidence that can be posted on chain.
+
+    This is the stable boundary between KERI/ACDC verification and contract
+    posting. It intentionally contains compact identifiers and deployment fields
+    rather than raw credential bodies.
+    """
 
     legal_entity_aid: str
     lei: str
@@ -46,6 +62,8 @@ class VerifiedWalletBinding:
     purpose: str
 
     def to_json(self) -> dict[str, Any]:
+        """Return the durable JSON representation stored on an operation."""
+
         return {
             "legalEntityAid": self.legal_entity_aid,
             "lei": self.lei,
@@ -104,6 +122,8 @@ def verify_presentation(
 
     The presentation is intentionally explicit: credentials are keyed by SAID
     and include their ACDC body plus optional TEL-derived status records.
+    ``wallet_signature`` is the REST-supplied Ethereum signature after CESR
+    decoding; it must not be embedded in the wallet credential itself.
     """
 
     credentials = presentation.get("credentials")
@@ -240,6 +260,8 @@ def _resolve_wallet_signature(
     wallet_signature: str | None,
     wallet_signature_type: str | None,
 ) -> str:
+    """Require an external signature and reject embedded signature fields."""
+
     if wallet_signature is None:
         raise VerificationError("external wallet signature is required for wallet attestation")
 
@@ -259,6 +281,8 @@ def _credential(
     credential_raws: dict[str, Any],
     verify_saids: bool,
 ) -> dict[str, Any]:
+    """Fetch and validate one credential by SAID, schema, status, and SAID."""
+
     if said in revoked:
         raise VerificationError(f"credential {said} is revoked")
     cred = credentials.get(said)
@@ -299,6 +323,8 @@ def _edge_said(
     expected_schema: str,
     expected_operator: str | None = None,
 ) -> str:
+    """Return an edge target SAID after schema and operator validation."""
+
     node = edges.get(key)
     if not isinstance(node, dict):
         raise VerificationError(f"missing edge {key}")
@@ -333,12 +359,16 @@ def _check_lei_consistency(
     oor_attrs: dict[str, Any],
     auth_attrs: dict[str, Any],
 ) -> None:
+    """Require the same LEI across LE, OOR Auth, OOR, and wallet evidence."""
+
     for label, attrs in (("wallet", wallet_attrs), ("OOR", oor_attrs), ("OOR Auth", auth_attrs)):
         if _required_str(attrs, "LEI") != lei:
             raise VerificationError(f"{label} LEI does not match LE credential")
 
 
 def _check_oor_auth_matches_oor(auth_attrs: dict[str, Any], oor_attrs: dict[str, Any]) -> None:
+    """Require OOR Auth subject details to match the issued OOR credential."""
+
     comparisons = [
         ("AID", "i", "OOR holder AID"),
         ("personLegalName", "personLegalName", "person legal name"),

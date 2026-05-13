@@ -1,4 +1,10 @@
-"""Ethereum wallet binding challenge and verification helpers."""
+"""Ethereum wallet binding challenge and verification helpers.
+
+The GL1 wallet attestation keeps Ethereum proof material outside the ACDC. The
+ACDC carries the LE/OOR authority context and deployment domain, while the
+client signs the same EIP-712 typed data separately and sends the 65-byte
+Ethereum signature as a CESR Matter in the REST signature step.
+"""
 
 from __future__ import annotations
 
@@ -48,7 +54,12 @@ def build_typed_data(
     purpose: str,
     issued_at: int = 0,
 ) -> dict[str, Any]:
-    """Build the EIP-712 typed data signed by the Ethereum wallet."""
+    """Build the EIP-712 typed data signed by the Ethereum wallet.
+
+    The typed data is the canonical wallet-binding challenge. Its message fields
+    are mirrored into the GL1 wallet ACDC attributes, and its domain binds the
+    signature to the local or testnet oracle registry deployment.
+    """
 
     if chain_id <= 0:
         raise ValueError("chain_id must be positive")
@@ -135,7 +146,11 @@ def encode_eth_signature_cesr(signature: str | bytes) -> str:
 
 
 def decode_eth_signature_cesr(signature: str) -> str:
-    """Decode a CESR Matter qb64 Ethereum signature to a 0x-prefixed hex string."""
+    """Decode a CESR Matter qb64 Ethereum signature to a 0x-prefixed hex string.
+
+    The endpoint rejects larger CESR byte primitives for this fixed-size payload
+    so the wire format stays deterministic and uses the smallest aligned code.
+    """
 
     try:
         matter = coring.Matter(qb64=signature)
@@ -166,7 +181,11 @@ def _signature_to_bytes(signature: str | bytes) -> bytes:
 
 
 def _cesr_bytes_code_for_raw_size(raw_size: int) -> str:
-    """Return the smallest CESR bytes primitive aligned for raw_size bytes."""
+    """Return the smallest CESR bytes primitive aligned for raw_size bytes.
+
+    CESR pads on the left to align raw bytes on a 24-bit boundary. A 65-byte ETH
+    signature therefore uses one left pad byte and the ``Bytes_L1`` primitive.
+    """
 
     lead_size = (3 - (raw_size % 3)) % 3
     triplets = (raw_size + lead_size) // 3
@@ -189,7 +208,11 @@ def wallet_attributes_from_typed_data(
     *,
     typed_data: dict[str, Any],
 ) -> dict[str, Any]:
-    """Return GL1 Wallet Attestation ACDC attributes from typed data."""
+    """Return GL1 Wallet Attestation ACDC attributes from typed data.
+
+    This intentionally excludes the Ethereum signature. The signature belongs to
+    the presentation workflow, not to the self-attested wallet ACDC itself.
+    """
 
     message = dict(typed_data["message"])
     attrs = {

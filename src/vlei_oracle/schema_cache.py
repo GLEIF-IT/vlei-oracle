@@ -1,4 +1,10 @@
-"""Pinned ACDC schemas accepted by the GL1 vLEI Oracle."""
+"""Pinned ACDC schemas accepted by the GL1 vLEI Oracle.
+
+The service should not resolve GL1-specific schemas from a runtime schema
+server. Instead it loads the bundled wallet-attestation schema as a KERI
+``Schemer`` and pins it into the Habery schema cache before parsing credential
+traffic. External vLEI schemas may still be resolved by KLI issuers in the e2e.
+"""
 
 from __future__ import annotations
 
@@ -19,7 +25,11 @@ def wallet_schema_raw() -> bytes:
 
 
 def wallet_schemer() -> scheming.Schemer:
-    """Build and validate the pinned GL1 Ethereum Wallet Attestation Schemer."""
+    """Build and validate the pinned GL1 Ethereum Wallet Attestation Schemer.
+
+    The SAID check catches drift between the packaged schema bytes and the
+    verifier constant before the service starts accepting presentations.
+    """
 
     schemer = scheming.Schemer(raw=wallet_schema_raw())
     if schemer.said != WALLET_SCHEMA:

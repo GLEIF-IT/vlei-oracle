@@ -9,6 +9,8 @@ from vlei_oracle.contracts import parse_deploy_log
 
 
 def add_parser(subparsers) -> None:
+    """Register the local Foundry deploy-log parser command."""
+
     parser = subparsers.add_parser("parse-deploy-log", help="Parse DeployAll stdout into contracts JSON")
     parser.add_argument("--log", required=True)
     parser.add_argument("--out", required=True)
@@ -16,5 +18,7 @@ def add_parser(subparsers) -> None:
 
 
 def handler(args) -> None:
+    """Write the contract-address JSON consumed by ``server start``."""
+
     parsed = parse_deploy_log(Path(args.log).read_text())
     Path(args.out).write_text(json.dumps(parsed, indent=2, sort_keys=True) + "\n")

@@ -1,4 +1,17 @@
-"""HIO Doers for vLEI Oracle presentation processing."""
+"""HIO Doers for vLEI Oracle presentation processing.
+
+The service is intentionally reactive. A standard KERIpy IPEX Grant is parsed
+by the KERI stack, the notifier exposes a ``/exn/ipex/grant`` notice, and these
+Doers advance a durable operation through the states:
+
+``awaiting_signature -> verifying -> posting -> posted``.
+
+If recursive credentials, TEL events, or KEL events have not arrived yet, the
+operation stays non-terminal in ``awaiting_artifacts`` and is retried by HIO.
+Only cryptographic, schema, policy, or posting failures mark the operation
+``failed``. This keeps the oracle close to Sally's grant-notification model
+while replacing Sally's webhook with contract posting.
+"""
 
 from __future__ import annotations
 
@@ -31,7 +44,12 @@ class GrantNotReadyError(Exception):
 
 
 class OracleAgent(doing.DoDoer):
-    """Run the KERI parser, reply router, exchange router, and escrow processors."""
+    """Run parser and escrow processors required for direct-mode KERI traffic.
+
+    ``msg_do`` consumes inbound bytes from the Falcon direct-mode endpoint.
+    ``escrow_do`` gives KEL, TEL, reply, credential, and EXN escrows time to
+    clear without introducing any non-HIO sleep or async model.
+    """
 
     def __init__(self, *, parser, kvy, tvy, rvy, verifier, exc, cues=None, **opts):
         self.parser = parser
@@ -44,6 +62,8 @@ class OracleAgent(doing.DoDoer):
         super().__init__(doers=[doing.doify(self.msg_do), doing.doify(self.escrow_do)], **opts)
 
     def msg_do(self, tymth=None, tock=0.0, **kwa):
+        """Feed queued HTTP direct-mode bytes into the KERI parser."""
+
         _ = kwa
         self.wind(tymth)
         self.tock = tock
@@ -52,6 +72,8 @@ class OracleAgent(doing.DoDoer):
         return done
 
     def escrow_do(self, tymth=None, tock=0.25, **kwa):
+        """Periodically process KERI, TEL, verifier, and EXN escrows."""
+
         _ = kwa
         self.wind(tymth)
         self.tock = tock
@@ -68,7 +90,12 @@ class OracleAgent(doing.DoDoer):
 
 
 class GrantNotificationDoer(doing.Doer):
-    """Convert accepted IPEX Grant notices into durable pending operations."""
+    """Convert accepted IPEX Grant notices into durable pending operations.
+
+    KERIpy's grant sender streams attachments before the EXN notice can be
+    processed. When the notice is visible before the exchanger can clone all
+    material, the Doer leaves the notice in place and retries on a later recur.
+    """
 
     def __init__(self, *, baser: OracleBaser, hby, notifier, parser, expected_wallet_schema: str, **kwa):
         self.baser = baser
@@ -79,11 +106,15 @@ class GrantNotificationDoer(doing.Doer):
         super().__init__(**kwa)
 
     def recur(self, tyme):
+        """Poll for new grant notices on each HIO scheduler turn."""
+
         _ = tyme
         self.process_notes()
         return False
 
     def process_notes(self) -> None:
+        """Scan notifier records and consume wallet-attestation grant notices."""
+
         for keys, notice in list(self.notifier.noter.notes.getItemIter()):
             attrs = notice.attrs
             if attrs.get("r") != "/exn/ipex/grant":
@@ -101,6 +132,14 @@ class GrantNotificationDoer(doing.Doer):
                 self.notifier.noter.notes.rem(keys=keys)
 
     def process_grant_notice(self, attrs: dict[str, Any]) -> OperationRecord:
+        """Parse one IPEX Grant notice and create or fail its operation.
+
+        Embedded ``anc``, ``iss``, and ``acdc`` artifacts are replayed into the
+        parser so the verifier store can materialize the wallet credential and
+        recursive source chain. The wallet schema check happens early because
+        the oracle accepts a pinned schema set, not whatever the sender provides.
+        """
+
         grant_said = attrs["d"]
         exn, pathed = exchanging.cloneMessage(self.hby, said=grant_said)
         if exn is None:
@@ -141,7 +180,13 @@ class GrantNotificationDoer(doing.Doer):
 
 
 class PresentationVerifierDoer(doing.Doer):
-    """Verify signed wallet presentation operations once both inputs are present."""
+    """Verify signed wallet presentation operations once both inputs are present.
+
+    This Doer starts after the IPEX Grant has created a durable operation and
+    the signature endpoint has attached the external CESR-decoded Ethereum
+    signature. Missing local KERI artifacts are treated as a retry condition;
+    failed policy or cryptographic checks are terminal.
+    """
 
     def __init__(
         self,
@@ -159,15 +204,21 @@ class PresentationVerifierDoer(doing.Doer):
         super().__init__(**kwa)
 
     def recur(self, tyme):
+        """Attempt verification for operations ready or waiting on artifacts."""
+
         _ = tyme
         self.process_ready()
         return False
 
     def process_ready(self) -> None:
+        """Retry operations that have both the Grant path and signature path."""
+
         for op in list(self.baser.operations_by_state(STATE_VERIFYING, STATE_AWAITING_ARTIFACTS)):
             self.verify_operation(op)
 
     def verify_operation(self, op: OperationRecord) -> OperationRecord:
+        """Load KERI artifacts, verify the GL1 binding, and move to posting."""
+
         try:
             presentation = presentation_from_reger(rgy=self.rgy, said=op.walletCredentialSaid)
             binding = verify_presentation(
@@ -202,7 +253,12 @@ class PostingSession:
 
 
 class ContractPosterDoer(doing.Doer):
-    """Post verified operations on chain with bounded retries."""
+    """Post verified operations on chain with bounded retries.
+
+    Web3.py performs synchronous RPC calls at the edge, but this Doer owns
+    waiting and retry timing. Submitted transaction hashes are polled through
+    ``recur`` by setting ``tock`` instead of sleeping inside the Web3 adapter.
+    """
 
     def __init__(
         self,
@@ -225,16 +281,22 @@ class ContractPosterDoer(doing.Doer):
         super().__init__(**kwa)
 
     def recur(self, tyme):
+        """Advance posting sessions and set the next HIO polling interval."""
+
         _ = tyme
         self.tock = 0.25
         self.process_ready()
         return False
 
     def process_ready(self) -> None:
+        """Advance every operation that is ready for on-chain posting."""
+
         for op in list(self.baser.operations_by_state(STATE_POSTING)):
             self.post_operation(op)
 
     def post_operation(self, op: OperationRecord) -> OperationRecord:
+        """Submit or confirm one idempotent posting session for an operation."""
+
         if self.poster is None:
             return self.baser.mark_failed(op, "contract poster is not configured")
         try:
@@ -285,7 +347,12 @@ class ContractPosterDoer(doing.Doer):
 
 
 class RevocationMonitorDoer(doing.Doer):
-    """Placeholder for TEL cue based revocation monitoring of posted credentials."""
+    """Placeholder for TEL cue based revocation monitoring of posted credentials.
+
+    The current e2e proves initial verification and posting. A production
+    follow-up should consume TEL/revocation cues and update posted on-chain
+    records when a credential in the accepted chain is revoked.
+    """
 
     def __init__(self, *, baser: OracleBaser, tvy, **kwa):
         self.baser = baser
@@ -293,13 +360,19 @@ class RevocationMonitorDoer(doing.Doer):
         super().__init__(**kwa)
 
     def recur(self, tyme):
+        """Reserve a HIO slot for future TEL revocation monitoring."""
+
         _ = tyme
         return False
 
 
 def pending_states() -> tuple[str, ...]:
+    """Return states that represent active, non-terminal operation work."""
+
     return (STATE_AWAITING_SIGNATURE, STATE_AWAITING_ARTIFACTS, STATE_VERIFYING, STATE_POSTING)
 
 
 def terminal_states() -> tuple[str, ...]:
+    """Return states that no Doer should advance further."""
+
     return (STATE_POSTED, STATE_FAILED)

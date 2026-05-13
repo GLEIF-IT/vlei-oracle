@@ -70,6 +70,21 @@ scripts/e2e/gl1-wallet-transfer-e2e.sh
 It is intentionally a shell script so the workflow remains explicit at the
 KLI, vLEI-server, Forge, Anvil, Cast, and contract boundaries.
 
+## Maintainer Map
+
+- `serving.py` assembles the HIO/Falcon runtime: Habery, Regery, parser,
+  direct-mode endpoint, mailbox/OOBI Doers, Grant handling, verification, and
+  posting.
+- `handling.py` owns the durable operation state machine from IPEX Grant notice
+  through signature attachment, verification, posting, and terminal state.
+- `wallet.py`, `clienting.py`, and `endpoints.py` define the EIP-712 challenge,
+  Ethereum signing, CESR signature transport, REST decode, and status polling
+  boundary.
+- `keri_store.py` extracts recursive ACDC/TEL material from the local KERIpy
+  store; `verifier.py` enforces the GL1 vLEI chain and wallet-binding policy.
+- `posting.py` is the Web3 edge adapter. HIO Doers own timing and receipt
+  polling; Web3 code only plans, submits, and reads contract state.
+
 ## Local Setup
 
 ```sh

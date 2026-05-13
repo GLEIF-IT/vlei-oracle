@@ -1,4 +1,11 @@
-"""Web3-backed posting of verified vLEI Oracle evidence."""
+"""Web3-backed posting of verified vLEI Oracle evidence.
+
+This module is the Ethereum edge adapter. It plans idempotent contract calls,
+submits one transaction at a time, and exposes receipt/block reads to the HIO
+posting Doer. It deliberately does not sleep, wait for confirmations, or own
+retry timing; that flow control belongs to ``ContractPosterDoer`` so the service
+continues to use HIO's cooperative scheduling model.
+"""
 
 from __future__ import annotations
 
@@ -146,7 +153,13 @@ class TransactionReceipt:
 
 
 class Web3ContractPoster:
-    """Idempotent poster for vlei-comply identity and credential registries."""
+    """Idempotent poster for vlei-comply identity and credential registries.
+
+    The poster compares current on-chain state before it plans any write. A
+    repeated verified presentation should either produce no actions or produce
+    only the missing actions, while conflicting existing identity state is
+    treated as a hard error.
+    """
 
     def __init__(
         self,
@@ -258,7 +271,11 @@ class Web3ContractPoster:
         return actions
 
     def submit(self, action: PostAction) -> str:
-        """Submit one planned transaction without waiting for a receipt."""
+        """Submit one planned transaction without waiting for a receipt.
+
+        The returned hash is persisted by the caller before polling starts, so a
+        service restart can reason about what was already attempted.
+        """
 
         tx = action.fn.build_transaction(
             {
@@ -292,25 +309,35 @@ class Web3ContractPoster:
         )
 
     def current_block(self) -> int:
+        """Return the latest block number for confirmation polling."""
+
         return int(self.w3.eth.block_number)
 
 
 def keccak_text(value: str) -> str:
+    """Hash text the same way local ``cast keccak`` checkpoints do."""
+
     from web3 import Web3
 
     return _with_0x(Web3.keccak(text=value).hex())
 
 
 def aid_ccid_for(binding: VerifiedWalletBinding) -> str:
+    """Derive the CCID used as the legal-entity registry key."""
+
     return keccak_text(binding.legal_entity_aid)
 
 
 def wallet_credential_type_id(binding: VerifiedWalletBinding) -> str:
+    """Derive the credential-type key for this wallet binding domain."""
+
     material = f"{WALLET_CREDENTIAL_TYPE}:{binding.chain_id}:{binding.wallet.lower()}"
     return keccak_text(material)
 
 
 def proof_hash(binding: VerifiedWalletBinding) -> str:
+    """Derive the compact proof hash stored as credential evidence."""
+
     material = (
         f"{binding.wallet_credential_said}:"
         f"{binding.le_credential_said}:"

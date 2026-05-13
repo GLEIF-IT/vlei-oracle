@@ -1,4 +1,9 @@
-"""KERI/ACDC primitives used by the GL1 vLEI Oracle."""
+"""KERI/ACDC primitives used by the GL1 vLEI Oracle.
+
+The production path prefers raw ACDC verification from KERIpy's stored bytes.
+Dictionary-based SAID verification remains useful for unit fixtures and
+generated JSON fragments before they are serialized by KERIpy.
+"""
 
 from __future__ import annotations
 

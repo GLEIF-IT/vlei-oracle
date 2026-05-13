@@ -9,6 +9,8 @@ from vlei_oracle.wallet import build_typed_data, canonical_json
 
 
 def add_parser(subparsers) -> None:
+    """Register the typed-data challenge builder command."""
+
     parser = subparsers.add_parser("challenge", help="Build GL1 wallet EIP-712 challenge typed data")
     parser.add_argument("--legal-entity-aid", required=True)
     parser.add_argument("--lei", required=True)
@@ -31,6 +33,8 @@ def add_parser(subparsers) -> None:
 
 
 def handler(args) -> None:
+    """Build deterministic EIP-712 JSON used by the ACDC and wallet signer."""
+
     issued_at = args.issued_at or int(time.time())
     expires_at = args.expires_at or issued_at + 3600
     typed_data = build_typed_data(

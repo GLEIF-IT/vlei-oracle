@@ -1,4 +1,13 @@
-"""HIO/Falcon runtime for the always-on GL1 vLEI Oracle service."""
+"""HIO/Falcon runtime for the always-on GL1 vLEI Oracle service.
+
+This module owns service assembly, not verification policy. Startup builds one
+Habery/Regery pair, pins the GL1 wallet schema into the Habery schema cache,
+constructs the KERI parser stack, exposes Falcon endpoints, and schedules the
+HIO Doers that keep the service reactive. Keeping that composition in one
+place makes the runtime boundary explicit: KERI/IPEX material arrives through
+the parser and notification stack, wallet signatures arrive through REST, and
+verified operations leave through the Web3 poster.
+"""
 
 from __future__ import annotations
 
@@ -35,7 +44,12 @@ from .schema_cache import pin_accepted_schemas
 
 @dataclass(frozen=True)
 class ServiceConfig:
-    """Configuration for one vLEI Oracle service process."""
+    """Configuration for one vLEI Oracle service process.
+
+    ``no_post`` is the test/local-verifier escape hatch. Production-like runs
+    require contract addresses, an RPC URL, and a posting key so successful
+    verification can be committed to the on-chain registries.
+    """
 
     name: str = "vlei-oracle"
     base: str = ""
@@ -56,7 +70,11 @@ class ServiceConfig:
 
 @dataclass
 class ServiceRuntime:
-    """Constructed service components exposed for tests and embedding."""
+    """Constructed service components exposed for tests and embedding.
+
+    The returned ``doers`` list is intentionally complete. Callers should hand
+    it to a HIO ``Doist`` rather than starting individual pieces themselves.
+    """
 
     hby: Any
     hab: Any
@@ -67,7 +85,13 @@ class ServiceRuntime:
 
 
 def setup_service(config: ServiceConfig) -> ServiceRuntime:
-    """Build the Habery, parser, Falcon routes, and Doers for the service."""
+    """Build the Habery, parser, Falcon routes, and Doers for the service.
+
+    Ordering matters: schemas are pinned before parser/verifier use, KERI
+    handlers are registered before the parser receives traffic, and the Falcon
+    direct-mode endpoint receives the parser input bytearray. The service AID is
+    created or reopened from the same Habery used by the HTTP and mailbox Doers.
+    """
 
     hby = habbing.Habery(name=config.name, base=config.base, bran=config.passcode, temp=config.temp, free=True)
     pin_accepted_schemas(hby)
@@ -157,7 +181,12 @@ def setup_service(config: ServiceConfig) -> ServiceRuntime:
 
 
 def incept_if_new(*, hby, alias: str, incept_file: str | None = None):
-    """Create the oracle AID if the Habery does not already contain it."""
+    """Create the oracle AID if the Habery does not already contain it.
+
+    The local e2e usually incepts the oracle AID before the service starts, so
+    this normally reopens an existing Hab. The fallback keeps standalone server
+    starts usable for tests and development.
+    """
 
     hab = hby.habByName(name=alias)
     if hab is not None:
@@ -181,7 +210,12 @@ def incept_if_new(*, hby, alias: str, incept_file: str | None = None):
 
 
 def run_service(config: ServiceConfig, *, expire: float = 0.0) -> ServiceRuntime:
-    """Start the service and block until interrupted or the optional limit expires."""
+    """Start the service and block until interrupted or the optional limit expires.
+
+    HIO owns the process clock here. Long-running waits, receipt polling, and
+    retry loops should be modeled by Doers that adjust ``tock`` rather than by
+    sleeping inside synchronous helpers.
+    """
 
     runtime = setup_service(config)
     print(f"vlei-oracle serving {runtime.hab.name}:{runtime.hab.pre} on {config.host}:{config.http_port}")

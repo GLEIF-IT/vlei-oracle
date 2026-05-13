@@ -7,6 +7,8 @@ from vlei_oracle.serving import ServiceConfig, run_service
 
 
 def add_parser(subparsers) -> None:
+    """Register the always-on service command group."""
+
     parser = subparsers.add_parser("server", help="Run the always-on verifier/oracle service")
     sub = parser.add_subparsers(dest="server_command", required=True)
     start = sub.add_parser("start", help="Start the HIO/Falcon vLEI Oracle service")
@@ -28,6 +30,8 @@ def add_parser(subparsers) -> None:
 
 
 def start_handler(args) -> None:
+    """Translate CLI flags into service configuration and run the HIO loop."""
+
     contracts = load_json_file(args.contracts) if args.contracts else None
     run_service(
         ServiceConfig(

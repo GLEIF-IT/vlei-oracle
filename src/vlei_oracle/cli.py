@@ -1,4 +1,8 @@
-"""Root command line entrypoint for vlei-oracle."""
+"""Root command line entrypoint for vlei-oracle.
+
+Command implementations live under ``vlei_oracle.commands`` so the CLI stays
+easy to scan as service, client, challenge, and local e2e helpers grow.
+"""
 
 from __future__ import annotations
 
@@ -10,6 +14,8 @@ from .commands import load_commands
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Parse arguments, dispatch a registered command, and normalize errors."""
+
     parser = argparse.ArgumentParser(prog="vlei-oracle")
     subparsers = parser.add_subparsers(dest="command", required=True)
     load_commands(subparsers)

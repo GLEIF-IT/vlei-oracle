@@ -1,4 +1,10 @@
-"""Falcon endpoints for the HIO-backed vLEI Oracle service."""
+"""Falcon endpoints for the HIO-backed vLEI Oracle service.
+
+The root endpoint is KERI direct mode and mirrors Sally's HTTP receive shape by
+using ``keri.app.indirecting.HttpEnd``. The wallet-signature endpoint is the
+only GL1-specific REST call: it receives a CESR Matter, decodes it back to an
+Ethereum signature, and attaches it to the durable presentation operation.
+"""
 
 from __future__ import annotations
 
@@ -14,6 +20,8 @@ from .wallet import decode_eth_signature_cesr
 
 
 def load_ends(app: falcon.App, *, baser: OracleBaser, rxbs: bytearray, mbx) -> None:
+    """Register KERI direct-mode, signature, status, and health endpoints."""
+
     app.add_route("/", indirecting.HttpEnd(rxbs=rxbs, mbx=mbx))
     sig_end = SignatureEnd(baser=baser)
     status_end = PresentationStatusEnd(baser=baser)
@@ -23,12 +31,19 @@ def load_ends(app: falcon.App, *, baser: OracleBaser, rxbs: bytearray, mbx) -> N
 
 
 class SignatureEnd:
-    """Accept the second-step CESR-encoded Ethereum wallet signature."""
+    """Accept the second-step CESR-encoded Ethereum wallet signature.
+
+    Signature-before-Grant returns 404 because the operation is created only by
+    the IPEX Grant notification. Duplicate posts are idempotent only when the
+    wallet, chain id, and decoded signature match the posted operation.
+    """
 
     def __init__(self, *, baser: OracleBaser):
         self.baser = baser
 
     def on_post(self, req: falcon.Request, rep: falcon.Response, wallet_said: str) -> None:
+        """Decode the CESR signature and attach it to an existing operation."""
+
         body = _media(req)
         signature_type = _required_str(body, "signatureType")
         if signature_type != WALLET_SIGNATURE_TYPE:
@@ -68,10 +83,14 @@ class SignatureEnd:
 
 
 class PresentationStatusEnd:
+    """Expose durable operation state for polling clients and e2e checkpoints."""
+
     def __init__(self, *, baser: OracleBaser):
         self.baser = baser
 
     def on_get(self, req: falcon.Request, rep: falcon.Response, wallet_said: str) -> None:
+        """Return the current durable status for one wallet presentation."""
+
         _ = req
         op = self.baser.get_operation(wallet_said)
         if op is None:
@@ -80,10 +99,14 @@ class PresentationStatusEnd:
 
 
 class HealthEnd:
+    """Expose a lightweight service liveness and operation-count response."""
+
     def __init__(self, *, baser: OracleBaser):
         self.baser = baser
 
     def on_get(self, req: falcon.Request, rep: falcon.Response) -> None:
+        """Return service liveness plus operation counts grouped by state."""
+
         _ = req
         counts: dict[str, int] = {}
         for _, op in self.baser.ops.getItemIter():

@@ -1,6 +1,22 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+# End-to-end GL1 wallet compliance demo.
+#
+# This script proves the local path:
+# GEDA -> QVI -> LE -> OOR -> GL1 Wallet Attestation -> vLEI Oracle
+# -> vlei-comply registries -> compliant wvLEI transfer.
+#
+# It intentionally uses shell as the orchestrator so every protocol boundary is
+# visible: KLI drives KERI/vLEI issuance and IPEX, Forge/Anvil deploy contracts,
+# Cast performs local contract checkpoints, and vlei-oracle handles EIP-712
+# challenge/signature and verifier/oracle service behavior.
+#
+# Generated artifacts live under RUN_DIR and include KERI config, deployment
+# logs, contract addresses, wallet typed data, wallet ACDCs, oracle status JSON,
+# and the final balance/CCID result. By default the script starts local services
+# and cleans them up on exit. Set KEEP_SERVICES=1 to leave started services alive.
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ORACLE_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 GL1_DIR="$(cd "${ORACLE_DIR}/.." && pwd)"
@@ -52,10 +68,14 @@ GAS_FUND_AMOUNT="${GAS_FUND_AMOUNT:-1000000000000000000}"
 
 PIDS=()
 
+# Print a timestamped progress marker. These markers are the primary way to
+# locate the failing phase in long KLI/Forge runs.
 log() {
   printf '\n[%s] %s\n' "$(date +%H:%M:%S)" "$*"
 }
 
+# Require an executable path or command name before the run mutates local state.
+# Args: executable path or command name.
 need() {
   if [[ ! -x "$1" ]] && ! command -v "$1" >/dev/null 2>&1; then
     printf 'Missing required executable: %s\n' "$1" >&2
@@ -63,6 +83,7 @@ need() {
   fi
 }
 
+# Stop services started by this script unless KEEP_SERVICES=1 was set.
 cleanup() {
   if [[ "${KEEP_SERVICES:-0}" == "1" ]]; then
     return
@@ -75,6 +96,8 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# Wait until a TCP port is listening.
+# Args: port, human-readable service label.
 wait_for_port() {
   local port="$1"
   local label="$2"
@@ -88,6 +111,8 @@ wait_for_port() {
   exit 1
 }
 
+# Reuse an already-listening local service or start one and track its PID.
+# Args: port, label, log file, command...
 start_service_if_needed() {
   local port="$1"
   local label="$2"
@@ -105,6 +130,8 @@ start_service_if_needed() {
   wait_for_port "$port" "$label"
 }
 
+# Require that a local HTTP endpoint serves expected content.
+# Args: URL, human-readable service label.
 require_http() {
   local url="$1"
   local label="$2"
@@ -119,6 +146,9 @@ require_http() {
   exit 1
 }
 
+# Verify the local KERIpy demo witness config has both TCP and HTTP curls.
+# The witness database reads this config once at initialization, so a stale or
+# incomplete file leads to AIDs that cannot publish usable witness OOBIs.
 require_demo_witness_config() {
   local alias="$1"
   local tcp_url="$2"
@@ -138,6 +168,9 @@ require_demo_witness_config() {
   fi
 }
 
+# Clear persisted demo witness stores when no witness process is already using
+# the ports. KERI witnesses bootstrap curls once, so this reset is what makes a
+# corrected local config take effect for fresh e2e runs.
 reset_demo_witness_state() {
   if [[ "${RESET_DEMO_WITNESSES:-1}" != "1" ]]; then
     return
@@ -160,6 +193,10 @@ reset_demo_witness_state() {
   done
 }
 
+# Write KLI init configs for regular actors and the oracle actor.
+# Regular actors need GL1 wallet schema OOBIs to issue/admit credentials. The
+# oracle actor intentionally does not: the service pins accepted GL1 schemas
+# internally during startup.
 write_kli_config() {
   local config_file="${KERI_RUN_CONFIG_DIR}/keri/cf/gl1-demo-oobis-schema.json"
   local oracle_config_file="${KERI_RUN_CONFIG_DIR}/keri/cf/gl1-demo-oobis-schema-oracle.json"
@@ -169,6 +206,8 @@ write_kli_config() {
   write_kli_config_file "$oracle_config_file" false
 }
 
+# Emit one KLI config JSON file.
+# Args: output file, include wallet schema OOBI boolean.
 write_kli_config_file() {
   local config_file="$1"
   local include_wallet="$2"
@@ -204,6 +243,9 @@ write_kli_config_file() {
     }' >"$config_file"
 }
 
+# Run a command with a simple wall-clock timeout for KLI operations that can
+# block when remote OOBIs or mailboxes are not yet reachable.
+# Args: timeout seconds, command...
 run_with_timeout() {
   local seconds="$1"
   shift
@@ -222,14 +264,21 @@ run_with_timeout() {
   return 124
 }
 
+# Send a state-changing local transaction through Cast and discard stdout.
+# Args: private key, contract address, signature, signature args...
 cast_send() {
   "$CAST" send --rpc-url "$RPC_URL" --private-key "$1" "${@:2}" >/dev/null
 }
 
+# Fund a participant EOA with local Anvil ETH for later token/wrapper calls.
+# Args: wallet address.
 fund_gas_wallet() {
   "$CAST" send --rpc-url "$RPC_URL" --private-key "$ADMIN_PK" --value "$GAS_FUND_AMOUNT" "$1" >/dev/null
 }
 
+# Assert a staticcall reverts. Used before wallet allowlisting, where policy is
+# expected to fail hard rather than return false.
+# Args: checkpoint label.
 expect_transfer_revert() {
   local label="$1"
   set +e
@@ -245,6 +294,8 @@ expect_transfer_revert() {
   log "Expected revert observed: ${label}"
 }
 
+# Assert wrapper transfer policy returns a boolean result.
+# Args: expected boolean string, checkpoint label.
 expect_transfer_bool() {
   local expected="$1"
   local label="$2"
@@ -265,10 +316,14 @@ expect_transfer_bool() {
   log "Expected ${expected} transfer result observed: ${label}"
 }
 
+# Wait for an oracle operation to reach the posted terminal state.
+# Args: wallet credential SAID, output status JSON path.
 wait_oracle_posted() {
   wait_oracle_state "$1" posted "$2"
 }
 
+# Poll the oracle presentation status endpoint until an expected state appears.
+# Args: wallet credential SAID, expected state, output status JSON path.
 wait_oracle_state() {
   local wallet_said="$1"
   local expected="$2"
@@ -291,11 +346,15 @@ wait_oracle_state() {
   exit 1
 }
 
+# Return an AID prefix from a KLI habitat.
+# Args: KLI name, alias.
 aid_for() {
   "$KLI" status --name "$1" --base "$KERI_BASE" --alias "$2" \
     | awk '/^Identifier:/ {print $2; exit}'
 }
 
+# Map the three demo witness AIDs used by this script to their HTTP ports.
+# Args: witness AID.
 witness_http_port() {
   case "$1" in
     BBilc4-L3tFUnfM_wJr4S4OJanAv_VmF_dJNN6vkf2Ha) printf '5642\n' ;;
@@ -305,6 +364,8 @@ witness_http_port() {
   esac
 }
 
+# Build a witness OOBI URL for a newly incepted actor.
+# Args: KLI name, alias, witness AID.
 oobi_for() {
   local aid
   local port
@@ -313,6 +374,8 @@ oobi_for() {
   printf 'http://127.0.0.1:%s/oobi/%s/witness/%s\n' "$port" "$aid" "$3"
 }
 
+# Resolve one participant OOBI into a KLI database.
+# Args: receiver KLI name, OOBI URL, local alias for the subject.
 resolve_oobi() {
   local name="$1"
   local oobi="$2"
@@ -321,6 +384,8 @@ resolve_oobi() {
     --oobi "$oobi" --oobi-alias "$alias" >/dev/null
 }
 
+# Resolve one schema OOBI into a KLI database.
+# Args: receiver KLI name, schema SAID, local alias.
 resolve_schema_oobi() {
   local name="$1"
   local schema="$2"
@@ -330,6 +395,8 @@ resolve_schema_oobi() {
     --oobi-alias "$alias" >/dev/null
 }
 
+# Initialize and incept one single-sig AID with one witness.
+# Args: KLI name, alias, salt, witness AID, optional config-file name.
 incept_actor() {
   local name="$1"
   local alias="$2"
@@ -358,19 +425,27 @@ incept_actor() {
   exit 1
 }
 
+# Create a credential registry for one actor.
+# Args: KLI name, alias, registry name.
 incept_registry() {
   "$KLI" vc registry incept --name "$1" --base "$KERI_BASE" --alias "$2" --registry-name "$3" >/dev/null
 }
 
+# Ask KERIpy to inject a SAID into a JSON SAD file in place.
+# Args: JSON file path.
 saidify_file() {
   "$KLI" saidify --file "$1" >/dev/null
 }
 
+# Return the latest issued credential SAID for an actor and schema.
+# Args: KLI name, alias, schema SAID.
 latest_issued_said() {
   "$KLI" vc list --name "$1" --base "$KERI_BASE" --alias "$2" --issued --said --schema "$3" \
     | tail -n 1
 }
 
+# Extract the credential SAID from `kli vc create` output.
+# Args: raw KLI output.
 created_said_from_output() {
   local output="$1"
   local said
@@ -382,6 +457,8 @@ created_said_from_output() {
   printf '%s\n' "$said"
 }
 
+# Extract the EXN SAID from `kli ipex grant` output.
+# Args: raw KLI output.
 grant_said_from_output() {
   local output="$1"
   local said
@@ -393,6 +470,10 @@ grant_said_from_output() {
   printf '%s\n' "$said"
 }
 
+# Admit a normal vLEI source-chain Grant into a holder's KLI database.
+# The oracle wallet presentation deliberately does not use this helper; the
+# running oracle reacts to the IPEX Grant notification directly.
+# Args: recipient KLI name, recipient alias, grant EXN SAID.
 admit_grant() {
   local name="$1"
   local alias="$2"
@@ -413,6 +494,11 @@ admit_grant() {
   "$KLI" ipex admit --name "$name" --base "$KERI_BASE" --alias "$alias" --said "$grant_said" >/dev/null
 }
 
+# Issue a vLEI credential, send it as an IPEX Grant, and admit it at the holder.
+# This is used for source-chain credentials where the holder's KLI store must
+# contain the admitted credential before later credentials can reference it.
+# Args: issuer name, issuer alias, registry, schema, recipient AID, recipient
+# name, recipient alias, data file, optional edges file, optional rules file.
 issue_and_grant() {
   local issuer_name="$1"
   local issuer_alias="$2"
@@ -454,12 +540,16 @@ issue_and_grant() {
   printf '%s\n' "$said"
 }
 
+# Write a JSON file with jq.
+# Args: output file, jq arguments/expression.
 write_json() {
   local out="$1"
   shift
   "$JQ" -n "$@" >"$out"
 }
 
+# Issue one party's LE and OOR branch under the shared QVI.
+# Args: party label, LE name/alias/AID, OOR name/alias/AID, LEI, person, role.
 build_party_chain() {
   local party="$1"
   local le_name="$2"
@@ -520,6 +610,11 @@ build_party_chain() {
     >"${RUN_DIR}/${party}-chain.json"
 }
 
+# Issue the GL1 wallet attestation and send it to the running oracle by IPEX
+# Grant. This creates the ACDC only; the Ethereum wallet signature is external
+# evidence and is posted later by present_wallet_attestation.
+# Args: party label, EVM wallet address, EVM wallet private key, OOR KLI name,
+# OOR alias.
 issue_wallet_attestation() {
   local party="$1"
   local wallet="$2"
@@ -557,6 +652,9 @@ issue_wallet_attestation() {
     --typed-data "$dir/wallet-challenge.json" \
     --out "$dir/wallet-data.json"
 
+  # Wallet attestations are self-attested by the OOR holder. NI2I is required
+  # here because the OOR issuer is not the issuer of the LE or OOR source
+  # credentials.
   write_json "$dir/wallet-edges.json" \
     --arg le "$("$JQ" -r .leCredentialSaid "$chain")" \
     --arg leSchema "$LE_SCHEMA" \
@@ -591,6 +689,10 @@ issue_wallet_attestation() {
     >"$dir/wallet-presentation.json"
 }
 
+# Complete the wallet presentation by waiting for the oracle-created pending
+# operation, signing the typed data with the EVM key, and POSTing the
+# CESR-encoded signature to the oracle.
+# Args: party label, EVM wallet private key, OOR KLI name.
 present_wallet_attestation() {
   local party="$1"
   local wallet_pk="$2"
@@ -612,6 +714,8 @@ present_wallet_attestation() {
   "$JQ" -r .legalEntityAid "$dir/verified.json" >"$dir/legal-entity-aid.txt"
 }
 
+# Orchestrate the local GL1 compliance scenario from fresh services through the
+# final successful wrapper transfer.
 main() {
   need "$KLI"
   need "$VLEI_ORACLE"
@@ -625,6 +729,9 @@ main() {
   mkdir -p "$RUN_DIR/schema/acdc"
   log "Run directory: ${RUN_DIR}"
 
+  # KLI issuers still need schema OOBIs to create and admit credentials. The
+  # oracle service separately pins the GL1 wallet schema at startup and does
+  # not rely on this schema server for its accepted-schema policy.
   cp -R "${VLEI_SCHEMA_TOOLS_DIR}/schema/acdc/." "$RUN_DIR/schema/acdc/"
   cp "${ORACLE_DIR}/schemas/acdc/gl1-ethereum-wallet-attestation.json" "$RUN_DIR/schema/acdc/"
 
@@ -650,7 +757,9 @@ main() {
   DEPLOY_LOG="$RUN_DIR/deploy-all.log"
   (
     cd "$COMPLY_DIR"
-    PRIVATE_KEY="$ADMIN_PK" "$FORGE" script script/DeployAll.s.sol --rpc-url "$RPC_URL" --broadcast -vvvv
+    # Foundry parallel broadcast can leave local Anvil runs polling receipts
+    # indefinitely. --slow submits sequentially and makes the e2e deterministic.
+    PRIVATE_KEY="$ADMIN_PK" "$FORGE" script script/DeployAll.s.sol --rpc-url "$RPC_URL" --broadcast --slow -vvvv
   ) | tee "$DEPLOY_LOG" >/dev/null
 
   CONTRACTS_JSON="$RUN_DIR/contracts.json"
@@ -673,6 +782,8 @@ main() {
   incept_actor originator-oor originator-oor 0ACDEyMzQ1Njc4OWxtbm9dEf BBilc4-L3tFUnfM_wJr4S4OJanAv_VmF_dJNN6vkf2Ha
   incept_actor beneficiary-le beneficiary-le 0ACDEyMzQ1Njc4OWxtbm9HiJ BIKKuvBwpmDVA4Ds-EpL5bt9OqPzWPja2LigFYZN2YfX
   incept_actor beneficiary-oor beneficiary-oor 0ACDEyMzQ1Njc4OWxtbm9KlM BLskRTInXnMxWaGqcpSyMgo0nYbalW99cGZESrz3zapM
+  # The oracle KLI database intentionally omits the GL1 wallet schema OOBI.
+  # Successful verification therefore proves service-level schema pinning.
   incept_actor oracle oracle 0ACDEyMzQ1Njc4OWxtbm9NoP BBilc4-L3tFUnfM_wJr4S4OJanAv_VmF_dJNN6vkf2Ha gl1-demo-oobis-schema-oracle
 
   GEDA_AID="$(aid_for geda geda)"
@@ -742,12 +853,16 @@ main() {
   cast_send "$ADMIN_PK" "$VLEI_TOKEN" "mint(address,uint256)" "$ORIGINATOR_WALLET" "$SEED_AMOUNT"
   cast_send "$ORIGINATOR_PK" "$VLEI_TOKEN" "approve(address,uint256)" "$WRAPPER" "$SEED_AMOUNT"
 
+  # Before wallet allowlisting, the wrapper should fail at the wallet policy
+  # boundary without consulting oracle-posted AID evidence.
   expect_transfer_revert "before AdminControls wallet allowlist"
 
   log "Allowlisting wallets at AdminControls"
   cast_send "$ADMIN_PK" "$ADMIN_CONTROLS" "setAllowed(address,bool)" "$ORIGINATOR_WALLET" true
   cast_send "$ADMIN_PK" "$ADMIN_CONTROLS" "setAllowed(address,bool)" "$BENEFICIARY_WALLET" true
 
+  # Wallet allowlisting alone is insufficient. The AID-keyed oracle registry
+  # has not yet received verified GL1 evidence for either party.
   expect_transfer_bool false "before oracle posting"
 
   start_service_if_needed "$ORACLE_HTTP_PORT" "vLEI Oracle service" "$RUN_DIR/vlei-oracle.log" \
@@ -770,6 +885,8 @@ main() {
   present_wallet_attestation originator "$ORIGINATOR_PK" originator-oor
   present_wallet_attestation beneficiary "$BENEFICIARY_PK" beneficiary-oor
 
+  # The oracle posts evidence but does not make the admin allowlist decision.
+  # That explicit policy step stays with the vLEI Oracle admin.
   expect_transfer_bool false "before AID allowlist"
 
   ORIGINATOR_CCID="$("$CAST" keccak "$(cat "$RUN_DIR/originator/legal-entity-aid.txt")")"
@@ -779,6 +896,8 @@ main() {
   cast_send "$ADMIN_PK" "$ORACLE_REGISTRY" "setAidAllowed(bytes32,bool)" "$ORIGINATOR_CCID" true
   cast_send "$ADMIN_PK" "$ORACLE_REGISTRY" "setAidAllowed(bytes32,bool)" "$BENEFICIARY_CCID" true
 
+  # With both wallet and AID policies satisfied, a static transfer check should
+  # pass before the script submits the real transfer transaction.
   expect_transfer_bool true "after oracle posting and allowlists"
 
   ORIGINATOR_BEFORE="$("$CAST" call --rpc-url "$RPC_URL" "$VLEI_TOKEN" "balanceOf(address)(uint256)" "$ORIGINATOR_WALLET")"

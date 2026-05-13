@@ -1,4 +1,11 @@
-"""Read verified ACDC material from a local KERIpy store."""
+"""Read ACDC material from the oracle's local KERIpy verifier store.
+
+The oracle receives wallet credentials and recursive source artifacts through
+standard IPEX Grant traffic. This module translates the resulting KERIpy Reger
+state into the explicit presentation shape consumed by ``verifier.py``. Missing
+credentials are non-terminal because the parser may observe the Grant before
+all chained artifacts and TEL events have been materialized locally.
+"""
 
 from __future__ import annotations
 
@@ -14,7 +21,12 @@ class MissingCredentialArtifactsError(Exception):
 
 
 def presentation_from_reger(*, rgy: credentialing.Regery, said: str) -> dict[str, Any]:
-    """Build a verifier presentation from an open KERIpy credential registry."""
+    """Build a verifier presentation from an open KERIpy credential registry.
+
+    The returned bundle includes credential SADs, original raw ACDC bytes for
+    SAID verification, TEL-derived status records, and recursive source-chain
+    credentials discovered through embedded edges.
+    """
 
     credentials: dict[str, Any] = {}
     credential_raws: dict[str, str] = {}
@@ -55,6 +67,8 @@ def presentation_from_reger(*, rgy: credentialing.Regery, said: str) -> dict[str
 
 
 def _credential_state(rgy: credentialing.Regery, creder: Any) -> Any | None:
+    """Return TEL state for a credential when its registry is available."""
+
     if not creder.regi or creder.regi not in rgy.reger.tevers:
         return None
     return rgy.reger.tevers[creder.regi].vcState(coring.Saider(qb64=creder.said).qb64)

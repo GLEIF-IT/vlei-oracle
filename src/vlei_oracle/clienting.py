@@ -1,4 +1,10 @@
-"""HIO Doer client workflow for presenting wallet attestations to vLEI Oracle."""
+"""Client-side helpers for the wallet-signature REST step.
+
+The shell e2e uses standard KERIpy CLI commands for IPEX Grant delivery. This
+module owns only the second leg of the presentation workflow: build or accept a
+CESR-encoded Ethereum signature and POST it to the oracle operation created by
+the Grant notification.
+"""
 
 from __future__ import annotations
 
@@ -17,6 +23,8 @@ from .wallet import encode_eth_signature_cesr
 
 @dataclass
 class HttpResult:
+    """Small HTTP response wrapper returned by the CLI helper."""
+
     status: int
     body: bytes
 
@@ -29,6 +37,13 @@ def build_signature_body(
     wallet: str | None = None,
     chain_id: int | None = None,
 ) -> dict[str, Any]:
+    """Build the JSON body for ``POST /presentations/{said}/signature``.
+
+    If ``cesr_signature`` is supplied, it is forwarded as-is. Otherwise the
+    private key signs the EIP-712 typed data and the resulting 65-byte Ethereum
+    signature is immediately CESR-encoded for transport.
+    """
+
     typed_data = json.loads(Path(typed_data_path).read_text())
     message = typed_data["message"]
     if chain_id is None:
@@ -56,6 +71,8 @@ def post_signature(
     body: dict[str, Any],
     timeout: float = 30.0,
 ) -> HttpResult:
+    """POST the wallet signature body to the oracle presentation endpoint."""
+
     raw = json.dumps(body, sort_keys=True).encode("utf-8")
     return _post_json(url=f"{oracle_url.rstrip('/')}/presentations/{wallet_said}/signature", body=raw, timeout=timeout)
 
