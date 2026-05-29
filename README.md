@@ -70,6 +70,10 @@ scripts/e2e/gl1-wallet-transfer-e2e.sh
 It is intentionally a shell script so the workflow remains explicit at the
 KLI, vLEI-server, Forge, Anvil, Cast, and contract boundaries.
 
+For a human-operated, multi-terminal walkthrough that keeps setup separate from
+using the deployed infrastructure, see
+[vlei-comply GL1 vLEI CLI Execution Guide](../vlei-comply/docs/gl1-vlei-cli-execution-guide.md).
+
 ## Maintainer Map
 
 - `serving.py` assembles the HIO/Falcon runtime: Habery, Regery, parser,

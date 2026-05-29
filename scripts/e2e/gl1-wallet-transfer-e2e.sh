@@ -13,9 +13,11 @@ set -Eeuo pipefail
 # challenge/signature and verifier/oracle service behavior.
 #
 # Generated artifacts live under RUN_DIR and include KERI config, deployment
-# logs, contract addresses, wallet typed data, wallet ACDCs, oracle status JSON,
-# and the final balance/CCID result. By default the script starts local services
-# and cleans them up on exit. Set KEEP_SERVICES=1 to leave started services alive.
+# logs, contract addresses, actor exports, wallet typed data, wallet ACDCs,
+# oracle status JSON, and the final balance/CCID result. By default the script
+# starts local services and cleans them up on exit. Set KEEP_SERVICES=1 to leave
+# started services alive. Set E2E_STOP_AFTER=source-chain or oracle-posted to
+# build a reusable fixture for the human vlei-comply guide.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ORACLE_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
@@ -49,14 +51,19 @@ RUN_ID="${RUN_ID:-gl1-wallet-transfer-$(date +%Y%m%d-%H%M%S)}"
 RUN_DIR="${RUN_DIR:-${ORACLE_DIR}/runs/${RUN_ID}}"
 KERI_BASE="${KERI_BASE:-${RUN_ID}}"
 KERI_RUN_CONFIG_DIR="${RUN_DIR}/keri-config"
+DEPLOY_LOG="${DEPLOY_LOG:-${RUN_DIR}/deploy-all.log}"
+CONTRACTS_JSON="${CONTRACTS_JSON:-${RUN_DIR}/contracts.json}"
+ACTORS_ENV="${ACTORS_ENV:-${RUN_DIR}/actors.env}"
+ACTORS_JSON="${ACTORS_JSON:-${RUN_DIR}/actors.json}"
+E2E_STOP_AFTER="${E2E_STOP_AFTER:-}"
 
 QVI_SCHEMA="EBfdlu8R27Fbx-ehrqwImnK-8Cm79sqbAQ4MmvEAYqao"
 LE_SCHEMA="ENPXp1vQzRF6JwIuS-mp2U8Uf1MoADoP_GqQ62VsDZWY"
 OOR_AUTH_SCHEMA="EKA57bKBKxr_kN7iN5i7lMUxpMG-s19dRcmov1iDxz-E"
 OOR_SCHEMA="EBNaNu-M9P5cgrnfl2Fvymy4E_jvxxyjb70PRtiANlJy"
-VLEI_SCHEMA_EMHVW="EMhvwOlyEJ9kN4PrwCpr9Jsv7TxPhiYveZ0oP3lJzdEi"
-VLEI_SCHEMA_EEY9="EEy9PkikFcANV1l7EHukCeXqrzT1hNZjGlUk7wuMO5jw"
-VLEI_SCHEMA_EH6E="EH6ekLjSr8V32WyFbGe1zXjTzFs9PkTYmupJ9H65O14g"
+ECR_SCHEMA="EEy9PkikFcANV1l7EHukCeXqrzT1hNZjGlUk7wuMO5jw"  # ECR vLEI Credential
+ECR_AUTH_SCHEMA="EH6ekLjSr8V32WyFbGe1zXjTzFs9PkTYmupJ9H65O14g"  # ECR Auth vLEI Credential
+IXBRL_ATTESTATION_SCHEMA="EMhvwOlyEJ9kN4PrwCpr9Jsv7TxPhiYveZ0oP3lJzdEi"  # iXBRL Data Value Attestation
 WALLET_SCHEMA="EORcMutKdscrCxXLEhMnnjxrZocxDwSo7-VItx6lh6Z7"
 
 QVI_LEI="${QVI_LEI:-6383001AJTYIGC8Y1X37}"
@@ -125,7 +132,11 @@ start_service_if_needed() {
   fi
 
   log "Starting ${label}"
-  "$@" >"$log_file" 2>&1 &
+  if [[ "${KEEP_SERVICES:-0}" == "1" ]]; then
+    nohup "$@" >"$log_file" 2>&1 &
+  else
+    "$@" >"$log_file" 2>&1 &
+  fi
   PIDS+=("$!")
   wait_for_port "$port" "$label"
 }
@@ -219,9 +230,9 @@ write_kli_config_file() {
     --arg le "$LE_SCHEMA" \
     --arg oorAuth "$OOR_AUTH_SCHEMA" \
     --arg oor "$OOR_SCHEMA" \
-    --arg emhvw "$VLEI_SCHEMA_EMHVW" \
-    --arg eey9 "$VLEI_SCHEMA_EEY9" \
-    --arg eh6e "$VLEI_SCHEMA_EH6E" \
+    --arg ixbrl "$IXBRL_ATTESTATION_SCHEMA" \
+    --arg ecr "$ECR_SCHEMA" \
+    --arg ecrAuth "$ECR_AUTH_SCHEMA" \
     --arg wallet "$WALLET_SCHEMA" \
     --arg port "$VLEI_SCHEMA_PORT" \
     '{
@@ -233,11 +244,11 @@ write_kli_config_file() {
       ],
       durls: ([
         ("http://127.0.0.1:" + $port + "/oobi/" + $oor),
-        ("http://127.0.0.1:" + $port + "/oobi/" + $emhvw),
+        ("http://127.0.0.1:" + $port + "/oobi/" + $ixbrl),
         ("http://127.0.0.1:" + $port + "/oobi/" + $oorAuth),
-        ("http://127.0.0.1:" + $port + "/oobi/" + $eey9),
+        ("http://127.0.0.1:" + $port + "/oobi/" + $ecr),
         ("http://127.0.0.1:" + $port + "/oobi/" + $le),
-        ("http://127.0.0.1:" + $port + "/oobi/" + $eh6e),
+        ("http://127.0.0.1:" + $port + "/oobi/" + $ecrAuth),
         ("http://127.0.0.1:" + $port + "/oobi/" + $qvi)
       ] + (if $includeWallet then [("http://127.0.0.1:" + $port + "/oobi/" + $wallet)] else [] end))
     }' >"$config_file"
@@ -268,6 +279,25 @@ run_with_timeout() {
 # Args: private key, contract address, signature, signature args...
 cast_send() {
   "$CAST" send --rpc-url "$RPC_URL" --private-key "$1" "${@:2}" >/dev/null
+}
+
+# Return success when the parsed deployment points at live code on the current
+# RPC chain. This prevents a fresh Anvil process from reusing stale addresses
+# from a previous run directory.
+contracts_have_code() {
+  if [[ ! -f "$CONTRACTS_JSON" ]]; then
+    return 1
+  fi
+
+  local wrapper
+  wrapper="$("$JQ" -r '.wrapper // empty' "$CONTRACTS_JSON")"
+  if [[ -z "$wrapper" || "$wrapper" == "null" ]]; then
+    return 1
+  fi
+
+  local code
+  code="$("$CAST" code --rpc-url "$RPC_URL" "$wrapper" 2>/dev/null || true)"
+  [[ -n "$code" && "$code" != "0x" ]]
 }
 
 # Fund a participant EOA with local Anvil ETH for later token/wrapper calls.
@@ -714,6 +744,186 @@ present_wallet_attestation() {
   "$JQ" -r .legalEntityAid "$dir/verified.json" >"$dir/legal-entity-aid.txt"
 }
 
+# Write reusable fixture exports for the human CLI guide and vlei-comply init
+# script. Source-chain runs stop with AIDs and credential SAIDs. Oracle-posted
+# runs add wallet credential SAIDs, AID CCIDs, and verified oracle artifacts.
+# Args: fixture stage label.
+write_actor_outputs() {
+  local stage="$1"
+  local originator_le_said
+  local originator_oor_said
+  local beneficiary_le_said
+  local beneficiary_oor_said
+  local originator_wallet_said=""
+  local beneficiary_wallet_said=""
+  local originator_grant_said=""
+  local beneficiary_grant_said=""
+  local originator_ccid=""
+  local beneficiary_ccid=""
+
+  originator_le_said="$("$JQ" -r .leCredentialSaid "$RUN_DIR/originator-chain.json")"
+  originator_oor_said="$("$JQ" -r .oorCredentialSaid "$RUN_DIR/originator-chain.json")"
+  beneficiary_le_said="$("$JQ" -r .leCredentialSaid "$RUN_DIR/beneficiary-chain.json")"
+  beneficiary_oor_said="$("$JQ" -r .oorCredentialSaid "$RUN_DIR/beneficiary-chain.json")"
+  originator_ccid="$("$CAST" keccak "$ORIGINATOR_LE_AID")"
+  beneficiary_ccid="$("$CAST" keccak "$BENEFICIARY_LE_AID")"
+
+  if [[ -f "$RUN_DIR/originator/wallet-presentation.json" ]]; then
+    originator_wallet_said="$("$JQ" -r .walletSaid "$RUN_DIR/originator/wallet-presentation.json")"
+    originator_grant_said="$("$JQ" -r .grantSaid "$RUN_DIR/originator/wallet-presentation.json")"
+  fi
+  if [[ -f "$RUN_DIR/beneficiary/wallet-presentation.json" ]]; then
+    beneficiary_wallet_said="$("$JQ" -r .walletSaid "$RUN_DIR/beneficiary/wallet-presentation.json")"
+    beneficiary_grant_said="$("$JQ" -r .grantSaid "$RUN_DIR/beneficiary/wallet-presentation.json")"
+  fi
+
+  "$JQ" -n \
+    --arg stage "$stage" \
+    --arg runId "$RUN_ID" \
+    --arg runDir "$RUN_DIR" \
+    --arg keriBase "$KERI_BASE" \
+    --arg rpcUrl "$RPC_URL" \
+    --arg chainId "$CHAIN_ID" \
+    --arg oracleUrl "$ORACLE_URL" \
+    --arg contractsJson "$CONTRACTS_JSON" \
+    --arg adminControls "$ADMIN_CONTROLS" \
+    --arg identityRegistry "$IDENTITY_REGISTRY" \
+    --arg credentialRegistry "$CREDENTIAL_REGISTRY" \
+    --arg oracleRegistry "$ORACLE_REGISTRY" \
+    --arg vleiToken "$VLEI_TOKEN" \
+    --arg wrapper "$WRAPPER" \
+    --arg adminPk "$ADMIN_PK" \
+    --arg originatorPk "$ORIGINATOR_PK" \
+    --arg beneficiaryPk "$BENEFICIARY_PK" \
+    --arg originatorWallet "$ORIGINATOR_WALLET" \
+    --arg beneficiaryWallet "$BENEFICIARY_WALLET" \
+    --arg gedaAid "$GEDA_AID" \
+    --arg qviAid "$QVI_AID" \
+    --arg oracleAid "$ORACLE_AID" \
+    --arg originatorLeAid "$ORIGINATOR_LE_AID" \
+    --arg originatorOorAid "$ORIGINATOR_OOR_AID" \
+    --arg beneficiaryLeAid "$BENEFICIARY_LE_AID" \
+    --arg beneficiaryOorAid "$BENEFICIARY_OOR_AID" \
+    --arg qviSaid "$QVI_SAID" \
+    --arg originatorLeSaid "$originator_le_said" \
+    --arg originatorOorSaid "$originator_oor_said" \
+    --arg beneficiaryLeSaid "$beneficiary_le_said" \
+    --arg beneficiaryOorSaid "$beneficiary_oor_said" \
+    --arg originatorWalletSaid "$originator_wallet_said" \
+    --arg beneficiaryWalletSaid "$beneficiary_wallet_said" \
+    --arg originatorGrantSaid "$originator_grant_said" \
+    --arg beneficiaryGrantSaid "$beneficiary_grant_said" \
+    --arg originatorLei "$ORIGINATOR_LEI" \
+    --arg beneficiaryLei "$BENEFICIARY_LEI" \
+    --arg originatorCcid "$originator_ccid" \
+    --arg beneficiaryCcid "$beneficiary_ccid" \
+    '{
+      stage:$stage,
+      runId:$runId,
+      runDir:$runDir,
+      keriBase:$keriBase,
+      rpcUrl:$rpcUrl,
+      chainId:$chainId,
+      oracleUrl:$oracleUrl,
+      contractsJson:$contractsJson,
+      contracts:{
+        adminControls:$adminControls,
+        identityRegistry:$identityRegistry,
+        credentialRegistry:$credentialRegistry,
+        oracleRegistry:$oracleRegistry,
+        vleiToken:$vleiToken,
+        wrapper:$wrapper
+      },
+      wallets:{
+        adminPrivateKey:$adminPk,
+        originatorPrivateKey:$originatorPk,
+        beneficiaryPrivateKey:$beneficiaryPk,
+        originator:$originatorWallet,
+        beneficiary:$beneficiaryWallet
+      },
+      aids:{
+        geda:$gedaAid,
+        qvi:$qviAid,
+        oracle:$oracleAid,
+        originatorLegalEntity:$originatorLeAid,
+        originatorOor:$originatorOorAid,
+        beneficiaryLegalEntity:$beneficiaryLeAid,
+        beneficiaryOor:$beneficiaryOorAid
+      },
+      credentials:{
+        qvi:$qviSaid,
+        originatorLegalEntity:$originatorLeSaid,
+        originatorOor:$originatorOorSaid,
+        beneficiaryLegalEntity:$beneficiaryLeSaid,
+        beneficiaryOor:$beneficiaryOorSaid,
+        originatorWallet:$originatorWalletSaid,
+        beneficiaryWallet:$beneficiaryWalletSaid
+      },
+      grants:{
+        originatorWallet:$originatorGrantSaid,
+        beneficiaryWallet:$beneficiaryGrantSaid
+      },
+      leis:{
+        originator:$originatorLei,
+        beneficiary:$beneficiaryLei
+      },
+      ccids:{
+        originator:$originatorCcid,
+        beneficiary:$beneficiaryCcid
+      }
+    }' >"$ACTORS_JSON"
+
+  cat >"$ACTORS_ENV" <<ENV
+# Generated by gl1-wallet-transfer-e2e.sh.
+export FIXTURE_STAGE='${stage}'
+export RUN_ID='${RUN_ID}'
+export RUN_DIR='${RUN_DIR}'
+export KERI_BASE='${KERI_BASE}'
+export RPC_URL='${RPC_URL}'
+export CHAIN_ID='${CHAIN_ID}'
+export ORACLE_URL='${ORACLE_URL}'
+export CONTRACTS_JSON='${CONTRACTS_JSON}'
+export ACTORS_JSON='${ACTORS_JSON}'
+export ADMIN_PK='${ADMIN_PK}'
+export ORIGINATOR_PK='${ORIGINATOR_PK}'
+export BENEFICIARY_PK='${BENEFICIARY_PK}'
+export ADMIN_CONTROLS='${ADMIN_CONTROLS}'
+export IDENTITY_REGISTRY='${IDENTITY_REGISTRY}'
+export CREDENTIAL_REGISTRY='${CREDENTIAL_REGISTRY}'
+export ORACLE_REGISTRY='${ORACLE_REGISTRY}'
+export VLEI_TOKEN='${VLEI_TOKEN}'
+export WRAPPER='${WRAPPER}'
+export ORIGINATOR_WALLET='${ORIGINATOR_WALLET}'
+export BENEFICIARY_WALLET='${BENEFICIARY_WALLET}'
+export GEDA_AID='${GEDA_AID}'
+export QVI_AID='${QVI_AID}'
+export ORACLE_AID='${ORACLE_AID}'
+export ORIGINATOR_LE_AID='${ORIGINATOR_LE_AID}'
+export ORIGINATOR_OOR_AID='${ORIGINATOR_OOR_AID}'
+export BENEFICIARY_LE_AID='${BENEFICIARY_LE_AID}'
+export BENEFICIARY_OOR_AID='${BENEFICIARY_OOR_AID}'
+export QVI_CREDENTIAL_SAID='${QVI_SAID}'
+export ORIGINATOR_LE_CREDENTIAL_SAID='${originator_le_said}'
+export ORIGINATOR_OOR_CREDENTIAL_SAID='${originator_oor_said}'
+export BENEFICIARY_LE_CREDENTIAL_SAID='${beneficiary_le_said}'
+export BENEFICIARY_OOR_CREDENTIAL_SAID='${beneficiary_oor_said}'
+export ORIGINATOR_WALLET_CREDENTIAL_SAID='${originator_wallet_said}'
+export BENEFICIARY_WALLET_CREDENTIAL_SAID='${beneficiary_wallet_said}'
+export ORIGINATOR_WALLET_GRANT_SAID='${originator_grant_said}'
+export BENEFICIARY_WALLET_GRANT_SAID='${beneficiary_grant_said}'
+export ORIGINATOR_LEI='${ORIGINATOR_LEI}'
+export BENEFICIARY_LEI='${BENEFICIARY_LEI}'
+export ORIGINATOR_CCID='${originator_ccid}'
+export BENEFICIARY_CCID='${beneficiary_ccid}'
+export TRANSFER_AMOUNT='${TRANSFER_AMOUNT}'
+export SEED_AMOUNT='${SEED_AMOUNT}'
+export GAS_FUND_AMOUNT='${GAS_FUND_AMOUNT}'
+ENV
+
+  log "Wrote actor fixture exports: ${ACTORS_ENV}"
+  log "Wrote actor fixture JSON: ${ACTORS_JSON}"
+}
+
 # Orchestrate the local GL1 compliance scenario from fresh services through the
 # final successful wrapper transfer.
 main() {
@@ -754,16 +964,21 @@ main() {
     "$ANVIL" --host 127.0.0.1 --port "$ANVIL_PORT" --chain-id "$CHAIN_ID"
 
   log "Deploying vlei-comply"
-  DEPLOY_LOG="$RUN_DIR/deploy-all.log"
-  (
-    cd "$COMPLY_DIR"
-    # Foundry parallel broadcast can leave local Anvil runs polling receipts
-    # indefinitely. --slow submits sequentially and makes the e2e deterministic.
-    PRIVATE_KEY="$ADMIN_PK" "$FORGE" script script/DeployAll.s.sol --rpc-url "$RPC_URL" --broadcast --slow -vvvv
-  ) | tee "$DEPLOY_LOG" >/dev/null
+  if [[ "${REDEPLOY:-0}" != "1" ]] && contracts_have_code; then
+    log "Reusing deployed vlei-comply contracts: ${CONTRACTS_JSON}"
+  else
+    if [[ -f "$CONTRACTS_JSON" && "${REDEPLOY:-0}" != "1" ]]; then
+      log "Ignoring stale contract addresses because no wrapper code exists on ${RPC_URL}"
+    fi
+    (
+      cd "$COMPLY_DIR"
+      # Foundry parallel broadcast can leave local Anvil runs polling receipts
+      # indefinitely. --slow submits sequentially and makes the e2e deterministic.
+      PRIVATE_KEY="$ADMIN_PK" "$FORGE" script script/DeployAll.s.sol --rpc-url "$RPC_URL" --broadcast --slow -vvvv
+    ) | tee "$DEPLOY_LOG" >/dev/null
 
-  CONTRACTS_JSON="$RUN_DIR/contracts.json"
-  "$VLEI_ORACLE" parse-deploy-log --log "$DEPLOY_LOG" --out "$CONTRACTS_JSON"
+    "$VLEI_ORACLE" parse-deploy-log --log "$DEPLOY_LOG" --out "$CONTRACTS_JSON"
+  fi
 
   ADMIN_CONTROLS="$("$JQ" -r .adminControls "$CONTRACTS_JSON")"
   IDENTITY_REGISTRY="$("$JQ" -r .identityRegistry "$CONTRACTS_JSON")"
@@ -845,6 +1060,38 @@ main() {
     beneficiary-oor beneficiary-oor "$BENEFICIARY_OOR_AID" "$BENEFICIARY_LEI" \
     "Bea Beneficiary" "Chief Compliance Officer"
 
+  if [[ "$E2E_STOP_AFTER" == "source-chain" ]]; then
+    write_actor_outputs source-chain
+    log "Stopped after source-chain fixture setup"
+    return
+  fi
+
+  if [[ "$E2E_STOP_AFTER" == "oracle-posted" ]]; then
+    start_service_if_needed "$ORACLE_HTTP_PORT" "vLEI Oracle service" "$RUN_DIR/vlei-oracle.log" \
+      "$VLEI_ORACLE" server start \
+        --name oracle \
+        --base "$KERI_BASE" \
+        --alias oracle \
+        --http-port "$ORACLE_HTTP_PORT" \
+        --trusted-geda-aid "$GEDA_AID" \
+        --contracts "$CONTRACTS_JSON" \
+        --rpc-url "$RPC_URL" \
+        --private-key "$ADMIN_PK"
+    require_http "${ORACLE_URL}/health" "vLEI Oracle service"
+
+    log "Issuing wallet attestations via standard KLI IPEX Grant to vLEI Oracle"
+    issue_wallet_attestation originator "$ORIGINATOR_WALLET" "$ORIGINATOR_PK" originator-oor originator-oor
+    issue_wallet_attestation beneficiary "$BENEFICIARY_WALLET" "$BENEFICIARY_PK" beneficiary-oor beneficiary-oor
+
+    log "Presenting wallet attestations to vLEI Oracle and posting on-chain evidence"
+    present_wallet_attestation originator "$ORIGINATOR_PK" originator-oor
+    present_wallet_attestation beneficiary "$BENEFICIARY_PK" beneficiary-oor
+
+    write_actor_outputs oracle-posted
+    log "Stopped after oracle-posted fixture setup"
+    return
+  fi
+
   log "Funding participant gas wallets"
   fund_gas_wallet "$ORIGINATOR_WALLET"
   fund_gas_wallet "$BENEFICIARY_WALLET"
@@ -891,6 +1138,7 @@ main() {
 
   ORIGINATOR_CCID="$("$CAST" keccak "$(cat "$RUN_DIR/originator/legal-entity-aid.txt")")"
   BENEFICIARY_CCID="$("$CAST" keccak "$(cat "$RUN_DIR/beneficiary/legal-entity-aid.txt")")"
+  write_actor_outputs oracle-posted
 
   log "Allowlisting AID CCIDs at VLEIOracleRegistry"
   cast_send "$ADMIN_PK" "$ORACLE_REGISTRY" "setAidAllowed(bytes32,bool)" "$ORIGINATOR_CCID" true
