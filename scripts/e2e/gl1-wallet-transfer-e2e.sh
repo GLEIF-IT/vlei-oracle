@@ -5,7 +5,7 @@ set -Eeuo pipefail
 #
 # This script proves the local path:
 # GEDA -> QVI -> LE -> OOR -> GL1 Wallet Attestation -> vLEI Oracle
-# -> vlei-comply registries -> compliant wvLEI transfer.
+# -> vlei-comply registries -> compliant wUSDC transfer.
 #
 # It intentionally uses shell as the orchestrator so every protocol boundary is
 # visible: KLI drives KERI/vLEI issuance and IPEX, Forge/Anvil deploy contracts,
@@ -64,13 +64,13 @@ OOR_SCHEMA="EBNaNu-M9P5cgrnfl2Fvymy4E_jvxxyjb70PRtiANlJy"
 ECR_SCHEMA="EEy9PkikFcANV1l7EHukCeXqrzT1hNZjGlUk7wuMO5jw"  # ECR vLEI Credential
 ECR_AUTH_SCHEMA="EH6ekLjSr8V32WyFbGe1zXjTzFs9PkTYmupJ9H65O14g"  # ECR Auth vLEI Credential
 IXBRL_ATTESTATION_SCHEMA="EMhvwOlyEJ9kN4PrwCpr9Jsv7TxPhiYveZ0oP3lJzdEi"  # iXBRL Data Value Attestation
-WALLET_SCHEMA="EORcMutKdscrCxXLEhMnnjxrZocxDwSo7-VItx6lh6Z7"
+WALLET_SCHEMA="EIXZykVcHN-q4cVb9Azera1YPfiquww9BlNiUV4SbUjW"
 
 QVI_LEI="${QVI_LEI:-6383001AJTYIGC8Y1X37}"
 ORIGINATOR_LEI="${ORIGINATOR_LEI:-5493001KJTIIGC8Y1R17}"
 BENEFICIARY_LEI="${BENEFICIARY_LEI:-54930084UKLVMY22DS16}"
-TRANSFER_AMOUNT="${TRANSFER_AMOUNT:-1000000000000000000}"
-SEED_AMOUNT="${SEED_AMOUNT:-5000000000000000000}"
+TRANSFER_AMOUNT="${TRANSFER_AMOUNT:-1000000}"
+SEED_AMOUNT="${SEED_AMOUNT:-5000000}"
 GAS_FUND_AMOUNT="${GAS_FUND_AMOUNT:-1000000000000000000}"
 
 PIDS=()
@@ -667,7 +667,7 @@ issue_wallet_attestation() {
     --oor-credential-said "$("$JQ" -r .oorCredentialSaid "$chain")" \
     --wallet "$wallet" \
     --chain-id "$CHAIN_ID" \
-    --vlei-token "$VLEI_TOKEN" \
+    --usdc-token "$USDC_TOKEN" \
     --wrapper "$WRAPPER" \
     --identity-registry "$IDENTITY_REGISTRY" \
     --credential-registry "$CREDENTIAL_REGISTRY" \
@@ -675,7 +675,7 @@ issue_wallet_attestation() {
     --nonce "${party}-${RUN_ID}" \
     --issued-at "$issued_at" \
     --expires-at "$expires_at" \
-    --purpose GL1_WVLEI_TRANSFER \
+    --purpose GL1_WUSDC_TRANSFER \
     --out "$dir/wallet-challenge.json"
 
   "$VLEI_ORACLE" wallet-data \
@@ -790,7 +790,7 @@ write_actor_outputs() {
     --arg identityRegistry "$IDENTITY_REGISTRY" \
     --arg credentialRegistry "$CREDENTIAL_REGISTRY" \
     --arg oracleRegistry "$ORACLE_REGISTRY" \
-    --arg vleiToken "$VLEI_TOKEN" \
+    --arg usdcToken "$USDC_TOKEN" \
     --arg wrapper "$WRAPPER" \
     --arg adminPk "$ADMIN_PK" \
     --arg originatorPk "$ORIGINATOR_PK" \
@@ -831,7 +831,7 @@ write_actor_outputs() {
         identityRegistry:$identityRegistry,
         credentialRegistry:$credentialRegistry,
         oracleRegistry:$oracleRegistry,
-        vleiToken:$vleiToken,
+        usdcToken:$usdcToken,
         wrapper:$wrapper
       },
       wallets:{
@@ -891,7 +891,7 @@ export ADMIN_CONTROLS='${ADMIN_CONTROLS}'
 export IDENTITY_REGISTRY='${IDENTITY_REGISTRY}'
 export CREDENTIAL_REGISTRY='${CREDENTIAL_REGISTRY}'
 export ORACLE_REGISTRY='${ORACLE_REGISTRY}'
-export VLEI_TOKEN='${VLEI_TOKEN}'
+export USDC_TOKEN='${USDC_TOKEN}'
 export WRAPPER='${WRAPPER}'
 export ORIGINATOR_WALLET='${ORIGINATOR_WALLET}'
 export BENEFICIARY_WALLET='${BENEFICIARY_WALLET}'
@@ -984,7 +984,7 @@ main() {
   IDENTITY_REGISTRY="$("$JQ" -r .identityRegistry "$CONTRACTS_JSON")"
   CREDENTIAL_REGISTRY="$("$JQ" -r .credentialRegistry "$CONTRACTS_JSON")"
   ORACLE_REGISTRY="$("$JQ" -r .oracleRegistry "$CONTRACTS_JSON")"
-  VLEI_TOKEN="$("$JQ" -r .vleiToken "$CONTRACTS_JSON")"
+  USDC_TOKEN="$("$JQ" -r .usdcToken "$CONTRACTS_JSON")"
   WRAPPER="$("$JQ" -r .wrapper "$CONTRACTS_JSON")"
 
   ORIGINATOR_WALLET="$("$CAST" wallet address --private-key "$ORIGINATOR_PK")"
@@ -1097,8 +1097,8 @@ main() {
   fund_gas_wallet "$BENEFICIARY_WALLET"
 
   log "Minting and approving seed funds"
-  cast_send "$ADMIN_PK" "$VLEI_TOKEN" "mint(address,uint256)" "$ORIGINATOR_WALLET" "$SEED_AMOUNT"
-  cast_send "$ORIGINATOR_PK" "$VLEI_TOKEN" "approve(address,uint256)" "$WRAPPER" "$SEED_AMOUNT"
+  cast_send "$ADMIN_PK" "$USDC_TOKEN" "mint(address,uint256)" "$ORIGINATOR_WALLET" "$SEED_AMOUNT"
+  cast_send "$ORIGINATOR_PK" "$USDC_TOKEN" "approve(address,uint256)" "$WRAPPER" "$SEED_AMOUNT"
 
   # Before wallet allowlisting, the wrapper should fail at the wallet policy
   # boundary without consulting oracle-posted AID evidence.
@@ -1148,11 +1148,11 @@ main() {
   # pass before the script submits the real transfer transaction.
   expect_transfer_bool true "after oracle posting and allowlists"
 
-  ORIGINATOR_BEFORE="$("$CAST" call --rpc-url "$RPC_URL" "$VLEI_TOKEN" "balanceOf(address)(uint256)" "$ORIGINATOR_WALLET")"
-  BENEFICIARY_BEFORE="$("$CAST" call --rpc-url "$RPC_URL" "$VLEI_TOKEN" "balanceOf(address)(uint256)" "$BENEFICIARY_WALLET")"
+  ORIGINATOR_BEFORE="$("$CAST" call --rpc-url "$RPC_URL" "$USDC_TOKEN" "balanceOf(address)(uint256)" "$ORIGINATOR_WALLET")"
+  BENEFICIARY_BEFORE="$("$CAST" call --rpc-url "$RPC_URL" "$USDC_TOKEN" "balanceOf(address)(uint256)" "$BENEFICIARY_WALLET")"
   cast_send "$ORIGINATOR_PK" "$WRAPPER" "transfer(address,uint256)" "$BENEFICIARY_WALLET" "$TRANSFER_AMOUNT"
-  ORIGINATOR_AFTER="$("$CAST" call --rpc-url "$RPC_URL" "$VLEI_TOKEN" "balanceOf(address)(uint256)" "$ORIGINATOR_WALLET")"
-  BENEFICIARY_AFTER="$("$CAST" call --rpc-url "$RPC_URL" "$VLEI_TOKEN" "balanceOf(address)(uint256)" "$BENEFICIARY_WALLET")"
+  ORIGINATOR_AFTER="$("$CAST" call --rpc-url "$RPC_URL" "$USDC_TOKEN" "balanceOf(address)(uint256)" "$ORIGINATOR_WALLET")"
+  BENEFICIARY_AFTER="$("$CAST" call --rpc-url "$RPC_URL" "$USDC_TOKEN" "balanceOf(address)(uint256)" "$BENEFICIARY_WALLET")"
 
   "$JQ" -n \
     --arg runDir "$RUN_DIR" \

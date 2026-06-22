@@ -1,5 +1,5 @@
 {
-  "$id": "EORcMutKdscrCxXLEhMnnjxrZocxDwSo7-VItx6lh6Z7",
+  "$id": "EIXZykVcHN-q4cVb9Azera1YPfiquww9BlNiUV4SbUjW",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "GL1 Ethereum Wallet Attestation",
   "description": "A GL1 ACDC binding an Ethereum wallet to a Legal Entity through an Official Organizational Role holder. The Ethereum wallet signature is supplied separately as CESR-encoded presentation evidence.",
@@ -65,12 +65,12 @@
               "description": "EVM chain id",
               "type": "integer"
             },
-            "vleiToken": {
-              "description": "vLEI ERC-20 contract address",
+            "usdcToken": {
+              "description": "USDC ERC-20 contract address",
               "type": "string"
             },
             "wrapper": {
-              "description": "wvLEI wrapper contract address",
+              "description": "wUSDC wrapper contract address",
               "type": "string"
             },
             "identityRegistry": {
@@ -125,7 +125,7 @@
             "oorAid",
             "oracleRegistry",
             "purpose",
-            "vleiToken",
+            "usdcToken",
             "wallet",
             "wrapper"
           ]

@@ -9,7 +9,7 @@ The first e2e target is local Anvil:
 
 ```text
 single-sig GEDA -> QVI -> LE -> OOR -> GL1 Ethereum Wallet Attestation
-  -> vlei-oracle -> vlei-comply contracts -> wvLEI transfer
+  -> vlei-oracle -> vlei-comply contracts -> wUSDC transfer
 ```
 
 ## Commands

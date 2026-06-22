@@ -19,8 +19,8 @@ def parse_deploy_log(text: str) -> dict[str, str]:
         "Vendor IdentityRegistry": "identityRegistry",
         "CredentialRegistry": "credentialRegistry",
         "VLEIOracleRegistry": "oracleRegistry",
-        "Asset (vLEI)": "vleiToken",
-        "Wrapper (wvLEI)": "wrapper",
+        "Asset (USDC)": "usdcToken",
+        "Wrapper (wUSDC)": "wrapper",
     }
     result: dict[str, str] = {}
     for raw_line in text.splitlines():

@@ -33,7 +33,7 @@ LE_AID = "ELE"
 OOR_AID = "EOOR"
 LEI = "5493001KJTIIGC8Y1R12"
 
-VLEI_TOKEN = "0x1000000000000000000000000000000000000001"
+USDC_TOKEN = "0x1000000000000000000000000000000000000001"
 WRAPPER = "0x1000000000000000000000000000000000000002"
 IDENTITY_REGISTRY = "0x1000000000000000000000000000000000000003"
 CREDENTIAL_REGISTRY = "0x1000000000000000000000000000000000000004"
@@ -261,14 +261,14 @@ class VerifierTest(unittest.TestCase):
             oor_credential_said=oor_said,
             wallet=self.wallet,
             chain_id=31337,
-            vlei_token=VLEI_TOKEN,
+            usdc_token=USDC_TOKEN,
             wrapper=WRAPPER,
             identity_registry=IDENTITY_REGISTRY,
             credential_registry=CREDENTIAL_REGISTRY,
             oracle_registry=ORACLE_REGISTRY,
             nonce="nonce-1",
             expires_at=expires_at,
-            purpose="GL1_WVLEI_TRANSFER",
+            purpose="GL1_WUSDC_TRANSFER",
         )
         signature = self.sign_typed_data(typed_data)
         wallet_attrs = wallet_attributes_from_typed_data(typed_data=typed_data)

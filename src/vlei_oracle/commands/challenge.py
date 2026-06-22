@@ -19,7 +19,7 @@ def add_parser(subparsers) -> None:
     parser.add_argument("--oor-credential-said", required=True)
     parser.add_argument("--wallet", required=True)
     parser.add_argument("--chain-id", type=int, required=True)
-    parser.add_argument("--vlei-token", required=True)
+    parser.add_argument("--usdc-token", required=True)
     parser.add_argument("--wrapper", required=True)
     parser.add_argument("--identity-registry", required=True)
     parser.add_argument("--credential-registry", required=True)
@@ -27,7 +27,7 @@ def add_parser(subparsers) -> None:
     parser.add_argument("--nonce", required=True)
     parser.add_argument("--issued-at", type=int, default=0)
     parser.add_argument("--expires-at", type=int, default=0)
-    parser.add_argument("--purpose", default="GL1_WVLEI_TRANSFER")
+    parser.add_argument("--purpose", default="GL1_WUSDC_TRANSFER")
     parser.add_argument("--out", help="Write typed data JSON to this file")
     parser.set_defaults(handler=handler)
 
@@ -45,7 +45,7 @@ def handler(args) -> None:
         oor_credential_said=args.oor_credential_said,
         wallet=args.wallet,
         chain_id=args.chain_id,
-        vlei_token=args.vlei_token,
+        usdc_token=args.usdc_token,
         wrapper=args.wrapper,
         identity_registry=args.identity_registry,
         credential_registry=args.credential_registry,

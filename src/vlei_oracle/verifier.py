@@ -51,7 +51,7 @@ class VerifiedWalletBinding:
     oor_credential_said: str
     wallet_credential_said: str
     wallet_schema: str
-    vlei_token: str
+    usdc_token: str
     wrapper: str
     identity_registry: str
     credential_registry: str
@@ -73,7 +73,7 @@ class VerifiedWalletBinding:
             "oorCredentialSaid": self.oor_credential_said,
             "walletCredentialSaid": self.wallet_credential_said,
             "walletSchema": self.wallet_schema,
-            "vleiToken": self.vlei_token,
+            "usdcToken": self.usdc_token,
             "wrapper": self.wrapper,
             "identityRegistry": self.identity_registry,
             "credentialRegistry": self.credential_registry,
@@ -97,7 +97,7 @@ def binding_from_json(data: dict[str, Any]) -> VerifiedWalletBinding:
         oor_credential_said=data["oorCredentialSaid"],
         wallet_credential_said=data["walletCredentialSaid"],
         wallet_schema=data["walletSchema"],
-        vlei_token=data["vleiToken"],
+        usdc_token=data["usdcToken"],
         wrapper=data["wrapper"],
         identity_registry=data["identityRegistry"],
         credential_registry=data["credentialRegistry"],
@@ -214,7 +214,7 @@ def verify_presentation(
         oor_credential_said=oor_said,
         wallet=_required_str(wallet_attrs, "wallet"),
         chain_id=_required_int(wallet_attrs, "chainId"),
-        vlei_token=_required_str(wallet_attrs, "vleiToken"),
+        usdc_token=_required_str(wallet_attrs, "usdcToken"),
         wrapper=_required_str(wallet_attrs, "wrapper"),
         identity_registry=_required_str(wallet_attrs, "identityRegistry"),
         credential_registry=_required_str(wallet_attrs, "credentialRegistry"),
@@ -242,7 +242,7 @@ def verify_presentation(
         oor_credential_said=oor_said,
         wallet_credential_said=wallet_said,
         wallet_schema=WALLET_SCHEMA,
-        vlei_token=_required_str(wallet_attrs, "vleiToken"),
+        usdc_token=_required_str(wallet_attrs, "usdcToken"),
         wrapper=_required_str(wallet_attrs, "wrapper"),
         identity_registry=_required_str(wallet_attrs, "identityRegistry"),
         credential_registry=_required_str(wallet_attrs, "credentialRegistry"),
