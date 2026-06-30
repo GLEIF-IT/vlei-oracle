@@ -1,5 +1,5 @@
 {
-  "$id": "EIXZykVcHN-q4cVb9Azera1YPfiquww9BlNiUV4SbUjW",
+  "$id": "EJRSV-fAssz09bAMqATc0Iz1NJ_slyzEvWdqLEMA0fGd",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "GL1 Ethereum Wallet Attestation",
   "description": "A GL1 ACDC binding an Ethereum wallet to a Legal Entity through an Official Organizational Role holder. The Ethereum wallet signature is supplied separately as CESR-encoded presentation evidence.",
@@ -53,53 +53,17 @@
               "description": "Legal Entity Identifier",
               "type": "string"
             },
-            "oorAid": {
-              "description": "Official Organizational Role holder AID",
-              "type": "string"
-            },
             "wallet": {
               "description": "Ethereum wallet address",
-              "type": "string"
-            },
-            "chainId": {
-              "description": "EVM chain id",
-              "type": "integer"
-            },
-            "usdcToken": {
-              "description": "USDC ERC-20 contract address",
-              "type": "string"
-            },
-            "wrapper": {
-              "description": "wUSDC wrapper contract address",
-              "type": "string"
-            },
-            "identityRegistry": {
-              "description": "Chainlink CCID IdentityRegistry address",
-              "type": "string"
-            },
-            "credentialRegistry": {
-              "description": "Chainlink CCID CredentialRegistry address",
-              "type": "string"
-            },
-            "oracleRegistry": {
-              "description": "VLEIOracleRegistry address",
               "type": "string"
             },
             "nonce": {
               "description": "Replay-protection nonce",
               "type": "string"
             },
-            "issuedAt": {
-              "description": "Oracle challenge issue timestamp",
-              "type": "integer"
-            },
             "expiresAt": {
               "description": "Unix expiration timestamp",
               "type": "integer"
-            },
-            "purpose": {
-              "description": "Bound operation purpose",
-              "type": "string"
             },
             "i": {
               "description": "Legal Entity subject AID injected by KERIpy from --recipient",
@@ -113,21 +77,12 @@
           "additionalProperties": false,
           "required": [
             "LEI",
-            "chainId",
-            "credentialRegistry",
             "dt",
             "expiresAt",
             "i",
-            "identityRegistry",
-            "issuedAt",
             "legalEntityAid",
             "nonce",
-            "oorAid",
-            "oracleRegistry",
-            "purpose",
-            "usdcToken",
-            "wallet",
-            "wrapper"
+            "wallet"
           ]
         }
       ]

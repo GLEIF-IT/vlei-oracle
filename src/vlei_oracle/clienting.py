@@ -46,8 +46,9 @@ def build_signature_body(
 
     typed_data = json.loads(Path(typed_data_path).read_text())
     message = typed_data["message"]
+    domain = typed_data["domain"]
     if chain_id is None:
-        chain_id = int(message["chainId"])
+        chain_id = int(domain["chainId"])
     if wallet is None:
         wallet = str(message["wallet"])
     if cesr_signature is None:

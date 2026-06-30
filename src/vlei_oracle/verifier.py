@@ -8,7 +8,8 @@ GEDA -> QVI -> Legal Entity -> OOR Auth -> OOR -> GL1 Wallet Attestation.
 
 The wallet ACDC is self-attested by the OOR holder, so its LE and OOR edges must
 use ``NI2I``. The Ethereum signature is supplied out of band by the presentation
-workflow and is verified against EIP-712 typed data rebuilt from ACDC fields.
+workflow and is verified against EIP-712 typed data rebuilt from the wallet
+ACDC fields plus the POST/configured EIP-712 domain.
 """
 
 from __future__ import annotations
@@ -39,8 +40,8 @@ class VerifiedWalletBinding:
     """Compact verified evidence that can be posted on chain.
 
     This is the stable boundary between KERI/ACDC verification and contract
-    posting. It intentionally contains compact identifiers and deployment fields
-    rather than raw credential bodies.
+    posting. It intentionally contains compact identifiers rather than raw
+    credential bodies.
     """
 
     legal_entity_aid: str
@@ -51,15 +52,8 @@ class VerifiedWalletBinding:
     oor_credential_said: str
     wallet_credential_said: str
     wallet_schema: str
-    usdc_token: str
-    wrapper: str
-    identity_registry: str
-    credential_registry: str
-    oracle_registry: str
     nonce: str
-    issued_at: int
     expires_at: int
-    purpose: str
 
     def to_json(self) -> dict[str, Any]:
         """Return the durable JSON representation stored on an operation."""
@@ -73,15 +67,8 @@ class VerifiedWalletBinding:
             "oorCredentialSaid": self.oor_credential_said,
             "walletCredentialSaid": self.wallet_credential_said,
             "walletSchema": self.wallet_schema,
-            "usdcToken": self.usdc_token,
-            "wrapper": self.wrapper,
-            "identityRegistry": self.identity_registry,
-            "credentialRegistry": self.credential_registry,
-            "oracleRegistry": self.oracle_registry,
             "nonce": self.nonce,
-            "issuedAt": self.issued_at,
             "expiresAt": self.expires_at,
-            "purpose": self.purpose,
         }
 
 
@@ -97,15 +84,8 @@ def binding_from_json(data: dict[str, Any]) -> VerifiedWalletBinding:
         oor_credential_said=data["oorCredentialSaid"],
         wallet_credential_said=data["walletCredentialSaid"],
         wallet_schema=data["walletSchema"],
-        usdc_token=data["usdcToken"],
-        wrapper=data["wrapper"],
-        identity_registry=data["identityRegistry"],
-        credential_registry=data["credentialRegistry"],
-        oracle_registry=data["oracleRegistry"],
         nonce=data["nonce"],
-        issued_at=int(data.get("issuedAt") or 0),
         expires_at=int(data["expiresAt"]),
-        purpose=data["purpose"],
     )
 
 
@@ -117,6 +97,8 @@ def verify_presentation(
     now: int | None = None,
     wallet_signature: str | None = None,
     wallet_signature_type: str | None = None,
+    chain_id: int,
+    oracle_registry: str,
 ) -> VerifiedWalletBinding:
     """Verify a GL1 wallet attestation presentation.
 
@@ -192,8 +174,6 @@ def verify_presentation(
         raise VerificationError("wallet attestation legalEntityAid does not match LE credential")
     if isinstance(wallet_attrs.get("i"), str) and wallet_attrs["i"] != legal_entity_aid:
         raise VerificationError("wallet attestation subject AID does not match LE credential")
-    if _required_str(wallet_attrs, "oorAid") != oor_aid:
-        raise VerificationError("wallet attestation oorAid does not match OOR credential")
     if wallet_cred.get("i") != oor_aid:
         raise VerificationError("wallet attestation issuer must be the OOR holder AID")
 
@@ -202,27 +182,15 @@ def verify_presentation(
     expires_at = _required_int(wallet_attrs, "expiresAt")
     if expires_at <= current_time:
         raise VerificationError("wallet attestation is expired")
-    issued_at = _required_int(wallet_attrs, "issuedAt")
-    if issued_at > current_time:
-        raise VerificationError("wallet attestation issuedAt is in the future")
 
     typed_data = build_typed_data(
         legal_entity_aid=legal_entity_aid,
         lei=lei,
-        oor_aid=oor_aid,
-        le_credential_said=le_said,
-        oor_credential_said=oor_said,
         wallet=_required_str(wallet_attrs, "wallet"),
-        chain_id=_required_int(wallet_attrs, "chainId"),
-        usdc_token=_required_str(wallet_attrs, "usdcToken"),
-        wrapper=_required_str(wallet_attrs, "wrapper"),
-        identity_registry=_required_str(wallet_attrs, "identityRegistry"),
-        credential_registry=_required_str(wallet_attrs, "credentialRegistry"),
-        oracle_registry=_required_str(wallet_attrs, "oracleRegistry"),
+        chain_id=chain_id,
+        oracle_registry=oracle_registry,
         nonce=_required_str(wallet_attrs, "nonce"),
         expires_at=expires_at,
-        purpose=_required_str(wallet_attrs, "purpose"),
-        issued_at=issued_at,
     )
     signature = _resolve_wallet_signature(
         wallet_attrs,
@@ -237,20 +205,13 @@ def verify_presentation(
         legal_entity_aid=legal_entity_aid,
         lei=lei,
         wallet=wallet,
-        chain_id=_required_int(wallet_attrs, "chainId"),
+        chain_id=chain_id,
         le_credential_said=le_said,
         oor_credential_said=oor_said,
         wallet_credential_said=wallet_said,
         wallet_schema=WALLET_SCHEMA,
-        usdc_token=_required_str(wallet_attrs, "usdcToken"),
-        wrapper=_required_str(wallet_attrs, "wrapper"),
-        identity_registry=_required_str(wallet_attrs, "identityRegistry"),
-        credential_registry=_required_str(wallet_attrs, "credentialRegistry"),
-        oracle_registry=_required_str(wallet_attrs, "oracleRegistry"),
         nonce=_required_str(wallet_attrs, "nonce"),
-        issued_at=issued_at,
         expires_at=expires_at,
-        purpose=_required_str(wallet_attrs, "purpose"),
     )
 
 

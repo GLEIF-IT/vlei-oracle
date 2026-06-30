@@ -64,7 +64,7 @@ OOR_SCHEMA="EBNaNu-M9P5cgrnfl2Fvymy4E_jvxxyjb70PRtiANlJy"
 ECR_SCHEMA="EEy9PkikFcANV1l7EHukCeXqrzT1hNZjGlUk7wuMO5jw"  # ECR vLEI Credential
 ECR_AUTH_SCHEMA="EH6ekLjSr8V32WyFbGe1zXjTzFs9PkTYmupJ9H65O14g"  # ECR Auth vLEI Credential
 IXBRL_ATTESTATION_SCHEMA="EMhvwOlyEJ9kN4PrwCpr9Jsv7TxPhiYveZ0oP3lJzdEi"  # iXBRL Data Value Attestation
-WALLET_SCHEMA="EIXZykVcHN-q4cVb9Azera1YPfiquww9BlNiUV4SbUjW"
+WALLET_SCHEMA="EJRSV-fAssz09bAMqATc0Iz1NJ_slyzEvWdqLEMA0fGd"
 
 QVI_LEI="${QVI_LEI:-6383001AJTYIGC8Y1X37}"
 ORIGINATOR_LEI="${ORIGINATOR_LEI:-5493001KJTIIGC8Y1R17}"
@@ -654,28 +654,18 @@ issue_wallet_attestation() {
 
   local chain="${RUN_DIR}/${party}-chain.json"
   local dir="${RUN_DIR}/${party}"
-  local issued_at
   local expires_at
-  issued_at="$(date +%s)"
-  expires_at="$((issued_at + 3600))"
+  expires_at="$(($(date +%s) + 3600))"
 
+  # Create typed data, the EIP-712 payload that the Eth key signs and presents to the oracle
   "$VLEI_ORACLE" challenge \
     --legal-entity-aid "$("$JQ" -r .legalEntityAid "$chain")" \
     --lei "$("$JQ" -r .lei "$chain")" \
-    --oor-aid "$("$JQ" -r .oorAid "$chain")" \
-    --le-credential-said "$("$JQ" -r .leCredentialSaid "$chain")" \
-    --oor-credential-said "$("$JQ" -r .oorCredentialSaid "$chain")" \
     --wallet "$wallet" \
     --chain-id "$CHAIN_ID" \
-    --usdc-token "$USDC_TOKEN" \
-    --wrapper "$WRAPPER" \
-    --identity-registry "$IDENTITY_REGISTRY" \
-    --credential-registry "$CREDENTIAL_REGISTRY" \
     --oracle-registry "$ORACLE_REGISTRY" \
     --nonce "${party}-${RUN_ID}" \
-    --issued-at "$issued_at" \
     --expires-at "$expires_at" \
-    --purpose GL1_WUSDC_TRANSFER \
     --out "$dir/wallet-challenge.json"
 
   "$VLEI_ORACLE" wallet-data \

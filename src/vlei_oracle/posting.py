@@ -260,7 +260,7 @@ class Web3ContractPoster:
                         binding.lei,
                         le_said_hash,
                         proof,
-                        binding.issued_at,
+                        0,
                         binding.expires_at,
                         initial_aid_allowed,
                         False,

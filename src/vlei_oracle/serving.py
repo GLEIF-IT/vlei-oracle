@@ -116,6 +116,7 @@ def setup_service(config: ServiceConfig) -> ServiceRuntime:
     tvy.registerReplyRoutes(router=rvy.rtr)
     parser = parsing.Parser(framed=True, kvy=kvy, tvy=tvy, rvy=rvy, vry=verifier, exc=exc)
     mbx = storing.Mailboxer(name=config.name, temp=config.temp)
+    oracle_registry = (config.contracts or {}).get("oracleRegistry", "")
 
     app = falcon.App(cors_enable=True)
     ending.loadEnds(app=app, hby=hby, default=hab.pre)
@@ -168,6 +169,7 @@ def setup_service(config: ServiceConfig) -> ServiceRuntime:
             baser=baser,
             rgy=rgy,
             trusted_geda_aid=config.trusted_geda_aid,
+            oracle_registry=oracle_registry,
         ),
         ContractPosterDoer(
             baser=baser,

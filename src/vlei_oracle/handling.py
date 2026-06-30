@@ -194,12 +194,14 @@ class PresentationVerifierDoer(doing.Doer):
         baser: OracleBaser,
         rgy,
         trusted_geda_aid: str,
+        oracle_registry: str = "",
         verify_saids: bool = True,
         **kwa,
     ):
         self.baser = baser
         self.rgy = rgy
         self.trusted_geda_aid = trusted_geda_aid
+        self.oracle_registry = oracle_registry
         self.verify_saids = verify_saids
         super().__init__(**kwa)
 
@@ -227,6 +229,8 @@ class PresentationVerifierDoer(doing.Doer):
                 verify_saids=self.verify_saids,
                 wallet_signature=op.signature,
                 wallet_signature_type=op.signatureType,
+                chain_id=op.chainId,
+                oracle_registry=self.oracle_registry,
             )
             if op.wallet and binding.wallet.lower() != op.wallet.lower():
                 raise VerificationError("signature POST wallet does not match verified wallet attestation")

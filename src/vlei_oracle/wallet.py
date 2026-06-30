@@ -1,7 +1,7 @@
 """Ethereum wallet binding challenge and verification helpers.
 
 The GL1 wallet attestation keeps Ethereum proof material outside the ACDC. The
-ACDC carries the LE/OOR authority context and deployment domain, while the
+ACDC carries the Legal Entity binding attributes and LE/OOR edges, while the
 client signs the same EIP-712 typed data separately and sends the 65-byte
 Ethereum signature as a CESR Matter in the REST signature step.
 """
@@ -39,26 +39,18 @@ def build_typed_data(
     *,
     legal_entity_aid: str,
     lei: str,
-    oor_aid: str,
-    le_credential_said: str,
-    oor_credential_said: str,
     wallet: str,
     chain_id: int,
-    usdc_token: str,
-    wrapper: str,
-    identity_registry: str,
-    credential_registry: str,
     oracle_registry: str,
     nonce: str,
     expires_at: int,
-    purpose: str,
-    issued_at: int = 0,
 ) -> dict[str, Any]:
     """Build the EIP-712 typed data signed by the Ethereum wallet.
 
-    The typed data is the canonical wallet-binding challenge. Its message fields
-    are mirrored into the GL1 wallet ACDC attributes, and its domain binds the
-    signature to the local or testnet oracle registry deployment.
+    The typed data is the canonical wallet-to-Legal-Entity binding challenge.
+    Its message fields are mirrored into the GL1 wallet ACDC attributes, and its
+    domain binds the signature to the local or testnet oracle registry
+    deployment.
     """
 
     if chain_id <= 0:
@@ -75,22 +67,11 @@ def build_typed_data(
                 {"name": "verifyingContract", "type": "address"},
             ],
             EIP712_PRIMARY_TYPE: [
+                {"name": "wallet", "type": "address"},
                 {"name": "legalEntityAid", "type": "string"},
                 {"name": "lei", "type": "string"},
-                {"name": "oorAid", "type": "string"},
-                {"name": "leCredentialSaid", "type": "string"},
-                {"name": "oorCredentialSaid", "type": "string"},
-                {"name": "wallet", "type": "address"},
-                {"name": "chainId", "type": "uint256"},
-                {"name": "usdcToken", "type": "address"},
-                {"name": "wrapper", "type": "address"},
-                {"name": "identityRegistry", "type": "address"},
-                {"name": "credentialRegistry", "type": "address"},
-                {"name": "oracleRegistry", "type": "address"},
                 {"name": "nonce", "type": "string"},
-                {"name": "issuedAt", "type": "uint256"},
                 {"name": "expiresAt", "type": "uint256"},
-                {"name": "purpose", "type": "string"},
             ],
         },
         "primaryType": EIP712_PRIMARY_TYPE,
@@ -101,22 +82,11 @@ def build_typed_data(
             "verifyingContract": _checksum_passthrough(oracle_registry),
         },
         "message": {
+            "wallet": _checksum_passthrough(wallet),
             "legalEntityAid": legal_entity_aid,
             "lei": lei,
-            "oorAid": oor_aid,
-            "leCredentialSaid": le_credential_said,
-            "oorCredentialSaid": oor_credential_said,
-            "wallet": _checksum_passthrough(wallet),
-            "chainId": chain_id,
-            "usdcToken": _checksum_passthrough(usdc_token),
-            "wrapper": _checksum_passthrough(wrapper),
-            "identityRegistry": _checksum_passthrough(identity_registry),
-            "credentialRegistry": _checksum_passthrough(credential_registry),
-            "oracleRegistry": _checksum_passthrough(oracle_registry),
             "nonce": nonce,
-            "issuedAt": issued_at,
             "expiresAt": expires_at,
-            "purpose": purpose,
         },
     }
 
@@ -218,17 +188,8 @@ def wallet_attributes_from_typed_data(
     attrs = {
         "legalEntityAid": message["legalEntityAid"],
         "LEI": message["lei"],
-        "oorAid": message["oorAid"],
         "wallet": message["wallet"],
-        "chainId": message["chainId"],
-        "usdcToken": message["usdcToken"],
-        "wrapper": message["wrapper"],
-        "identityRegistry": message["identityRegistry"],
-        "credentialRegistry": message["credentialRegistry"],
-        "oracleRegistry": message["oracleRegistry"],
         "nonce": message["nonce"],
-        "issuedAt": message["issuedAt"],
         "expiresAt": message["expiresAt"],
-        "purpose": message["purpose"],
     }
     return attrs

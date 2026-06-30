@@ -122,7 +122,8 @@ The wallet attestation is issued by the OOR holder as self-attested wallet
 binding evidence. The verifier rejects wallet credentials whose wallet edges
 omit `NI2I` or use the default `I2I` operator.
 
-The current schema keeps the deployment-domain fields and `NI2I` edges, but
+The current schema keeps only the wallet-to-Legal-Entity binding attributes and
+`NI2I` edges. Deployment binding lives in the EIP-712 domain, and the schema
 does not embed `walletSignatureType` or `walletSignature` in the ACDC. The
 Ethereum wallet signature is supplied only through the signature REST endpoint.
 

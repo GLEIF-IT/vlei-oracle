@@ -33,11 +33,7 @@ LE_AID = "ELE"
 OOR_AID = "EOOR"
 LEI = "5493001KJTIIGC8Y1R12"
 
-USDC_TOKEN = "0x1000000000000000000000000000000000000001"
-WRAPPER = "0x1000000000000000000000000000000000000002"
-IDENTITY_REGISTRY = "0x1000000000000000000000000000000000000003"
-CREDENTIAL_REGISTRY = "0x1000000000000000000000000000000000000004"
-ORACLE_REGISTRY = "0x1000000000000000000000000000000000000005"
+ORACLE_REGISTRY = "0x1000000000000000000000000000000000000001"
 
 TEST_PRIVATE_KEY = "0x59c6995e998f97a5a0044966f094538e7f280b5f0711c98fc821f4b3ea0f965d"
 
@@ -56,6 +52,7 @@ class VerifierTest(unittest.TestCase):
         self.assertEqual(result.legal_entity_aid, LE_AID)
         self.assertEqual(result.lei, LEI)
         self.assertEqual(result.wallet, self.wallet)
+        self.assertEqual(result.chain_id, 31337)
         self.assertEqual(result.le_credential_said, wallet_credential["e"]["le"]["n"])
         self.assertEqual(result.oor_credential_said, wallet_credential["e"]["oor"]["n"])
 
@@ -69,6 +66,8 @@ class VerifierTest(unittest.TestCase):
             now=1_700_000_000,
             wallet_signature=decode_eth_signature_cesr(cesr_signature),
             wallet_signature_type=WALLET_SIGNATURE_TYPE,
+            chain_id=31337,
+            oracle_registry=ORACLE_REGISTRY,
         )
 
         self.assertEqual(result.wallet_schema, WALLET_SCHEMA)
@@ -82,6 +81,8 @@ class VerifierTest(unittest.TestCase):
                 presentation,
                 trusted_geda_aid=GEDA_AID,
                 now=1_700_000_000,
+                chain_id=31337,
+                oracle_registry=ORACLE_REGISTRY,
             )
 
     def test_wallet_attestation_rejects_embedded_signature(self) -> None:
@@ -94,6 +95,8 @@ class VerifierTest(unittest.TestCase):
                 now=1_700_000_000,
                 wallet_signature=signature,
                 wallet_signature_type=WALLET_SIGNATURE_TYPE,
+                chain_id=31337,
+                oracle_registry=ORACLE_REGISTRY,
             )
 
     def test_cesr_signature_round_trip(self) -> None:
@@ -124,6 +127,16 @@ class VerifierTest(unittest.TestCase):
         with self.assertRaisesRegex(VerificationError, "LEI"):
             self.verify(presentation, signature)
 
+    def test_legal_entity_aid_mismatch_fails(self) -> None:
+        presentation, signature = self.presentation()
+        self.resaidify_wallet(
+            presentation,
+            lambda credential: credential["a"].update({"legalEntityAid": "EOTHER"}),
+        )
+
+        with self.assertRaisesRegex(VerificationError, "legalEntityAid"):
+            self.verify(presentation, signature)
+
     def test_revoked_credential_fails(self) -> None:
         presentation, signature = self.presentation()
         wallet_credential = presentation["credentials"][presentation["walletCredential"]]
@@ -140,15 +153,13 @@ class VerifierTest(unittest.TestCase):
 
     def test_wrong_deployment_domain_fails_signature(self) -> None:
         presentation, signature = self.presentation()
-        self.resaidify_wallet(
-            presentation,
-            lambda credential: credential["a"].update(
-                {"oracleRegistry": "0x1000000000000000000000000000000000000099"}
-            ),
-        )
 
         with self.assertRaisesRegex(VerificationError, "wallet signature"):
-            self.verify(presentation, signature)
+            self.verify(
+                presentation,
+                signature,
+                oracle_registry="0x1000000000000000000000000000000000000099",
+            )
 
     def test_wallet_edge_operator_must_be_ni2i(self) -> None:
         presentation, signature = self.presentation()
@@ -166,6 +177,33 @@ class VerifierTest(unittest.TestCase):
 
         with self.assertRaisesRegex(VerificationError, "SAID"):
             self.verify(presentation, signature)
+
+    def test_typed_data_and_wallet_attributes_are_minimal(self) -> None:
+        typed_data = build_typed_data(
+            legal_entity_aid=LE_AID,
+            lei=LEI,
+            wallet=self.wallet,
+            chain_id=31337,
+            oracle_registry=ORACLE_REGISTRY,
+            nonce="nonce-1",
+            expires_at=1_800_000_000,
+        )
+
+        self.assertEqual(typed_data["primaryType"], "GL1EthereumWalletAttestation")
+        self.assertEqual(typed_data["domain"]["chainId"], 31337)
+        self.assertEqual(typed_data["domain"]["verifyingContract"], ORACLE_REGISTRY)
+        self.assertEqual(
+            [field["name"] for field in typed_data["types"]["GL1EthereumWalletAttestation"]],
+            ["wallet", "legalEntityAid", "lei", "nonce", "expiresAt"],
+        )
+        self.assertEqual(
+            set(typed_data["message"]),
+            {"wallet", "legalEntityAid", "lei", "nonce", "expiresAt"},
+        )
+        self.assertEqual(
+            set(wallet_attributes_from_typed_data(typed_data=typed_data)),
+            {"wallet", "legalEntityAid", "LEI", "nonce", "expiresAt"},
+        )
 
     def presentation(
         self,
@@ -256,19 +294,11 @@ class VerifierTest(unittest.TestCase):
         typed_data = build_typed_data(
             legal_entity_aid=LE_AID,
             lei=LEI,
-            oor_aid=OOR_AID,
-            le_credential_said=le_said,
-            oor_credential_said=oor_said,
             wallet=self.wallet,
             chain_id=31337,
-            usdc_token=USDC_TOKEN,
-            wrapper=WRAPPER,
-            identity_registry=IDENTITY_REGISTRY,
-            credential_registry=CREDENTIAL_REGISTRY,
             oracle_registry=ORACLE_REGISTRY,
             nonce="nonce-1",
             expires_at=expires_at,
-            purpose="GL1_WUSDC_TRANSFER",
         )
         signature = self.sign_typed_data(typed_data)
         wallet_attrs = wallet_attributes_from_typed_data(typed_data=typed_data)
@@ -311,13 +341,15 @@ class VerifierTest(unittest.TestCase):
         signable = encode_typed_data(full_message=typed_data)
         return Account.sign_message(signable, TEST_PRIVATE_KEY).signature.hex()
 
-    def verify(self, presentation: dict, signature: str):
+    def verify(self, presentation: dict, signature: str, *, oracle_registry: str = ORACLE_REGISTRY):
         return verify_presentation(
             presentation,
             trusted_geda_aid=GEDA_AID,
             now=1_700_000_000,
             wallet_signature=signature,
             wallet_signature_type=WALLET_SIGNATURE_TYPE,
+            chain_id=31337,
+            oracle_registry=oracle_registry,
         )
 
 
