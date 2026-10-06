@@ -72,7 +72,7 @@ KLI, vLEI-server, Forge, Anvil, Cast, and contract boundaries.
 
 For a human-operated, multi-terminal walkthrough that keeps setup separate from
 using the deployed infrastructure, see
-[vlei-comply GL1 vLEI CLI Execution Guide](../vlei-comply/docs/gl1-vlei-cli-execution-guide.md).
+[vlei-comply GL1 vLEI CLI Execution Guide](https://github.com/GLEIF-IT/vlei-comply/blob/main/docs/gl1-vlei-cli-execution-guide.md).
 
 ## Maintainer Map
 
@@ -89,26 +89,58 @@ using the deployed infrastructure, see
 - `posting.py` is the Web3 edge adapter. HIO Doers own timing and receipt
   polling; Web3 code only plans, submits, and reads contract state.
 
-## Local Setup
+## Clean Checkout Setup
+
+For the oracle package and its local tests, start from a fresh checkout with
+Python 3.12.6 or newer and GitHub access to this repository:
 
 ```sh
-python3 -m venv .venv
-.venv/bin/python -m pip install --upgrade pip setuptools wheel
-.venv/bin/python -m pip install -e . -e ../../../core/python/keripy -e ../../../credentials/schema-tools/vLEI
+gh repo clone GLEIF-IT/vlei-oracle
+cd vlei-oracle
+python3.12 -m venv .venv
+.venv/bin/python -m pip install '.[dev]'
+.venv/bin/python -m pytest -q
 ```
 
-The e2e expects usable demo witness ports (`5642`, `5643`, `5644`) and a vLEI
-schema server on `7723`. If another process is bound to those ports, it must be
-the matching `kli witness demo` / vLEI-server stack. A stale container that only
-answers the built-in witness controller OOBIs is not enough because newly
-incepted AIDs must be published through witness OOBIs for mailbox resolution.
+KERIpy is a published package dependency. No external editable checkout is
+required to run the oracle or unit tests.
+
+The demo additionally needs upstream witness configuration, schema-server data,
+and Solidity sources. Prepare those from exact Git commits instead of borrowing
+repositories from a developer's filesystem:
 
 ```sh
+python3.12 scripts/dev/prepare-demo.py
+source .demo/demo.env
+./scripts/e2e/gl1-wallet-transfer-e2e.sh --check
 ./scripts/e2e/gl1-wallet-transfer-e2e.sh
 ```
 
-The script writes all generated deployment logs, KERI artifacts, wallet
-challenge JSON, presentations, and verification outputs under `runs/`.
+The preparer reads [demo-dependencies.json](scripts/dev/demo-dependencies.json),
+clones its pinned repositories into `.demo/checkouts/`, initializes the recorded
+Solidity submodules, and installs Python packages in `.demo/venv/`. External
+Python packages come from PyPI or a pinned upstream Git URL; the source checkouts
+supply demo assets and contracts. The environment file records explicit paths.
+It starts no services and does not touch keys or existing KERI stores.
+
+Existing dependency checkouts are reused only when the origin, commit, and clean
+state match. A mismatch fails without resetting anything. Use
+`--directory <new-demo-directory>` to prepare another isolated checkout set, then
+source its `demo.env`. There is no parent-directory or sibling-repository lookup.
+
+Authenticate GitHub CLI with `gh auth login` before cloning private GLEIF
+repositories. The preparer uses `gh` as an HTTPS credential helper for clone
+commands only; it does not alter global Git configuration.
+
+Install Foundry's `forge`, `cast`, and `anvil`, plus `gh`, `git`, `jq`, `curl`, and `nc`,
+and make them available on `PATH`. The launchers also accept explicit executable
+overrides. `--check` validates inputs without starting services or deploying.
+
+The e2e expects demo witness ports (`5642`, `5643`, `5644`) and a vLEI schema
+server on `7723`. A process already bound to these ports must be the matching
+`kli witness demo` / vLEI-server stack. The script writes generated deployment
+logs, KERI artifacts, challenges, presentations, and verification outputs under
+`runs/`. The current demo uses the prototype ceremony described below.
 
 ## Wallet Attestation
 
@@ -136,7 +168,7 @@ schemas.
 
 ## Current Boundary
 
-The verifier uses local KERIpy as the KERI/ACDC dependency baseline. Sally is
+The verifier uses the installed KERIpy package as its KERI/ACDC dependency baseline. Sally is
 not imported directly; its chain-validation behavior is used as a reference for
 the verifier's vLEI dependency checks. Ethereum wallet signatures are recovered
 inside the Python verifier with `eth-account`; Web3.py is isolated behind the

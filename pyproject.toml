@@ -7,7 +7,7 @@ name = "vlei-oracle"
 version = "0.1.0"
 description = "GL1 vLEI Oracle verifier and on-chain posting CLI"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.12.6"
 license = { text = "Apache-2.0" }
 authors = [
   { name = "GLEIF IT" }
