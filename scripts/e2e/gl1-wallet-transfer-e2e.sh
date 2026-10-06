@@ -21,19 +21,23 @@ set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ORACLE_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
-GL1_DIR="$(cd "${ORACLE_DIR}/.." && pwd)"
-WORKSPACE_DIR="$(cd "${GL1_DIR}/../.." && pwd)"
-COMPLY_DIR="${GL1_DIR}/vlei-comply"
-KERIPY_DIR="${WORKSPACE_DIR}/core/python/keripy"
-KERI_DEMO_DIR="${WORKSPACE_DIR}/core/python/keripy/scripts/demo"
-VLEI_SCHEMA_TOOLS_DIR="${WORKSPACE_DIR}/credentials/schema-tools/vLEI"
+DEMO_ENV="${DEMO_ENV:-${ORACLE_DIR}/.demo/demo.env}"
+if [[ -f "$DEMO_ENV" ]]; then
+  # shellcheck disable=SC1090
+  source "$DEMO_ENV"
+fi
+ORACLE_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+COMPLY_DIR="${COMPLY_DIR:-}"
+KERIPY_DIR="${KERIPY_DIR:-}"
+KERI_DEMO_DIR="${KERIPY_DIR}/scripts/demo"
+VLEI_SCHEMA_TOOLS_DIR="${VLEI_SCHEMA_TOOLS_DIR:-}"
 
-KLI="${KLI:-${ORACLE_DIR}/.venv/bin/kli}"
-VLEI_ORACLE="${VLEI_ORACLE:-${ORACLE_DIR}/.venv/bin/vlei-oracle}"
-VLEI_SERVER="${VLEI_SERVER:-${ORACLE_DIR}/.venv/bin/vLEI-server}"
-FORGE="${FORGE:-${HOME}/.foundry/bin/forge}"
-CAST="${CAST:-${HOME}/.foundry/bin/cast}"
-ANVIL="${ANVIL:-${HOME}/.foundry/bin/anvil}"
+KLI="${KLI:-kli}"
+VLEI_ORACLE="${VLEI_ORACLE:-vlei-oracle}"
+VLEI_SERVER="${VLEI_SERVER:-vLEI-server}"
+FORGE="${FORGE:-forge}"
+CAST="${CAST:-cast}"
+ANVIL="${ANVIL:-anvil}"
 JQ="${JQ:-jq}"
 
 RPC_URL="${RPC_URL:-http://127.0.0.1:8545}"
@@ -917,14 +921,7 @@ ENV
 # Orchestrate the local GL1 compliance scenario from fresh services through the
 # final successful wrapper transfer.
 main() {
-  need "$KLI"
-  need "$VLEI_ORACLE"
-  need "$VLEI_SERVER"
-  need "$FORGE"
-  need "$CAST"
-  need "$ANVIL"
-  command -v curl >/dev/null
-  command -v "$JQ" >/dev/null
+  check_dependencies
 
   mkdir -p "$RUN_DIR/schema/acdc"
   log "Run directory: ${RUN_DIR}"
@@ -940,7 +937,7 @@ main() {
   require_demo_witness_config wes "tcp://127.0.0.1:5634/" "http://127.0.0.1:5644/"
   reset_demo_witness_state
   start_service_if_needed 5642 "kli witness demo" "$RUN_DIR/kli-witness-demo.log" \
-    bash -lc "cd '${KERIPY_DIR}' && exec '${KLI}' witness demo"
+    bash -c 'cd "$1" && exec "$2" witness demo' _ "$KERIPY_DIR" "$KLI"
   require_http "http://127.0.0.1:5642/oobi/BBilc4-L3tFUnfM_wJr4S4OJanAv_VmF_dJNN6vkf2Ha/controller" \
     "kli witness demo"
   start_service_if_needed "$VLEI_SCHEMA_PORT" "vLEI schema server" "$RUN_DIR/vlei-server.log" \
@@ -1158,4 +1155,33 @@ main() {
   log "E2E complete. Result: ${RUN_DIR}/result.json"
 }
 
-main "$@"
+check_dependencies() {
+  if [[ -z "$COMPLY_DIR" || -z "$KERIPY_DIR" || -z "$VLEI_SCHEMA_TOOLS_DIR" ]]; then
+    printf 'Missing dependency inputs: run scripts/dev/prepare-demo.py and source its demo.env.\n' >&2
+    exit 1
+  fi
+  for file in \
+    "$COMPLY_DIR/foundry.toml" \
+    "$KERI_DEMO_DIR/data/rules.json" \
+    "$VLEI_SCHEMA_TOOLS_DIR/samples/acdc/qualified-vLEI-issuer-vLEI-credential.json"; do
+    if [[ ! -f "$file" ]]; then
+      printf 'Missing checkout asset: %s\n' "$file" >&2
+      exit 1
+    fi
+  done
+  for tool in "$KLI" "$VLEI_ORACLE" "$VLEI_SERVER" "$FORGE" "$CAST" "$ANVIL" "$JQ" curl nc; do
+    need "$tool"
+  done
+  require_demo_witness_config wan "tcp://127.0.0.1:5632/" "http://127.0.0.1:5642/"
+  require_demo_witness_config wil "tcp://127.0.0.1:5633/" "http://127.0.0.1:5643/"
+  require_demo_witness_config wes "tcp://127.0.0.1:5634/" "http://127.0.0.1:5644/"
+}
+
+case "${1:-}" in
+  --check) check_dependencies; log "Dependency inputs are ready" ;;
+  -h|--help)
+    printf 'Usage: %s [--check]\nPrepare pinned demo dependencies with scripts/dev/prepare-demo.py first.\n' "$0"
+    ;;
+  "") main ;;
+  *) printf 'Unknown argument: %s\n' "$1" >&2; exit 2 ;;
+esac

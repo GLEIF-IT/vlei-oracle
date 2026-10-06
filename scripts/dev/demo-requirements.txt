@@ -1,0 +1,7 @@
+# Qualified demo environment versions, independent of association-protocol work.
+keri==1.2.14
+eth-account==0.14.0
+eth-utils==6.0.0
+jsonschema==4.26.0
+blake3==1.0.10
+pycryptodome==3.24.0
