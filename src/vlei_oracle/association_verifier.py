@@ -1,5 +1,6 @@
 """Verify received association credentials against accepted KERI state."""
 
+from keri import kering
 from keri.core import coring, serdering
 from keri.vdr import credentialing
 
@@ -14,6 +15,7 @@ def verify_association(
     said: str,
     schema_said: str,
     trusted_geda_aid: str,
+    candidate: serdering.SerderACDC | None = None,
 ) -> serdering.SerderACDC:
     """Check current LE/QVI trust and return the accepted association ACDC.
 
@@ -21,7 +23,10 @@ def verify_association(
     for retry. Invalid relationships and revoked credentials raise VerificationError.
     External-profile verification is a separate step owned by the coordinator.
     """
-    association = accepted_credential(rgy, said, schema_said)
+    # Escrowed bytes are not authority. They can, however, establish that this
+    # candidate names a revoked or mismatched accepted source. Acceptance is
+    # still required below before any candidate can succeed.
+    association = stored_credential(rgy, said, schema_said, candidate=candidate)
     if "i" in association.attrib:
         raise VerificationError("association must be untargeted")
     le_edge = association.edge["le"]
@@ -39,14 +44,16 @@ def verify_association(
     if qvi.issuer != trusted_geda_aid:
         raise VerificationError("QVI credential is not issued by the trusted GEDA")
     qvi_state = rgy.hby.kevers.get(le.issuer)
-    if qvi_state is None or qvi_state.delpre != trusted_geda_aid:
+    if qvi_state is None:
+        raise MissingCredentialArtifactsError("QVI key state is not available yet")
+    if qvi_state.delpre != trusted_geda_aid:
         raise VerificationError("QVI AID is not delegated by the trusted GEDA")
 
     # Each nested SAID commits its own block as well as the enclosing ACDC.
     for block in (association.attrib["proof"], association.attrib, association.edge):
         if not coring.Saider(qb64=block["d"]).verify(sad=block, prefixed=True):
             raise VerificationError("association block SAID does not verify")
-    return association
+    return accepted_credential(rgy, said, schema_said)
 
 
 def accepted_credential(rgy, said: str, schema_said: str) -> serdering.SerderACDC:
@@ -70,10 +77,32 @@ def accepted_credential(rgy, said: str, schema_said: str) -> serdering.SerderACD
     return creder
 
 
-def stored_credential(rgy, said: str, schema_said: str) -> serdering.SerderACDC:
+def stored_credential(
+    rgy, said: str, schema_said: str, *, candidate=None
+) -> serdering.SerderACDC:
     """Read and validate credential bytes separately from acceptance/status."""
-    creder, *_ = rgy.reger.cloneCred(said=said)
-    creder = serdering.SerderACDC(raw=creder.raw)
+    creder = rgy.reger.creds.get(keys=(said,))
+    if creder is None:
+        creder = candidate
+    if creder is None:
+        raise MissingCredentialArtifactsError(f"credential {said} is not available yet")
+    try:
+        creder = serdering.SerderACDC(raw=creder.raw)
+    except kering.ValidationError as exc:
+        raise VerificationError(
+            f"credential {said} has invalid serialized data"
+        ) from exc
+    if creder.said != said:
+        raise VerificationError("candidate does not match requested association")
     if creder.schema != schema_said:
         raise VerificationError(f"credential {said} has unexpected schema")
+    schema = rgy.hby.db.schema.get(keys=(schema_said,))
+    if schema is None:
+        raise MissingCredentialArtifactsError(
+            f"schema {schema_said} is not available yet"
+        )
+    try:
+        schema.verify(creder.raw)
+    except kering.ValidationError as exc:
+        raise VerificationError(f"credential {said} does not match its schema") from exc
     return creder

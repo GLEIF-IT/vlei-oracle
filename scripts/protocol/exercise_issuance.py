@@ -328,6 +328,61 @@ def exercise(schema_dir: Path, *, keep: bool = False) -> None:
                     yield 0.01
                 associations[label] = creder
 
+            # Missing TEL/anchor evidence in fresh receivers must stay pending.
+            # These are HTTP acceptance checks, independent of the original session.
+            for missing in ("issuance", "anchor"):
+                fresh_port = free_port()
+                fresh = setup_service(
+                    ServiceConfig(
+                        name=f"missing-{missing}",
+                        alias="oracle",
+                        base=base,
+                        temp=temp,
+                        no_post=True,
+                        host="127.0.0.1",
+                        http_port=fresh_port,
+                        trusted_geda_aid=geda.pre,
+                        association_schema=str(ASSOCIATION_SCHEMA),
+                        schema_dir=str(schema_dir),
+                        rpc_url=rpc_url,
+                    )
+                )
+                stack.callback(fresh.baser.close, clear=temp)
+                stack.callback(fresh.rgy.reger.close, clear=temp)
+                association = associations["valid"]
+                le_events = list(le.db.clonePreIter(pre=le.pre))
+                evidence = streams["geda"] + streams["qvi"]
+                evidence += b"".join(
+                    le_events if missing == "issuance" else le_events[:1]
+                )
+                evidence += b"".join(
+                    le_rgy.reger.clonePreIter(pre=registries["le"].regk)
+                )
+                evidence += grant(
+                    le,
+                    le_rgy,
+                    association,
+                    fresh.hab.pre,
+                    include_issuance=missing != "issuance",
+                    include_anchor=missing != "anchor",
+                )
+                check = PresentationDoer(
+                    port=fresh_port,
+                    recipient=fresh.hab.pre,
+                    stream=evidence,
+                    said=association.said,
+                    expected="awaiting_artifacts",
+                )
+                workflow.extend([*fresh.doers, check])
+                while not check.done:
+                    yield 0.01
+                assert not check.result["verified"] and not check.result["txHashes"]
+                assert fresh.rgy.reger.saved.get(keys=(association.said,)) is None
+                workflow.remove([*fresh.doers, check])
+            print(
+                "Fresh receivers keep missing TEL/anchor evidence pending", flush=True
+            )
+
             # 9. A complete Grant arrives before its sources; HTTP operation stays pending.
             association = associations["valid"]
             check = PresentationDoer(
@@ -433,7 +488,7 @@ def exercise(schema_dir: Path, *, keep: bool = False) -> None:
                 + replay(le, le_rgy, registries["le"], withheld)
                 + grant(le, le_rgy, withheld, runtime.hab.pre),
                 said=withheld.said,
-                expected="awaiting_artifacts",
+                expected="failed",
             )
             workflow.extend([check])
             while not check.done:
@@ -442,6 +497,7 @@ def exercise(schema_dir: Path, *, keep: bool = False) -> None:
             assert not check.result["verified"] and not check.result["txHashes"], (
                 check.result
             )
+            assert "revoked" in check.result["failureReason"], check.result
             try:
                 verify_association(
                     rgy=runtime.rgy,
