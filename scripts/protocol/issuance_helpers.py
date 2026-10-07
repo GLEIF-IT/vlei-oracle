@@ -67,7 +67,9 @@ def rules(schema) -> dict:
     )[1]
 
 
-def grant(hab, rgy, creder, recipient) -> bytes:
+def grant(
+    hab, rgy, creder, recipient, *, include_issuance=True, include_anchor=True
+) -> bytes:
     """Create the ACDC, issuance, and anchor embeds used by ``kli ipex grant``.
 
     Source credentials travel separately, allowing a complete Grant to arrive
@@ -86,8 +88,8 @@ def grant(hab, rgy, creder, recipient) -> bytes:
         recp=recipient,
         message="External association",
         acdc=acdc,
-        iss=iss,
-        anc=anc,
+        iss=iss if include_issuance else None,
+        anc=anc if include_anchor else None,
     )
     return exn.raw + attachments
 

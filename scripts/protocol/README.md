@@ -30,11 +30,13 @@ association containing the wallet's EIP-712 proof. All identifiers use one key
 and no witnesses. The oracle independently processes their signed KELs, TELs,
 credentials, and addressed IPEX Grant over HTTP.
 
-Assertions cover pending evidence, successful verification, wrong signer,
+Fresh receivers test missing issuance TEL and KEL anchors without accepting the
+association. Assertions also cover pending source evidence, successful verification, wrong signer,
 wrong chain, ordinary contract code, and EIP-7702 delegation. Revoking the LE
 prevents acceptance of a new child and makes fresh verification of an already
-accepted association fail. KERIpy leaves the unaccepted child pending; the
-exercise does not mistake that state for successful verification.
+accepted association fail. The oracle rejects a candidate whose accepted source
+has known revocation, even when KERIpy keeps that candidate unaccepted. Missing
+source evidence remains pending; absence never establishes invalidity.
 
 ## Keep stores for inspection
 

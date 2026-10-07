@@ -19,7 +19,7 @@ from typing import Any
 
 from hio.base import doing
 from hio.help import decking
-from keri.core import coring
+from keri.core import coring, serdering
 from keri.peer import exchanging
 
 from .association_verifier import verify_association
@@ -301,10 +301,22 @@ class PresentationVerifierDoer(doing.DoDoer):
 
         try:
             if self.association_schema:
+                # KERIpy may discard an invalid child before logging its bytes.
+                # The accepted Grant already owns the immutable candidate; use
+                # it for rejection, never as a substitute for KERI acceptance.
+                exn = None
+                if op.grantSaid:
+                    exn, _ = exchanging.cloneMessage(self.rgy.hby, said=op.grantSaid)
+                candidate = (
+                    serdering.SerderACDC(sad=exn.ked["e"]["acdc"])
+                    if exn is not None
+                    else None
+                )
                 association = verify_association(
                     rgy=self.rgy,
                     said=op.walletCredentialSaid,
                     schema_said=self.association_schema,
+                    candidate=candidate,
                     trusted_geda_aid=self.trusted_geda_aid,
                 )
                 # The database remains the work list. The queue contains only the
