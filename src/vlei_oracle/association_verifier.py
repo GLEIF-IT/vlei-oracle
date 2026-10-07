@@ -58,10 +58,7 @@ def accepted_credential(rgy, said: str, schema_said: str) -> serdering.SerderACD
     """
     if rgy.reger.saved.get(keys=(said,)) is None:
         raise MissingCredentialArtifactsError(f"credential {said} is not accepted yet")
-    creder, *_ = rgy.reger.cloneCred(said=said)
-    creder = serdering.SerderACDC(raw=creder.raw)
-    if creder.schema != schema_said:
-        raise VerificationError(f"credential {said} has unexpected schema")
+    creder = stored_credential(rgy, said, schema_said)
     tever = rgy.reger.tevers.get(creder.regi)
     state = tever.vcState(said) if tever is not None else None
     if state is None:
@@ -70,4 +67,13 @@ def accepted_credential(rgy, said: str, schema_said: str) -> serdering.SerderACD
         raise VerificationError(f"credential {said} is revoked")
     if tever.pre != creder.issuer:
         raise VerificationError("credential registry belongs to another issuer")
+    return creder
+
+
+def stored_credential(rgy, said: str, schema_said: str) -> serdering.SerderACDC:
+    """Read and validate credential bytes separately from acceptance/status."""
+    creder, *_ = rgy.reger.cloneCred(said=said)
+    creder = serdering.SerderACDC(raw=creder.raw)
+    if creder.schema != schema_said:
+        raise VerificationError(f"credential {said} has unexpected schema")
     return creder
