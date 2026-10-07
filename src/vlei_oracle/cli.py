@@ -10,6 +10,8 @@ import argparse
 import os
 import sys
 
+from keri import kering
+
 from .commands import load_commands
 
 
@@ -23,7 +25,7 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         args.handler(args)
-    except (ValueError, FileNotFoundError, RuntimeError, OSError) as exc:
+    except (ValueError, KeyError, TypeError, RuntimeError, OSError, kering.KeriError) as exc:
         if os.getenv("DEBUG_VLEI_ORACLE"):
             raise
         print(f"vlei-oracle: {exc}", file=sys.stderr)

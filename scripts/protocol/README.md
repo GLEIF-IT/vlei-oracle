@@ -1,6 +1,8 @@
 # Association issuance and verification
 
 - [exercise_issuance.py](exercise_issuance.py): Real delegated credential issuance and IPEX/HTTP verification, including rejection cases.
+- [ceremony.py](ceremony.py): Verify the pre-issuance proof, consume the issuer nonce durably, and write a full ACDC for KLI.
+- [issuance_helpers.py](issuance_helpers.py): Test actor/store setup and native evidence workflows.
 - [generate_vectors.py](generate_vectors.py): Known-answer vectors derived from an existing association ACDC.
 - [requirements.txt](requirements.txt): Reproducible Python dependency versions.
 
@@ -47,7 +49,8 @@ Add `--keep` to retain GEDA, QVI, LE, and oracle state after the run:
   --schema-dir .demo/checkouts/vLEI/schema/acdc --keep
 ```
 
-Each run gets a fresh `issuance-…` KLI base. The script prints actual keystore,
+Each run gets a fresh `issuance-…` KLI base. The issuer nonce ledger is retained
+alongside the LE credential store. The script prints actual keystore,
 event, credential, and oracle-operation paths, plus ready-to-run `kli status`
 and `kli vc list --verbose` commands. Add `--issued` to a credential-list command
 to inspect credentials issued by that actor. Stores use KERIpy's normal persistent
@@ -90,10 +93,9 @@ Separate source delivery tests a Grant arriving before its supporting chain.
 
 ## Service interface
 
-Association mode adds these arguments to `vlei-oracle server start`:
+The service accepts the bundled association schema by default. Start it with:
 
 ```sh
---association-schema protocol/external-association-v1/association.schema.json \
 --schema-dir .demo/checkouts/vLEI/schema/acdc \
 --trusted-geda-aid '<GEDA AID>' --rpc-url http://127.0.0.1:8545 --no-post
 ```
@@ -104,6 +106,6 @@ HTTP endpoint and IPEX Grant. Poll `GET /presentations/<association SAID>`;
 proof needs no signature POST. This result records verification at that time;
 it does not create or maintain an on-chain endorsement.
 
-The existing wallet-transfer shell exercise and vlei-comply stack scripts still
-exercise the legacy contract format. This smaller exercise covers the new
-association path without requiring those contracts or witness services.
+The obsolete wallet-transfer shell workflow has been removed. This exercise
+currently covers issuance and verification; contract posting and transfer
+qualification are separate work. It needs no global wallet whitelist.

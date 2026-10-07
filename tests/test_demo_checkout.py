@@ -87,24 +87,6 @@ def test_environment_roundtrips_paths_containing_shell_metacharacters(
     assert actual == selected_path
 
 
-def test_e2e_preflight_fails_without_explicit_dependency_selection(
-    tmp_path: Path,
-) -> None:
-    script = tmp_path / "isolated oracle" / "scripts" / "e2e" / "demo.sh"
-    script.parent.mkdir(parents=True)
-    script.write_bytes((ROOT / "scripts/e2e/gl1-wallet-transfer-e2e.sh").read_bytes())
-    result = subprocess.run(
-        ["bash", str(script), "--check"],
-        env={"PATH": os.environ["PATH"], "HOME": str(tmp_path)},
-        capture_output=True,
-        check=False,
-        text=True,
-    )
-    assert result.returncode != 0
-    assert "prepare-demo.py" in result.stderr
-    assert not (script.parents[2] / "runs").exists()
-
-
 def test_prepared_python_environment_executes_interpreter_and_pip(
     tmp_path: Path,
 ) -> None:

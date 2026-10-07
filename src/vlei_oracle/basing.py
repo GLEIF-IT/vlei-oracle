@@ -1,8 +1,7 @@
 """LMDB-backed state for long-running vLEI Oracle presentation operations.
 
-Operations are keyed by wallet credential SAID and survive process restarts.
-The store is intentionally small: it records presentation progress, any legacy
-signature, the verified binding, and submitted transactions. Pending association
+Operations are keyed by association SAID and survive process restarts.
+The store records association progress, verified results, and transactions. Pending association
 operations also serve as the durable work list for HIO verification. A lost
 in-memory request or result cue is recovered by repeating read-only checks from
 the accepted credential; it does not require a second persistent queue.
@@ -13,40 +12,24 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from keri.core import coring
 from keri.db import dbing, koming
 from keri.help import helping
 
-
-STATE_GRANT_RECEIVED = "grant_received"
-STATE_AWAITING_SIGNATURE = "awaiting_signature"
 STATE_AWAITING_ARTIFACTS = "awaiting_artifacts"
 STATE_VERIFYING = "verifying"
 STATE_VERIFIED = "verified"
-STATE_POSTING = "posting"
-STATE_POSTED = "posted"
 STATE_FAILED = "failed"
-STATE_EXPIRED = "expired"
 
 
 @dataclass
 class OperationRecord:
-    """Durable state for one GL1 wallet presentation workflow.
+    """Progress for one association, keyed by its immutable credential SAID."""
 
-    A record is created by an IPEX Grant notification, advanced by the REST
-    signature endpoint, verified by ``PresentationVerifierDoer``, and posted by
-    ``ContractPosterDoer``.
-    """
-
-    walletCredentialSaid: str
-    state: str = STATE_GRANT_RECEIVED
+    associationSaid: str
+    state: str = STATE_VERIFYING
     grantSaid: str = ""
     grantSender: str = ""
-    walletSchema: str = ""
-    signatureType: str = ""
-    signature: str = ""
-    wallet: str = ""
-    chainId: int = 0
+    associationSchema: str = ""
     createdAt: str = ""
     updatedAt: str = ""
     failureReason: str = ""
@@ -55,16 +38,23 @@ class OperationRecord:
     txHashes: list[str] = field(default_factory=list)
 
     @classmethod
-    def new(cls, *, wallet_said: str, grant_said: str, grant_sender: str, wallet_schema: str) -> "OperationRecord":
-        """Create a fresh operation that is waiting for the wallet signature."""
+    def new(
+        cls,
+        *,
+        association_said: str,
+        grant_said: str,
+        grant_sender: str,
+        association_schema: str,
+    ) -> OperationRecord:
+        """Create fresh verification work from an accepted Grant."""
 
         now = helping.nowIso8601()
         return cls(
-            walletCredentialSaid=wallet_said,
-            state=STATE_AWAITING_SIGNATURE,
+            associationSaid=association_said,
+            state=STATE_VERIFYING,
             grantSaid=grant_said,
             grantSender=grant_sender,
-            walletSchema=wallet_schema,
+            associationSchema=association_schema,
             createdAt=now,
             updatedAt=now,
         )
@@ -78,14 +68,11 @@ class OperationRecord:
         """Return the public status shape exposed by the REST endpoint."""
 
         return {
-            "walletCredentialSaid": self.walletCredentialSaid,
+            "associationSaid": self.associationSaid,
             "state": self.state,
             "grantSaid": self.grantSaid,
             "grantSender": self.grantSender,
-            "walletSchema": self.walletSchema,
-            "signatureType": self.signatureType,
-            "wallet": self.wallet,
-            "chainId": self.chainId,
+            "associationSchema": self.associationSchema,
             "createdAt": self.createdAt,
             "updatedAt": self.updatedAt,
             "failureReason": self.failureReason,
@@ -113,67 +100,43 @@ class OracleBaser(dbing.LMDBer):
         self.ops = koming.Komer(db=self, subkey="ops.", schema=OperationRecord)
         return self.env
 
-    def get_operation(self, wallet_said: str) -> OperationRecord | None:
-        """Return the operation keyed by wallet credential SAID, if present."""
+    def get_operation(self, association_said: str) -> OperationRecord | None:
+        """Return the operation keyed by association SAID, if present."""
 
-        return self.ops.get(keys=(wallet_said,))
+        return self.ops.get(keys=(association_said,))
 
     def pin_operation(self, op: OperationRecord) -> OperationRecord:
         """Persist an operation after refreshing its update timestamp."""
 
         op.touch()
-        self.ops.pin(keys=(op.walletCredentialSaid,), val=op)
+        self.ops.pin(keys=(op.associationSaid,), val=op)
         return op
 
     def start_operation(
         self,
         *,
-        wallet_said: str,
+        association_said: str,
         grant_said: str,
         grant_sender: str,
-        wallet_schema: str,
+        association_schema: str,
     ) -> OperationRecord:
         """Create an operation from an IPEX Grant, preserving idempotency."""
 
-        existing = self.get_operation(wallet_said)
-        if existing is not None and existing.state != STATE_FAILED:
+        existing = self.get_operation(association_said)
+        if existing is not None:
             return existing
         op = OperationRecord.new(
-            wallet_said=wallet_said,
+            association_said=association_said,
             grant_said=grant_said,
             grant_sender=grant_sender,
-            wallet_schema=wallet_schema,
+            association_schema=association_schema,
         )
-        self.ops.pin(keys=(wallet_said,), val=op)
+        self.ops.pin(keys=(association_said,), val=op)
         return op
 
-    def attach_signature(
-        self,
-        *,
-        wallet_said: str,
-        signature_type: str,
-        signature: str,
-        wallet: str,
-        chain_id: int,
+    def mark_awaiting_artifacts(
+        self, op: OperationRecord, reason: str
     ) -> OperationRecord:
-        """Attach the REST-supplied signature and advance to verification."""
-
-        op = self.get_operation(wallet_said)
-        if op is None:
-            raise KeyError(wallet_said)
-        if op.state in (STATE_VERIFIED, STATE_POSTED, STATE_FAILED, STATE_EXPIRED):
-            raise ValueError(f"operation is already {op.state}")
-        if op.signature and op.signature != signature:
-            raise ValueError("operation already has a different signature")
-        op.signatureType = signature_type
-        op.signature = signature
-        op.wallet = wallet
-        op.chainId = chain_id
-        if op.state in (STATE_AWAITING_SIGNATURE, STATE_AWAITING_ARTIFACTS):
-            op.state = STATE_VERIFYING
-        return self.pin_operation(op)
-
-    def mark_awaiting_artifacts(self, op: OperationRecord, reason: str) -> OperationRecord:
         """Record that source-chain artifacts are still arriving."""
 
         if op.state == STATE_AWAITING_ARTIFACTS and op.failureReason == reason:
@@ -196,9 +159,3 @@ class OracleBaser(dbing.LMDBer):
         for _, op in self.ops.getItemIter():
             if op.state in wanted:
                 yield op
-
-
-def now_dater() -> coring.Dater:
-    """Return a KERI dater for the current wall-clock instant."""
-
-    return coring.Dater(dts=helping.nowIso8601())

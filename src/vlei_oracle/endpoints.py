@@ -1,10 +1,4 @@
-"""Falcon endpoints for the HIO-backed vLEI Oracle service.
-
-The root endpoint is KERI direct mode and mirrors Sally's HTTP receive shape by
-using ``keri.app.indirecting.HttpEnd``. Association proofs arrive inside the ACDC.
-The legacy wallet-signature endpoint decodes a CESR Matter and attaches the
-Ethereum signature to its operation; association operations reject that call.
-"""
+"""KERI direct-mode ingestion and durable association status endpoints."""
 
 from __future__ import annotations
 
@@ -14,74 +8,16 @@ from typing import Any
 import falcon
 from keri.app import indirecting
 
-from .basing import STATE_FAILED, STATE_POSTED, STATE_VERIFIED, OracleBaser
-from .constants import WALLET_SCHEMA, WALLET_SIGNATURE_TYPE
-from .wallet import decode_eth_signature_cesr
+from .basing import OracleBaser
 
 
 def load_ends(app: falcon.App, *, baser: OracleBaser, rxbs: bytearray, mbx) -> None:
-    """Register KERI direct-mode, signature, status, and health endpoints."""
+    """Register KERI ingestion, association status, and health endpoints."""
 
     app.add_route("/", indirecting.HttpEnd(rxbs=rxbs, mbx=mbx))
-    sig_end = SignatureEnd(baser=baser)
     status_end = PresentationStatusEnd(baser=baser)
-    app.add_route("/presentations/{wallet_said}/signature", sig_end)
-    app.add_route("/presentations/{wallet_said}", status_end)
+    app.add_route("/presentations/{association_said}", status_end)
     app.add_route("/health", HealthEnd(baser=baser))
-
-
-class SignatureEnd:
-    """Accept the second-step CESR-encoded Ethereum wallet signature.
-
-    Signature-before-Grant returns 404 because the operation is created only by
-    the IPEX Grant notification. Duplicate posts are idempotent only when the
-    wallet, chain id, and decoded signature match the posted operation.
-    """
-
-    def __init__(self, *, baser: OracleBaser):
-        self.baser = baser
-
-    def on_post(self, req: falcon.Request, rep: falcon.Response, wallet_said: str) -> None:
-        """Decode the CESR signature and attach it to an existing operation."""
-
-        body = _media(req)
-        signature_type = _required_str(body, "signatureType")
-        if signature_type != WALLET_SIGNATURE_TYPE:
-            raise falcon.HTTPBadRequest(description="unsupported signatureType")
-        wallet = _required_str(body, "wallet")
-        chain_id = _required_int(body, "chainId")
-        cesr_signature = _required_str(body, "signature")
-        try:
-            signature = decode_eth_signature_cesr(cesr_signature)
-        except ValueError as exc:
-            raise falcon.HTTPBadRequest(description=str(exc)) from exc
-
-        op = self.baser.get_operation(wallet_said)
-        if op is None:
-            raise falcon.HTTPNotFound(description=f"presentation {wallet_said} not found")
-        if op.walletSchema != WALLET_SCHEMA:
-            raise falcon.HTTPConflict(description="association proof is embedded in the credential")
-        if op.state == STATE_FAILED:
-            raise falcon.HTTPConflict(description=op.failureReason or "presentation failed")
-        if op.state in (STATE_VERIFIED, STATE_POSTED):
-            if op.signature == signature and op.wallet.lower() == wallet.lower() and op.chainId == chain_id:
-                _json(rep, op.to_json(), status=falcon.HTTP_202)
-                return
-            raise falcon.HTTPConflict(description=f"presentation already {op.state}")
-
-        try:
-            op = self.baser.attach_signature(
-                wallet_said=wallet_said,
-                signature_type=signature_type,
-                signature=signature,
-                wallet=wallet,
-                chain_id=chain_id,
-            )
-        except KeyError as exc:
-            raise falcon.HTTPNotFound(description=f"presentation {wallet_said} not found") from exc
-        except ValueError as exc:
-            raise falcon.HTTPConflict(description=str(exc)) from exc
-        _json(rep, op.to_json(), status=falcon.HTTP_202)
 
 
 class PresentationStatusEnd:
@@ -90,13 +26,17 @@ class PresentationStatusEnd:
     def __init__(self, *, baser: OracleBaser):
         self.baser = baser
 
-    def on_get(self, req: falcon.Request, rep: falcon.Response, wallet_said: str) -> None:
+    def on_get(
+        self, req: falcon.Request, rep: falcon.Response, association_said: str
+    ) -> None:
         """Return the current durable status for one wallet presentation."""
 
         _ = req
-        op = self.baser.get_operation(wallet_said)
+        op = self.baser.get_operation(association_said)
         if op is None:
-            raise falcon.HTTPNotFound(description=f"presentation {wallet_said} not found")
+            raise falcon.HTTPNotFound(
+                description=f"presentation {association_said} not found"
+            )
         _json(rep, op.to_json())
 
 
@@ -116,36 +56,9 @@ class HealthEnd:
         _json(rep, {"ok": True, "operations": counts})
 
 
-def _media(req: falcon.Request) -> dict[str, Any]:
-    """Decode a JSON object or report a client input error."""
-    try:
-        body = req.get_media()
-    except Exception as exc:
-        raise falcon.HTTPBadRequest(description="request body must be JSON") from exc
-    if not isinstance(body, dict):
-        raise falcon.HTTPBadRequest(description="request body must be a JSON object")
-    return body
-
-
-def _required_str(body: dict[str, Any], key: str) -> str:
-    """Read a required nonempty string from the request body."""
-    value = body.get(key)
-    if not isinstance(value, str) or not value:
-        raise falcon.HTTPBadRequest(description=f"{key} is required")
-    return value
-
-
-def _required_int(body: dict[str, Any], key: str) -> int:
-    """Read a JSON integer, excluding booleans and numeric strings."""
-    value = body.get(key)
-    if isinstance(value, bool):
-        raise falcon.HTTPBadRequest(description=f"{key} must be an integer")
-    if isinstance(value, int):
-        return value
-    raise falcon.HTTPBadRequest(description=f"{key} must be an integer")
-
-
-def _json(rep: falcon.Response, data: dict[str, Any], *, status: str = falcon.HTTP_200) -> None:
+def _json(
+    rep: falcon.Response, data: dict[str, Any], *, status: str = falcon.HTTP_200
+) -> None:
     """Set the response status and encode its body as JSON."""
     rep.status = status
     rep.content_type = "application/json"
