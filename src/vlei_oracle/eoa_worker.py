@@ -1,10 +1,12 @@
 """HIO request/cue flow for EOA proof and account verification."""
 
 import json
+import re
 
 from hio.base import doing
 from hio.core import http
 from hio.help import decking
+from keri.help import helping
 
 from .eoa import verify_eoa_account, verify_eoa_proof
 
@@ -48,17 +50,41 @@ class EoaVerifierDoer(doing.DoDoer):
                 client_doer = http.ClientDoer(client=client)
                 self.extend([client_doer])
                 wallet = association["a"]["extId"].split(":")[2]
-                results = []
-                for request_id, (method, params) in enumerate(
-                    [("eth_chainId", []), ("eth_getCode", [wallet, "latest"])], 1
+                chain = yield from self.request(client, 1, "eth_chainId", [])
+                if not isinstance(chain, str) or not re.fullmatch(
+                    r"0x[1-9a-f][0-9a-f]*", chain
                 ):
-                    results.append(
-                        (yield from self.request(client, request_id, method, params))
+                    raise ValueError("eth_chainId returned an invalid quantity")
+                chain_id = int(chain, 16)
+                block = yield from self.request(
+                    client, 2, "eth_getBlockByNumber", ["latest", False]
+                )
+                if (
+                    not isinstance(block, dict)
+                    or not re.fullmatch(
+                        r"0x(?:0|[1-9a-f][0-9a-f]*)", block.get("number", "")
                     )
-                chain_id = int(results[0], 16)
-                if not results[1].startswith("0x"):
+                    or not re.fullmatch(r"0x[0-9a-f]{64}", block.get("hash", ""))
+                ):
+                    raise ValueError("RPC returned no identified block")
+                code_hex = yield from self.request(
+                    client,
+                    3,
+                    "eth_getCode",
+                    [wallet, {"blockHash": block["hash"], "requireCanonical": True}],
+                )
+                if not isinstance(code_hex, str) or not re.fullmatch(
+                    r"0x(?:[0-9a-f]{2})*", code_hex
+                ):
                     raise ValueError("eth_getCode returned invalid hex data")
-                code = bytes.fromhex(results[1][2:])
+                code = bytes.fromhex(code_hex[2:])
+                observation = {
+                    "chainId": chain_id,
+                    "blockNumber": int(block["number"], 16),
+                    "blockHash": block["hash"],
+                    "code": code_hex,
+                    "observedAt": helping.nowIso8601(),
+                }
             except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
                 # Transport/RPC failures are not evidence of an invalid credential.
                 self.cues.append({"kin": "retry", "said": said, "error": str(exc)})
@@ -72,6 +98,7 @@ class EoaVerifierDoer(doing.DoDoer):
             except ValueError as exc:
                 self.cues.append({"kin": "failed", "said": said, "error": str(exc)})
             else:
+                result["observation"] = observation
                 self.cues.append({"kin": "verified", "said": said, "verified": result})
 
     def request(self, client, request_id, method, params):

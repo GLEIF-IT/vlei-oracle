@@ -65,7 +65,11 @@ the oracle. Anvil control requests use a HIO HTTP client as well.
 
 The oracle's verification coordinator owns an EOA worker with request and result
 queues. Local KERI and signature checks remain ordinary functions; RPC waits
-use HIO HTTP clients. The coordinator rechecks credential status before recording
+use HIO HTTP clients. Account code is read at an identified canonical block using
+an EIP-1898 block-hash selector. The operation retains chain ID, block number/hash,
+code, and observation time off-chain. Missing blocks, unsupported selectors, or
+RPC errors remain pending; they do not establish account invalidity. The
+coordinator rechecks credential status before recording
 success. RPC failures remain pending for retry. Persisted operations supply the
 work list after restart, so interrupted requests and lost cues can be recomputed
 without persisting a second queue or copying credential evidence.
