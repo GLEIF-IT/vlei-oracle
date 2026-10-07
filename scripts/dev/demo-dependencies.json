@@ -1,8 +1,8 @@
 {
   "keripy": {
-    "url": "https://github.com/WebOfTrust/keripy.git",
-    "commit": "bab95c16e949b61398129a3e41a8f68bad84c94f",
-    "release": "1.2.14"
+    "url": "https://github.com/GLEIF-IT/keripy.git",
+    "commit": "0d3f4808aa9960bdc6a63da7aede2fca7101bea8",
+    "release": "1.2.15rc1"
   },
   "vLEI": {
     "url": "https://github.com/WebOfTrust/vLEI.git",
@@ -10,6 +10,6 @@
   },
   "vlei-comply": {
     "url": "https://github.com/GLEIF-IT/vlei-comply.git",
-    "commit": "59d40b805bb6700c9b01fe3119c17b5436be143f"
+    "commit": "7391c4b11fdfb8adde8e1f7c92514850b3c7f306"
   }
 }

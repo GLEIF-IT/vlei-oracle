@@ -1,9 +1,11 @@
 """LMDB-backed state for long-running vLEI Oracle presentation operations.
 
 Operations are keyed by wallet credential SAID and survive process restarts.
-The store is intentionally small: it records where the two-step presentation
-workflow is, what signature and verified binding were attached, and which
-on-chain transactions were submitted.
+The store is intentionally small: it records presentation progress, any legacy
+signature, the verified binding, and submitted transactions. Pending association
+operations also serve as the durable work list for HIO verification. A lost
+in-memory request or result cue is recovered by repeating read-only checks from
+the accepted credential; it does not require a second persistent queue.
 """
 
 from __future__ import annotations
@@ -20,6 +22,7 @@ STATE_GRANT_RECEIVED = "grant_received"
 STATE_AWAITING_SIGNATURE = "awaiting_signature"
 STATE_AWAITING_ARTIFACTS = "awaiting_artifacts"
 STATE_VERIFYING = "verifying"
+STATE_VERIFIED = "verified"
 STATE_POSTING = "posting"
 STATE_POSTED = "posted"
 STATE_FAILED = "failed"
@@ -158,7 +161,7 @@ class OracleBaser(dbing.LMDBer):
         op = self.get_operation(wallet_said)
         if op is None:
             raise KeyError(wallet_said)
-        if op.state in (STATE_POSTED, STATE_FAILED, STATE_EXPIRED):
+        if op.state in (STATE_VERIFIED, STATE_POSTED, STATE_FAILED, STATE_EXPIRED):
             raise ValueError(f"operation is already {op.state}")
         if op.signature and op.signature != signature:
             raise ValueError("operation already has a different signature")
@@ -173,6 +176,8 @@ class OracleBaser(dbing.LMDBer):
     def mark_awaiting_artifacts(self, op: OperationRecord, reason: str) -> OperationRecord:
         """Record that source-chain artifacts are still arriving."""
 
+        if op.state == STATE_AWAITING_ARTIFACTS and op.failureReason == reason:
+            return op
         op.state = STATE_AWAITING_ARTIFACTS
         op.failureReason = reason
         return self.pin_operation(op)

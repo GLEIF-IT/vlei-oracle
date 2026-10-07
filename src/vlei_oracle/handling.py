@@ -1,16 +1,14 @@
 """HIO Doers for vLEI Oracle presentation processing.
 
-The service is intentionally reactive. A standard KERIpy IPEX Grant is parsed
-by the KERI stack, the notifier exposes a ``/exn/ipex/grant`` notice, and these
-Doers advance a durable operation through the states:
+KERIpy exposes accepted IPEX Grants through its notifier. Association Grants
+carry their wallet proof and advance to verification immediately; legacy wallet
+attestations first wait for a REST signature. Missing evidence leaves an
+operation in ``awaiting_artifacts`` for retry.
 
-``awaiting_signature -> verifying -> posting -> posted``.
-
-If recursive credentials, TEL events, or KEL events have not arrived yet, the
-operation stays non-terminal in ``awaiting_artifacts`` and is retried by HIO.
-Only cryptographic, schema, policy, or posting failures mark the operation
-``failed``. This keeps the oracle close to Sally's grant-notification model
-while replacing Sally's webhook with contract posting.
+Verification-only runs finish at ``verified``. The legacy posting path advances
+through ``posting`` to ``posted``; verification or posting errors become
+``failed``. A terminal verification result records that completed check, rather
+than continuously tracking the credential's later status.
 """
 
 from __future__ import annotations
@@ -24,15 +22,17 @@ from hio.help import decking
 from keri.core import coring
 from keri.peer import exchanging
 
+from .association_verifier import verify_association
 from .basing import (
-    OracleBaser,
-    OperationRecord,
     STATE_AWAITING_ARTIFACTS,
     STATE_AWAITING_SIGNATURE,
     STATE_FAILED,
     STATE_POSTED,
     STATE_POSTING,
+    STATE_VERIFIED,
     STATE_VERIFYING,
+    OperationRecord,
+    OracleBaser,
 )
 from .keri_store import MissingCredentialArtifactsError, presentation_from_reger
 from .posting import PostAction, Web3ContractPoster
@@ -97,12 +97,23 @@ class GrantNotificationDoer(doing.Doer):
     material, the Doer leaves the notice in place and retries on a later recur.
     """
 
-    def __init__(self, *, baser: OracleBaser, hby, notifier, parser, expected_wallet_schema: str, **kwa):
+    def __init__(
+        self,
+        *,
+        baser: OracleBaser,
+        hby,
+        notifier,
+        parser,
+        expected_wallet_schema: str,
+        embedded_proof: bool = False,
+        **kwa,
+    ):
         self.baser = baser
         self.hby = hby
         self.notifier = notifier
         self.parser = parser
         self.expected_wallet_schema = expected_wallet_schema
+        self.embedded_proof = embedded_proof
         super().__init__(**kwa)
 
     def recur(self, tyme):
@@ -171,21 +182,27 @@ class GrantNotificationDoer(doing.Doer):
                 f"wallet credential schema {wallet_schema} does not match expected {self.expected_wallet_schema}",
             )
 
-        return self.baser.start_operation(
+        op = self.baser.start_operation(
             wallet_said=wallet_said,
             grant_said=grant_said,
             grant_sender=acdc.get("i", ""),
             wallet_schema=wallet_schema,
         )
+        if self.embedded_proof and op.state == STATE_AWAITING_SIGNATURE:
+            op.state = STATE_VERIFYING
+            self.baser.pin_operation(op)
+        return op
 
 
-class PresentationVerifierDoer(doing.Doer):
-    """Verify signed wallet presentation operations once both inputs are present.
+class PresentationVerifierDoer(doing.DoDoer):
+    """Verify received credentials against accepted KERI state and wallet proof.
 
-    This Doer starts after the IPEX Grant has created a durable operation and
-    the signature endpoint has attached the external CESR-decoded Ethereum
-    signature. Missing local KERI artifacts are treated as a retry condition;
-    failed policy or cryptographic checks are terminal.
+    Association Grants carry the proof in the ACDC. Legacy wallet attestations
+    wait for the signature endpoint. Missing artifacts remain pending; invalid
+    proofs fail. Owns the EOA worker lifecycle and commits its result cues.
+    One association is dispatched at a time, bounding in-memory work. RPC errors
+    remain retryable; restart rediscovers unfinished operations from the store.
+    Verification-only runs terminate at ``verified``.
     """
 
     def __init__(
@@ -196,6 +213,10 @@ class PresentationVerifierDoer(doing.Doer):
         trusted_geda_aid: str,
         oracle_registry: str = "",
         verify_saids: bool = True,
+        association_schema: str = "",
+        eoa_verifier=None,
+        retry_delay: float = 5.0,
+        no_post: bool = False,
         **kwa,
     ):
         self.baser = baser
@@ -203,26 +224,100 @@ class PresentationVerifierDoer(doing.Doer):
         self.trusted_geda_aid = trusted_geda_aid
         self.oracle_registry = oracle_registry
         self.verify_saids = verify_saids
-        super().__init__(**kwa)
+        self.association_schema = association_schema
+        self.eoa_verifier = eoa_verifier
+        self.retry_delay = retry_delay
+        # These are scheduling hints only; operation state remains in OracleBaser.
+        # Restart may retry sooner, but cannot lose or falsely complete the work.
+        self.retry_at = {}
+        self.pending = None
+        if association_schema and eoa_verifier is None:
+            raise ValueError("association verification requires an EOA worker")
+        self.no_post = no_post
+        children = [eoa_verifier] if eoa_verifier is not None else []
+        super().__init__(doers=[*children, doing.doify(self.verify_do)], **kwa)
 
-    def recur(self, tyme):
-        """Attempt verification for operations ready or waiting on artifacts."""
+    def verify_do(self, tymth, tock=0.0, **opts):
+        """Coordinate persisted work and worker cues on the shared HIO clock."""
+        yield tock
+        while True:
+            self.process_results()
+            self.process_ready()
+            yield self.tock
 
-        _ = tyme
-        self.process_ready()
-        return False
+    def process_results(self) -> None:
+        """Apply a matching cue; recheck KERI/TEL state after asynchronous work."""
+        if self.eoa_verifier is None:
+            return
+        while self.eoa_verifier.cues:
+            cue = self.eoa_verifier.cues.popleft()
+            said = cue["said"]
+            if said != self.pending:
+                continue
+            self.pending = None
+            op = self.baser.get_operation(said)
+            if op is None or op.state != STATE_VERIFYING:
+                continue
+            if cue["kin"] == "retry":
+                op.failureReason = cue["error"]
+                op.retryCount += 1
+                self.baser.pin_operation(op)
+                self.retry_at[said] = self.tyme + self.retry_delay
+            elif cue["kin"] == "failed":
+                self.baser.mark_failed(op, cue["error"])
+            elif cue["kin"] == "verified":
+                try:
+                    # A revocation can arrive while the RPC client is waiting.
+                    verify_association(
+                        rgy=self.rgy,
+                        said=said,
+                        schema_said=self.association_schema,
+                        trusted_geda_aid=self.trusted_geda_aid,
+                    )
+                except MissingCredentialArtifactsError as exc:
+                    self.baser.mark_awaiting_artifacts(op, str(exc))
+                except VerificationError as exc:
+                    self.baser.mark_failed(op, str(exc))
+                else:
+                    op.verified = cue["verified"]
+                    op.state = STATE_VERIFIED
+                    op.failureReason = ""
+                    self.baser.pin_operation(op)
 
     def process_ready(self) -> None:
-        """Retry operations that have both the Grant path and signature path."""
+        """Retry operations ready for verification or waiting for KERI artifacts."""
 
-        for op in list(self.baser.operations_by_state(STATE_VERIFYING, STATE_AWAITING_ARTIFACTS)):
+        for op in list(
+            self.baser.operations_by_state(STATE_VERIFYING, STATE_AWAITING_ARTIFACTS)
+        ):
+            if self.association_schema and self.pending is not None:
+                break
+            if self.retry_at.get(op.walletCredentialSaid, 0) > self.tyme:
+                continue
             self.verify_operation(op)
 
     def verify_operation(self, op: OperationRecord) -> OperationRecord:
-        """Load KERI artifacts, verify the GL1 binding, and move to posting."""
+        """Verify the selected credential profile before any posting transition."""
 
         try:
-            presentation = presentation_from_reger(rgy=self.rgy, said=op.walletCredentialSaid)
+            if self.association_schema:
+                association = verify_association(
+                    rgy=self.rgy,
+                    said=op.walletCredentialSaid,
+                    schema_said=self.association_schema,
+                    trusted_geda_aid=self.trusted_geda_aid,
+                )
+                # The database remains the work list. The queue contains only the
+                # current dispatch, so restart recovers work without queue persistence.
+                self.retry_at.pop(op.walletCredentialSaid, None)
+                op.state = STATE_VERIFYING
+                self.baser.pin_operation(op)
+                self.pending = op.walletCredentialSaid
+                self.eoa_verifier.msgs.append(association.sad)
+                return op
+            presentation = presentation_from_reger(
+                rgy=self.rgy, said=op.walletCredentialSaid
+            )
             binding = verify_presentation(
                 presentation,
                 trusted_geda_aid=self.trusted_geda_aid,
@@ -233,11 +328,15 @@ class PresentationVerifierDoer(doing.Doer):
                 oracle_registry=self.oracle_registry,
             )
             if op.wallet and binding.wallet.lower() != op.wallet.lower():
-                raise VerificationError("signature POST wallet does not match verified wallet attestation")
+                raise VerificationError(
+                    "signature POST wallet does not match verified wallet attestation"
+                )
             if op.chainId and binding.chain_id != op.chainId:
-                raise VerificationError("signature POST chainId does not match verified wallet attestation")
+                raise VerificationError(
+                    "signature POST chainId does not match verified wallet attestation"
+                )
             op.verified = binding.to_json()
-            op.state = STATE_POSTING
+            op.state = STATE_VERIFIED if self.no_post else STATE_POSTING
             op.failureReason = ""
             return self.baser.pin_operation(op)
         except MissingCredentialArtifactsError as exc:
@@ -379,4 +478,4 @@ def pending_states() -> tuple[str, ...]:
 def terminal_states() -> tuple[str, ...]:
     """Return states that no Doer should advance further."""
 
-    return (STATE_POSTED, STATE_FAILED)
+    return (STATE_VERIFIED, STATE_POSTED, STATE_FAILED)

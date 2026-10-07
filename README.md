@@ -5,6 +5,15 @@ It implements GL1-specific verification directly: vLEI credential-chain checks,
 GL1 Ethereum Wallet Attestation validation, native EIP-712 Ethereum signature
 recovery, and on-chain posting of compact registry state.
 
+The [vLEI External Association](protocol/external-association-v1/README.md)
+documentation covers the common credential schema and the
+[Ethereum EOA wallet challenge and examples](protocol/external-association-v1/eoa-v1/README.md).
+The [association issuance exercise](scripts/protocol/README.md) creates a real
+GEDA → delegated QVI → LE credential chain and presents a proof-bearing
+association through the running service's IPEX/HTTP interface. Association mode
+is verification-only; the legacy Wallet Attestation workflow below includes
+contract posting.
+
 The first e2e target is local Anvil:
 
 ```text
@@ -84,6 +93,8 @@ using the deployed infrastructure, see
 - `wallet.py`, `clienting.py`, and `endpoints.py` define the EIP-712 challenge,
   Ethereum signing, CESR signature transport, REST decode, and status polling
   boundary.
+- `association_verifier.py` checks accepted association and source-credential state;
+  `eoa.py` reconstructs the wallet challenge and resolves account status.
 - `keri_store.py` extracts recursive ACDC/TEL material from the local KERIpy
   store; `verifier.py` enforces the GL1 vLEI chain and wallet-binding policy.
 - `posting.py` is the Web3 edge adapter. HIO Doers own timing and receipt
@@ -121,6 +132,12 @@ clones its pinned repositories into `.demo/checkouts/`, initializes the recorded
 Solidity submodules, and installs Python packages in `.demo/venv/`. External
 Python packages come from PyPI or a pinned upstream Git URL; the source checkouts
 supply demo assets and contracts. The environment file records explicit paths.
+
+The test runtime uses `gleif_keri==1.2.15rc1` and its pinned GLEIF HIO dependency.
+Use a fresh environment when upgrading from upstream `keri`/`hio`, since both
+distributions provide the same imports. The preparer installs vLEI schema tools
+without dependency resolution because their metadata still names upstream
+packages; the demo requirements supply their runtime dependencies.
 It starts no services and does not touch keys or existing KERI stores.
 
 Existing dependency checkouts are reused only when the origin, commit, and clean

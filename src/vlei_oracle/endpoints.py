@@ -1,9 +1,9 @@
 """Falcon endpoints for the HIO-backed vLEI Oracle service.
 
 The root endpoint is KERI direct mode and mirrors Sally's HTTP receive shape by
-using ``keri.app.indirecting.HttpEnd``. The wallet-signature endpoint is the
-only GL1-specific REST call: it receives a CESR Matter, decodes it back to an
-Ethereum signature, and attaches it to the durable presentation operation.
+using ``keri.app.indirecting.HttpEnd``. Association proofs arrive inside the ACDC.
+The legacy wallet-signature endpoint decodes a CESR Matter and attaches the
+Ethereum signature to its operation; association operations reject that call.
 """
 
 from __future__ import annotations
@@ -14,8 +14,8 @@ from typing import Any
 import falcon
 from keri.app import indirecting
 
-from .basing import OracleBaser, STATE_FAILED, STATE_POSTED
-from .constants import WALLET_SIGNATURE_TYPE
+from .basing import STATE_FAILED, STATE_POSTED, STATE_VERIFIED, OracleBaser
+from .constants import WALLET_SCHEMA, WALLET_SIGNATURE_TYPE
 from .wallet import decode_eth_signature_cesr
 
 
@@ -59,13 +59,15 @@ class SignatureEnd:
         op = self.baser.get_operation(wallet_said)
         if op is None:
             raise falcon.HTTPNotFound(description=f"presentation {wallet_said} not found")
+        if op.walletSchema != WALLET_SCHEMA:
+            raise falcon.HTTPConflict(description="association proof is embedded in the credential")
         if op.state == STATE_FAILED:
             raise falcon.HTTPConflict(description=op.failureReason or "presentation failed")
-        if op.state == STATE_POSTED:
+        if op.state in (STATE_VERIFIED, STATE_POSTED):
             if op.signature == signature and op.wallet.lower() == wallet.lower() and op.chainId == chain_id:
                 _json(rep, op.to_json(), status=falcon.HTTP_202)
                 return
-            raise falcon.HTTPConflict(description="presentation already posted")
+            raise falcon.HTTPConflict(description=f"presentation already {op.state}")
 
         try:
             op = self.baser.attach_signature(
@@ -115,6 +117,7 @@ class HealthEnd:
 
 
 def _media(req: falcon.Request) -> dict[str, Any]:
+    """Decode a JSON object or report a client input error."""
     try:
         body = req.get_media()
     except Exception as exc:
@@ -125,6 +128,7 @@ def _media(req: falcon.Request) -> dict[str, Any]:
 
 
 def _required_str(body: dict[str, Any], key: str) -> str:
+    """Read a required nonempty string from the request body."""
     value = body.get(key)
     if not isinstance(value, str) or not value:
         raise falcon.HTTPBadRequest(description=f"{key} is required")
@@ -132,6 +136,7 @@ def _required_str(body: dict[str, Any], key: str) -> str:
 
 
 def _required_int(body: dict[str, Any], key: str) -> int:
+    """Read a JSON integer, excluding booleans and numeric strings."""
     value = body.get(key)
     if isinstance(value, bool):
         raise falcon.HTTPBadRequest(description=f"{key} must be an integer")
@@ -141,6 +146,7 @@ def _required_int(body: dict[str, Any], key: str) -> int:
 
 
 def _json(rep: falcon.Response, data: dict[str, Any], *, status: str = falcon.HTTP_200) -> None:
+    """Set the response status and encode its body as JSON."""
     rep.status = status
     rep.content_type = "application/json"
     rep.data = json.dumps(data, sort_keys=True).encode("utf-8")
