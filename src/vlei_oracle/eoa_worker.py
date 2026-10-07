@@ -52,27 +52,9 @@ class EoaVerifierDoer(doing.DoDoer):
                 for request_id, (method, params) in enumerate(
                     [("eth_chainId", []), ("eth_getCode", [wallet, "latest"])], 1
                 ):
-                    client.request(
-                        method="POST",
-                        data={
-                            "jsonrpc": "2.0",
-                            "id": request_id,
-                            "method": method,
-                            "params": params,
-                        },
+                    results.append(
+                        (yield from self.request(client, request_id, method, params))
                     )
-                    deadline = self.tyme + self.timeout
-                    while not client.responses:
-                        if self.tyme >= deadline:
-                            raise TimeoutError(f"{method} timed out")
-                        yield self.tock
-                    response = client.responses.popleft()
-                    if response["status"] != 200:
-                        raise ValueError(f"{method} HTTP status {response['status']}")
-                    payload = json.loads(response["body"])
-                    if payload.get("id") != request_id or "error" in payload:
-                        raise ValueError(f"{method} returned an invalid RPC response")
-                    results.append(payload["result"])
                 chain_id = int(results[0], 16)
                 if not results[1].startswith("0x"):
                     raise ValueError("eth_getCode returned invalid hex data")
@@ -91,3 +73,27 @@ class EoaVerifierDoer(doing.DoDoer):
                 self.cues.append({"kin": "failed", "said": said, "error": str(exc)})
             else:
                 self.cues.append({"kin": "verified", "said": said, "verified": result})
+
+    def request(self, client, request_id, method, params):
+        """Yield while one RPC request runs; reject unusable transport responses."""
+        client.request(
+            method="POST",
+            data={
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "method": method,
+                "params": params,
+            },
+        )
+        deadline = self.tyme + self.timeout
+        while not client.responses:
+            if self.tyme >= deadline:
+                raise TimeoutError(f"{method} timed out")
+            yield self.tock
+        response = client.responses.popleft()
+        if response["status"] != 200:
+            raise ValueError(f"{method} HTTP status {response['status']}")
+        payload = json.loads(response["body"])
+        if payload.get("id") != request_id or "error" in payload:
+            raise ValueError(f"{method} returned an invalid RPC response")
+        return payload["result"]
