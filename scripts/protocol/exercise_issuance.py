@@ -23,12 +23,18 @@ from eth_account import Account
 from eth_account.messages import encode_typed_data
 from hio.base import doing
 from hio.core import http
-from keri.app import habbing, httping, signing
-from keri.core import coring, eventing, parsing, scheming, serdering
-from keri.db import dbing
+from issuance_helpers import (
+    IssuerEscrows,
+    anchor,
+    grant,
+    open_issuers,
+    receive,
+    replay,
+    rules,
+)
+from keri.app import httping
+from keri.core import coring, scheming, serdering
 from keri.kering import Protocols, versify
-from keri.vc import protocoling
-from keri.vdr import credentialing, verifying
 
 from vlei_oracle.association_verifier import verify_association
 from vlei_oracle.constants import LE_SCHEMA, QVI_SCHEMA
@@ -51,106 +57,6 @@ def free_port() -> int:
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
         return sock.getsockname()[1]
-
-
-def anchor(hab, event) -> serdering.SerderKERI:
-    """Seal a TEL event in a signed interaction, as the single-sig KLI does."""
-    message = hab.interact(
-        data=[eventing.SealEvent(event.pre, event.snh, event.said)._asdict()]
-    )
-    return serdering.SerderKERI(raw=message)
-
-
-def replay(hab, rgy, registry, creder) -> bytes:
-    """Export issuer KEL, registry TEL, credential TEL, and accepted ACDC bytes.
-
-    Uses the same replay and serialization APIs as KLI artifact delivery.
-    Callers prepend upstream streams when the receiver needs the source chain.
-    """
-    return b"".join(
-        [
-            *hab.db.clonePreIter(pre=hab.pre),
-            *rgy.reger.clonePreIter(pre=registry.regk),
-            *rgy.reger.clonePreIter(pre=creder.said),
-            signing.serialize(*rgy.reger.cloneCred(creder.said)),
-        ]
-    )
-
-
-def receive(hby, rgy, stream) -> None:
-    """Give an issuer supporting KERI evidence through the standard parser.
-
-    QVI and LE use this local delivery before issuing their own credentials.
-    Oracle delivery is tested separately through HTTP. Acceptance is established
-    by KERIpy's verifier, including its normal escrow processing.
-    """
-    verifier = verifying.Verifier(hby=hby, reger=rgy.reger)
-    parsing.Parser().parse(
-        ims=bytearray(stream),
-        kvy=eventing.Kevery(db=hby.db, lax=False, local=False),
-        tvy=verifier.tvy,
-        vry=verifier,
-    )
-    verifier.processEscrows()
-
-
-def rules(schema) -> dict:
-    """SAIDify the exact disclaimer text required by the published vLEI schema."""
-    fields = schema.sed["properties"]["r"]["oneOf"][1]["properties"]
-    return coring.Saider.saidify(
-        sad={
-            "d": "",
-            **{
-                name: {"l": fields[name]["properties"]["l"]["const"]}
-                for name in ("usageDisclaimer", "issuanceDisclaimer")
-            },
-        }
-    )[1]
-
-
-def grant(hab, rgy, creder, recipient) -> bytes:
-    """Create the ACDC, issuance, and anchor embeds used by ``kli ipex grant``.
-
-    Source credentials travel separately, allowing a complete Grant to arrive
-    before the evidence needed to verify its LE edge.
-    """
-    acdc = signing.serialize(*rgy.reger.cloneCred(creder.said))
-    iss = rgy.reger.cloneTvtAt(creder.said)
-    issuance = serdering.SerderKERI(raw=iss)
-    sealing_event = hab.db.fetchLastSealingEventByEventSeal(
-        hab.pre,
-        seal={"i": issuance.pre, "s": issuance.snh, "d": issuance.said},
-    )
-    anc = hab.db.cloneEvtMsg(pre=hab.pre, fn=0, dig=sealing_event.said)
-    exn, attachments = protocoling.ipexGrantExn(
-        hab=hab,
-        recp=recipient,
-        message="External association",
-        acdc=acdc,
-        iss=iss,
-        anc=anc,
-    )
-    return exn.raw + attachments
-
-
-class IssuerEscrows(doing.Doer):
-    """Process each issuer's registry and credential escrows on the HIO clock.
-
-    The KLI normally performs this alongside its mailbox processing. Local
-    issuer-to-holder delivery here has no mailbox; Registrar and Credentialer
-    still run as their own native HIO doers.
-    """
-
-    def __init__(self, issuers):
-        self.issuers = issuers
-        super().__init__(tock=0.03125)
-
-    def recur(self, tyme):
-        """Advance evidence acceptance without blocking another actor's doers."""
-        for issuer in self.issuers:
-            issuer.rgy.processEscrows()
-            issuer.verifier.processEscrows()
-        return False
 
 
 class PresentationDoer(doing.DoDoer):
@@ -220,50 +126,10 @@ def exercise(schema_dir: Path, *, keep: bool = False) -> None:
     schema_said = schemas[-1].said
     with ExitStack() as stack:
         # 2. Create single-key GEDA, delegated QVI, and LE identifiers and issuers.
-        actors, issuers = {}, {}
-        for name in ("geda", "qvi", "le"):
-            hby = stack.enter_context(habbing.openHby(name=name, base=base, temp=temp))
-            for schema in schemas:
-                hby.db.schema.pin(keys=(schema.said,), val=schema)
-            hab = hby.makeHab(
-                name=name,
-                icount=1,
-                isith="1",
-                ncount=1,
-                nsith="1",
-                wits=[],
-                **({"delpre": actors["geda"][1].pre} if name == "qvi" else {}),
-            )
-            rgy = credentialing.Regery(hby=hby, name=name, base=base, temp=temp)
-            stack.callback(rgy.reger.close, clear=temp)
-            actors[name] = (hby, hab, rgy)
-            # Single-sig needs no multisig Counselor; retain the KLI lifecycle doers.
-            registrar = credentialing.Registrar(hby=hby, rgy=rgy, counselor=None)
-            issuers[name] = credentialing.Credentialer(
-                hby=hby,
-                rgy=rgy,
-                registrar=registrar,
-                verifier=verifying.Verifier(hby=hby, reger=rgy.reger),
-            )
-        geda_hby, geda, _geda_rgy = actors["geda"]
-        qvi_hby, qvi, qvi_rgy = actors["qvi"]
+        actors, issuers = open_issuers(stack, schemas, base=base, temp=temp)
+        _geda_hby, geda, _geda_rgy = actors["geda"]
+        _qvi_hby, qvi, qvi_rgy = actors["qvi"]
         le_hby, le, le_rgy = actors["le"]
-
-        # 3. Sign GEDA's approval, matching `kli delegate confirm --interact`.
-        # ConfirmDoer records this authorizer couple; direct replay replaces its
-        # witness query because these test identifiers intentionally have no witnesses.
-        inception = serdering.SerderKERI(raw=qvi.makeOwnEvent(sn=0))
-        geda.interact(data=[eventing.SealEvent(qvi.pre, "0", inception.said)._asdict()])
-        couple = coring.Seqner(sn=geda.kever.sn).qb64b + geda.kever.serder.saidb
-        for hby in (geda_hby, qvi_hby):
-            hby.db.setAes(dbing.dgKey(qvi.pre, inception.said), couple)
-        receive(qvi_hby, qvi_rgy, b"".join(geda.db.clonePreIter(pre=geda.pre)))
-        # Delegator approval is a protected local operation, as in the KLI;
-        # unprotected remote input is deliberately escrowed for local delegates.
-        geda_hby.psr.parse(ims=bytearray(b"".join(qvi.db.clonePreIter(pre=qvi.pre))))
-        geda_hby.kvy.processEscrowDelegables()
-        receive(qvi_hby, qvi_rgy, b"".join(le.db.clonePreIter(pre=le.pre)))
-        assert qvi.pre in geda_hby.kevers, "GEDA has not accepted QVI delegation"
 
         # 4. Start an isolated chain and oracle; their clients share the HIO clock.
         rpc_port, oracle_port = free_port(), free_port()
