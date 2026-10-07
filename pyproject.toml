@@ -31,3 +31,6 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 vlei_oracle = ["schema_data/acdc/*.json"]
+
+[tool.pytest.ini_options]
+pythonpath = ["scripts/protocol"]

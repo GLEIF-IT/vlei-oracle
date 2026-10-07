@@ -14,7 +14,7 @@ from hio.core import http, tcp
 from vlei_oracle.basing import OperationRecord, OracleBaser
 from vlei_oracle.eoa_worker import EoaVerifierDoer
 from vlei_oracle.handling import PresentationVerifierDoer
-from vlei_oracle.verifier import VerificationError
+from vlei_oracle.errors import VerificationError
 
 FIXTURE = (
     Path(__file__).resolve().parents[1]
@@ -169,7 +169,7 @@ def test_invalid_proof_never_requests_rpc(rpc, invalid_proof):
 def operation(tmp_path):
     association = json.loads(FIXTURE.read_text())
     baser = OracleBaser(name="test-eoa-flow", temp=False, headDirPath=str(tmp_path))
-    op = OperationRecord(walletCredentialSaid=association["d"], state="verifying")
+    op = OperationRecord(associationSaid=association["d"], state="verifying")
     baser.pin_operation(op)
     try:
         yield baser, association

@@ -17,8 +17,10 @@ import subprocess
 import sys
 from contextlib import ExitStack
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from uuid import uuid4
 
+from ceremony import association_from_challenge, write_credential
 from eth_account import Account
 from eth_account.messages import encode_typed_data
 from hio.base import doing
@@ -33,19 +35,16 @@ from issuance_helpers import (
     rules,
 )
 from keri.app import httping
-from keri.core import coring, scheming, serdering
-from keri.kering import Protocols, versify
+from keri.core import coring, scheming
 
 from vlei_oracle.association_verifier import verify_association
 from vlei_oracle.constants import LE_SCHEMA, QVI_SCHEMA
 from vlei_oracle.eoa import (
-    DOMAIN_TAG,
-    PROOF_ALGORITHM,
     build_challenge,
     normalize_ext_id,
 )
+from vlei_oracle.errors import VerificationError
 from vlei_oracle.serving import ServiceConfig, setup_service
-from vlei_oracle.verifier import VerificationError
 
 ROOT = Path(__file__).resolve().parents[2]
 ASSOCIATION_SCHEMA = ROOT / "protocol/external-association-v1/association.schema.json"
@@ -125,6 +124,9 @@ def exercise(schema_dir: Path, *, keep: bool = False) -> None:
     by_said = {schema.said: schema for schema in schemas}
     schema_said = schemas[-1].said
     with ExitStack() as stack:
+        artifacts = Path(
+            stack.enter_context(TemporaryDirectory(prefix="vlei-ceremony-"))
+        )
         # 2. Create single-key GEDA, delegated QVI, and LE identifiers and issuers.
         actors, issuers = open_issuers(stack, schemas, base=base, temp=temp)
         _geda_hby, geda, _geda_rgy = actors["geda"]
@@ -288,36 +290,21 @@ def exercise(schema_dir: Path, *, keep: bool = False) -> None:
                 signature = Account.sign_message(
                     encode_typed_data(full_message=challenge), key
                 ).signature
-                proof = coring.Saider.saidify(
-                    sad={
-                        "d": "",
-                        "alg": PROOF_ALGORITHM,
-                        "tag": DOMAIN_TAG,
-                        "sig": "0x" + signature.hex(),
-                    }
-                )[1]
-                attributes = coring.Saider.saidify(
-                    sad={"d": "", "extId": ext_id, "proof": proof}
-                )[1]
-                edge = coring.Saider.saidify(
-                    sad={
-                        "d": "",
-                        "le": {"n": le_credential.said, "s": LE_SCHEMA, "o": "I2I"},
-                    }
-                )[1]
-                creder = serdering.SerderACDC(
-                    sad={
-                        "v": versify(protocol=Protocols.acdc, size=0),
-                        "d": "",
-                        "u": nonce,
-                        "i": le.pre,
-                        "ri": registries["le"].regk,
-                        "s": schema_said,
-                        "a": attributes,
-                        "e": edge,
-                    },
-                    makify=True,
-                )
+                if label == "wrong_signer":
+                    # Deliberately issue an invalid test artifact; the supported
+                    # ceremony rejects it before nonce consumption or issuance.
+                    creder = association_from_challenge(
+                        challenge, "0x" + signature.hex(), registries["le"].regk
+                    )
+                else:
+                    creder = write_credential(
+                        challenge=challenge,
+                        signature="0x" + signature.hex(),
+                        registry=registries["le"].regk,
+                        nonce_store=Path(le_rgy.reger.path)
+                        / "association-nonces.sqlite3",
+                        output=artifacts / f"{label}.json",
+                    )
                 issuer = issuers["le"]
                 issuer.validate(creder)
                 issuance = registries["le"].issue(said=creder.said)

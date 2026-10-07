@@ -1,42 +1,30 @@
-"""HIO Doers for vLEI Oracle presentation processing.
+"""Coordinate accepted IPEX Grants and durable association verification.
 
-KERIpy exposes accepted IPEX Grants through its notifier. Association Grants
-carry their wallet proof and advance to verification immediately; legacy wallet
-attestations first wait for a REST signature. Missing evidence leaves an
-operation in ``awaiting_artifacts`` for retry.
-
-Verification-only runs finish at ``verified``. The legacy posting path advances
-through ``posting`` to ``posted``; verification or posting errors become
-``failed``. A terminal verification result records that completed check, rather
-than continuously tracking the credential's later status.
+The finished ACDC owns its external proof. Operations supply durable scheduling
+state; requests and cues are disposable hints. Missing evidence remains pending.
 """
 
 from __future__ import annotations
 
 import traceback
-from dataclasses import dataclass, field
 from typing import Any
 
 from hio.base import doing
 from hio.help import decking
+from keri import kering
 from keri.core import coring, serdering
 from keri.peer import exchanging
 
 from .association_verifier import verify_association
 from .basing import (
     STATE_AWAITING_ARTIFACTS,
-    STATE_AWAITING_SIGNATURE,
     STATE_FAILED,
-    STATE_POSTED,
-    STATE_POSTING,
     STATE_VERIFIED,
     STATE_VERIFYING,
     OperationRecord,
     OracleBaser,
 )
-from .keri_store import MissingCredentialArtifactsError, presentation_from_reger
-from .posting import PostAction, Web3ContractPoster
-from .verifier import VerificationError, binding_from_json, verify_presentation
+from .errors import MissingCredentialArtifactsError, VerificationError
 
 
 class GrantNotReadyError(Exception):
@@ -59,7 +47,9 @@ class OracleAgent(doing.DoDoer):
         self.verifier = verifier
         self.exc = exc
         self.cues = cues if cues is not None else decking.Deck()
-        super().__init__(doers=[doing.doify(self.msg_do), doing.doify(self.escrow_do)], **opts)
+        super().__init__(
+            doers=[doing.doify(self.msg_do), doing.doify(self.escrow_do)], **opts
+        )
 
     def msg_do(self, tymth=None, tock=0.0, **kwa):
         """Feed queued HTTP direct-mode bytes into the KERI parser."""
@@ -104,16 +94,14 @@ class GrantNotificationDoer(doing.Doer):
         hby,
         notifier,
         parser,
-        expected_wallet_schema: str,
-        embedded_proof: bool = False,
+        expected_association_schema: str,
         **kwa,
     ):
         self.baser = baser
         self.hby = hby
         self.notifier = notifier
         self.parser = parser
-        self.expected_wallet_schema = expected_wallet_schema
-        self.embedded_proof = embedded_proof
+        self.expected_association_schema = expected_association_schema
         super().__init__(**kwa)
 
     def recur(self, tyme):
@@ -124,7 +112,7 @@ class GrantNotificationDoer(doing.Doer):
         return False
 
     def process_notes(self) -> None:
-        """Scan notifier records and consume wallet-attestation grant notices."""
+        """Consume accepted association Grant notices."""
 
         for keys, notice in list(self.notifier.noter.notes.getItemIter()):
             attrs = notice.attrs
@@ -134,9 +122,9 @@ class GrantNotificationDoer(doing.Doer):
 
             try:
                 self.process_grant_notice(attrs)
-            except GrantNotReadyError:
+            except (GrantNotReadyError, kering.MissingEntryError):
                 continue
-            except Exception:
+            except (ValueError, KeyError, TypeError, kering.ValidationError):
                 traceback.print_exc()
                 self.notifier.noter.notes.rem(keys=keys)
             else:
@@ -154,7 +142,9 @@ class GrantNotificationDoer(doing.Doer):
         grant_said = attrs["d"]
         exn, pathed = exchanging.cloneMessage(self.hby, said=grant_said)
         if exn is None:
-            raise GrantNotReadyError(f"IPEX Grant {grant_said} not found in exchanger store")
+            raise GrantNotReadyError(
+                f"IPEX Grant {grant_said} not found in exchanger store"
+            )
         embeds = exn.ked.get("e")
         if not isinstance(embeds, dict) or "acdc" not in embeds:
             raise ValueError(f"IPEX Grant {grant_said} has no embedded ACDC")
@@ -168,38 +158,34 @@ class GrantNotificationDoer(doing.Doer):
             self.parser.parseOne(ims=ims)
 
         acdc = embeds["acdc"]
-        wallet_said = acdc["d"]
-        wallet_schema = acdc.get("s", "")
-        if wallet_schema != self.expected_wallet_schema:
+        association_said = acdc["d"]
+        association_schema = acdc.get("s", "")
+        if association_schema != self.expected_association_schema:
             op = self.baser.start_operation(
-                wallet_said=wallet_said,
+                association_said=association_said,
                 grant_said=grant_said,
-                grant_sender=acdc.get("i", ""),
-                wallet_schema=wallet_schema,
+                grant_sender=exn.ked["i"],
+                association_schema=association_schema,
             )
             return self.baser.mark_failed(
                 op,
-                f"wallet credential schema {wallet_schema} does not match expected {self.expected_wallet_schema}",
+                f"wallet credential schema {association_schema} does not match expected {self.expected_association_schema}",
             )
 
         op = self.baser.start_operation(
-            wallet_said=wallet_said,
+            association_said=association_said,
             grant_said=grant_said,
-            grant_sender=acdc.get("i", ""),
-            wallet_schema=wallet_schema,
+            grant_sender=exn.ked["i"],
+            association_schema=association_schema,
         )
-        if self.embedded_proof and op.state == STATE_AWAITING_SIGNATURE:
-            op.state = STATE_VERIFYING
-            self.baser.pin_operation(op)
         return op
 
 
 class PresentationVerifierDoer(doing.DoDoer):
     """Verify received credentials against accepted KERI state and wallet proof.
 
-    Association Grants carry the proof in the ACDC. Legacy wallet attestations
-    wait for the signature endpoint. Missing artifacts remain pending; invalid
-    proofs fail. Owns the EOA worker lifecycle and commits its result cues.
+    Grants carry the proof in the ACDC. Missing artifacts remain pending;
+    invalid proofs fail. Owns the EOA worker lifecycle and commits its result cues.
     One association is dispatched at a time, bounding in-memory work. RPC errors
     remain retryable; restart rediscovers unfinished operations from the store.
     Verification-only runs terminate at ``verified``.
@@ -211,19 +197,14 @@ class PresentationVerifierDoer(doing.DoDoer):
         baser: OracleBaser,
         rgy,
         trusted_geda_aid: str,
-        oracle_registry: str = "",
-        verify_saids: bool = True,
         association_schema: str = "",
         eoa_verifier=None,
         retry_delay: float = 5.0,
-        no_post: bool = False,
         **kwa,
     ):
         self.baser = baser
         self.rgy = rgy
         self.trusted_geda_aid = trusted_geda_aid
-        self.oracle_registry = oracle_registry
-        self.verify_saids = verify_saids
         self.association_schema = association_schema
         self.eoa_verifier = eoa_verifier
         self.retry_delay = retry_delay
@@ -231,9 +212,8 @@ class PresentationVerifierDoer(doing.DoDoer):
         # Restart may retry sooner, but cannot lose or falsely complete the work.
         self.retry_at = {}
         self.pending = None
-        if association_schema and eoa_verifier is None:
+        if eoa_verifier is None:
             raise ValueError("association verification requires an EOA worker")
-        self.no_post = no_post
         children = [eoa_verifier] if eoa_verifier is not None else []
         super().__init__(doers=[*children, doing.doify(self.verify_do)], **kwa)
 
@@ -290,9 +270,9 @@ class PresentationVerifierDoer(doing.DoDoer):
         for op in list(
             self.baser.operations_by_state(STATE_VERIFYING, STATE_AWAITING_ARTIFACTS)
         ):
-            if self.association_schema and self.pending is not None:
+            if self.pending is not None:
                 break
-            if self.retry_at.get(op.walletCredentialSaid, 0) > self.tyme:
+            if self.retry_at.get(op.associationSaid, 0) > self.tyme:
                 continue
             self.verify_operation(op)
 
@@ -300,194 +280,43 @@ class PresentationVerifierDoer(doing.DoDoer):
         """Verify the selected credential profile before any posting transition."""
 
         try:
-            if self.association_schema:
-                # KERIpy may discard an invalid child before logging its bytes.
-                # The accepted Grant already owns the immutable candidate; use
-                # it for rejection, never as a substitute for KERI acceptance.
-                exn = None
-                if op.grantSaid:
-                    exn, _ = exchanging.cloneMessage(self.rgy.hby, said=op.grantSaid)
-                candidate = (
-                    serdering.SerderACDC(sad=exn.ked["e"]["acdc"])
-                    if exn is not None
-                    else None
-                )
-                association = verify_association(
-                    rgy=self.rgy,
-                    said=op.walletCredentialSaid,
-                    schema_said=self.association_schema,
-                    candidate=candidate,
-                    trusted_geda_aid=self.trusted_geda_aid,
-                )
-                # The database remains the work list. The queue contains only the
-                # current dispatch, so restart recovers work without queue persistence.
-                self.retry_at.pop(op.walletCredentialSaid, None)
-                op.state = STATE_VERIFYING
-                self.baser.pin_operation(op)
-                self.pending = op.walletCredentialSaid
-                self.eoa_verifier.msgs.append(association.sad)
-                return op
-            presentation = presentation_from_reger(
-                rgy=self.rgy, said=op.walletCredentialSaid
+            # KERIpy may discard an invalid child before logging its bytes.
+            # The accepted Grant already owns the immutable candidate; use
+            # it for rejection, never as a substitute for KERI acceptance.
+            exn = None
+            if op.grantSaid:
+                exn, _ = exchanging.cloneMessage(self.rgy.hby, said=op.grantSaid)
+            candidate = (
+                serdering.SerderACDC(sad=exn.ked["e"]["acdc"])
+                if exn is not None
+                else None
             )
-            binding = verify_presentation(
-                presentation,
+            association = verify_association(
+                rgy=self.rgy,
+                said=op.associationSaid,
+                schema_said=self.association_schema,
+                candidate=candidate,
                 trusted_geda_aid=self.trusted_geda_aid,
-                verify_saids=self.verify_saids,
-                wallet_signature=op.signature,
-                wallet_signature_type=op.signatureType,
-                chain_id=op.chainId,
-                oracle_registry=self.oracle_registry,
             )
-            if op.wallet and binding.wallet.lower() != op.wallet.lower():
-                raise VerificationError(
-                    "signature POST wallet does not match verified wallet attestation"
-                )
-            if op.chainId and binding.chain_id != op.chainId:
-                raise VerificationError(
-                    "signature POST chainId does not match verified wallet attestation"
-                )
-            op.verified = binding.to_json()
-            op.state = STATE_VERIFIED if self.no_post else STATE_POSTING
-            op.failureReason = ""
-            return self.baser.pin_operation(op)
+            # The database remains the work list. The queue contains only the
+            # current dispatch, so restart recovers work without queue persistence.
+            self.retry_at.pop(op.associationSaid, None)
+            op.state = STATE_VERIFYING
+            self.baser.pin_operation(op)
+            self.pending = op.associationSaid
+            self.eoa_verifier.msgs.append(association.sad)
+            return op
         except MissingCredentialArtifactsError as exc:
             return self.baser.mark_awaiting_artifacts(op, str(exc))
-        except Exception as exc:
+        except (VerificationError, kering.ValidationError) as exc:
             return self.baser.mark_failed(op, str(exc))
 
 
-@dataclass
-class PostingSession:
-    """In-memory HIO state for one on-chain posting operation."""
-
-    actions: list[PostAction]
-    index: int = 0
-    pending_tx_hash: str = ""
-    tx_hashes: list[str] = field(default_factory=list)
-
-
-class ContractPosterDoer(doing.Doer):
-    """Post verified operations on chain with bounded retries.
-
-    Web3.py performs synchronous RPC calls at the edge, but this Doer owns
-    waiting and retry timing. Submitted transaction hashes are polled through
-    ``recur`` by setting ``tock`` instead of sleeping inside the Web3 adapter.
-    """
-
-    def __init__(
-        self,
-        *,
-        baser: OracleBaser,
-        poster: Web3ContractPoster | None,
-        initial_aid_allowed: bool = False,
-        confirmations: int = 0,
-        poll_tock: float = 1.0,
-        max_retries: int = 3,
-        **kwa,
-    ):
-        self.baser = baser
-        self.poster = poster
-        self.initial_aid_allowed = initial_aid_allowed
-        self.confirmations = confirmations
-        self.poll_tock = poll_tock
-        self.max_retries = max_retries
-        self.sessions: dict[str, PostingSession] = {}
-        super().__init__(**kwa)
-
-    def recur(self, tyme):
-        """Advance posting sessions and set the next HIO polling interval."""
-
-        _ = tyme
-        self.tock = 0.25
-        self.process_ready()
-        return False
-
-    def process_ready(self) -> None:
-        """Advance every operation that is ready for on-chain posting."""
-
-        for op in list(self.baser.operations_by_state(STATE_POSTING)):
-            self.post_operation(op)
-
-    def post_operation(self, op: OperationRecord) -> OperationRecord:
-        """Submit or confirm one idempotent posting session for an operation."""
-
-        if self.poster is None:
-            return self.baser.mark_failed(op, "contract poster is not configured")
-        try:
-            session = self.sessions.get(op.walletCredentialSaid)
-            if session is None:
-                binding = binding_from_json(op.verified)
-                session = PostingSession(
-                    actions=self.poster.plan_verified_binding(
-                        binding,
-                        initial_aid_allowed=self.initial_aid_allowed,
-                    )
-                )
-                self.sessions[op.walletCredentialSaid] = session
-
-            if session.pending_tx_hash:
-                receipt = self.poster.receipt(session.pending_tx_hash)
-                if receipt is None:
-                    self.tock = self.poll_tock
-                    return op
-                if receipt.status != 1:
-                    raise RuntimeError(f"transaction failed: {session.pending_tx_hash}")
-                if self.confirmations > 0 and self.poster.current_block() < receipt.block_number + self.confirmations:
-                    self.tock = self.poll_tock
-                    return op
-                session.tx_hashes.append(session.pending_tx_hash)
-                op.txHashes = sorted(set([*op.txHashes, session.pending_tx_hash]))
-                op = self.baser.pin_operation(op)
-                session.pending_tx_hash = ""
-                session.index += 1
-
-            if session.index < len(session.actions):
-                session.pending_tx_hash = self.poster.submit(session.actions[session.index])
-                self.tock = self.poll_tock
-                return op
-
-            op.txHashes = sorted(set([*op.txHashes, *session.tx_hashes]))
-            op.state = STATE_POSTED
-            op.failureReason = ""
-            self.sessions.pop(op.walletCredentialSaid, None)
-            return self.baser.pin_operation(op)
-        except Exception as exc:
-            self.sessions.pop(op.walletCredentialSaid, None)
-            op.retryCount += 1
-            if op.retryCount >= self.max_retries:
-                return self.baser.mark_failed(op, str(exc))
-            op.failureReason = str(exc)
-            return self.baser.pin_operation(op)
-
-
-class RevocationMonitorDoer(doing.Doer):
-    """Placeholder for TEL cue based revocation monitoring of posted credentials.
-
-    The current e2e proves initial verification and posting. A production
-    follow-up should consume TEL/revocation cues and update posted on-chain
-    records when a credential in the accepted chain is revoked.
-    """
-
-    def __init__(self, *, baser: OracleBaser, tvy, **kwa):
-        self.baser = baser
-        self.tvy = tvy
-        super().__init__(**kwa)
-
-    def recur(self, tyme):
-        """Reserve a HIO slot for future TEL revocation monitoring."""
-
-        _ = tyme
-        return False
-
-
 def pending_states() -> tuple[str, ...]:
-    """Return states that represent active, non-terminal operation work."""
-
-    return (STATE_AWAITING_SIGNATURE, STATE_AWAITING_ARTIFACTS, STATE_VERIFYING, STATE_POSTING)
+    """States requiring further evidence or verification work."""
+    return (STATE_AWAITING_ARTIFACTS, STATE_VERIFYING)
 
 
 def terminal_states() -> tuple[str, ...]:
-    """Return states that no Doer should advance further."""
-
-    return (STATE_VERIFIED, STATE_POSTED, STATE_FAILED)
+    """Completed verification states."""
+    return (STATE_VERIFIED, STATE_FAILED)

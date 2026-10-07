@@ -1,43 +1,45 @@
-from __future__ import annotations
+"""The packaged artifact is a checked copy of the canonical protocol schema."""
 
-import unittest
+from pathlib import Path
 
 from keri.app import habbing
 
-from vlei_oracle.constants import WALLET_SCHEMA
-from vlei_oracle.schema_cache import ACCEPTED_SCHEMA_SAIDS, pin_accepted_schemas, wallet_schemer
+from vlei_oracle.constants import ASSOCIATION_SCHEMA
+from vlei_oracle.schema_cache import association_schemer, pin_accepted_schemas
 from vlei_oracle.serving import ServiceConfig, setup_service
 
 
-class SchemaCacheTest(unittest.TestCase):
-    def test_wallet_schemer_matches_pinned_schema_said(self) -> None:
-        schemer = wallet_schemer()
-
-        self.assertEqual(schemer.said, WALLET_SCHEMA)
-        self.assertEqual(ACCEPTED_SCHEMA_SAIDS, (WALLET_SCHEMA,))
-
-    def test_pin_accepted_schemas_writes_habery_schema_cache(self) -> None:
-        hby = habbing.Habery(name="test-vlei-oracle-schema-cache", temp=True)
-        try:
-            pin_accepted_schemas(hby)
-
-            schemer = hby.db.schema.get(keys=(WALLET_SCHEMA,))
-            self.assertIsNotNone(schemer)
-            self.assertEqual(schemer.said, WALLET_SCHEMA)
-        finally:
-            hby.close(clear=True)
-
-    def test_setup_service_pins_wallet_schema(self) -> None:
-        runtime = setup_service(ServiceConfig(name="test-vlei-oracle-service-schema", temp=True, no_post=True))
-        try:
-            schemer = runtime.hby.db.schema.get(keys=(WALLET_SCHEMA,))
-            self.assertIsNotNone(schemer)
-            self.assertEqual(schemer.said, WALLET_SCHEMA)
-        finally:
-            runtime.baser.close(clear=True)
-            runtime.rgy.reger.close(clear=True)
-            runtime.hby.close(clear=True)
+def test_packaged_schema_matches_the_canonical_protocol():
+    schema = association_schemer()
+    canonical = (
+        Path(__file__).resolve().parents[1]
+        / "protocol/external-association-v1/association.schema.json"
+    )
+    assert schema.raw == canonical.read_bytes()
+    assert schema.said == ASSOCIATION_SCHEMA
 
 
-if __name__ == "__main__":
-    unittest.main()
+def test_schema_is_cached_before_ingestion():
+    with habbing.openHby(name="test-schema-cache", temp=True) as hby:
+        pin_accepted_schemas(hby)
+        assert hby.db.schema.get(keys=(ASSOCIATION_SCHEMA,)).said == ASSOCIATION_SCHEMA
+
+
+def test_service_uses_the_association_schema_by_default():
+    runtime = setup_service(
+        ServiceConfig(
+            name="test-default-schema",
+            temp=True,
+            no_post=True,
+            rpc_url="http://127.0.0.1:1",
+        )
+    )
+    try:
+        assert (
+            runtime.hby.db.schema.get(keys=(ASSOCIATION_SCHEMA,)).said
+            == ASSOCIATION_SCHEMA
+        )
+    finally:
+        runtime.baser.close(clear=True)
+        runtime.rgy.reger.close(clear=True)
+        runtime.hby.close(clear=True)

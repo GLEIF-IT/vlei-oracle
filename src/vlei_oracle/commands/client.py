@@ -1,42 +1,40 @@
-"""`vlei-oracle client` command."""
+"""Sign a pre-issuance challenge; no signature attachment endpoint is needed."""
 
-from __future__ import annotations
+import json
+from pathlib import Path
 
-from vlei_oracle.clienting import build_signature_body, post_signature
+from eth_account import Account
+from eth_account.messages import encode_typed_data
+
+from vlei_oracle.eoa import build_challenge
 
 
-def add_parser(subparsers) -> None:
-    """Register client-side presentation helper commands."""
-
-    parser = subparsers.add_parser("client", help="Run client-side presentation workflows")
+def add_parser(subparsers):
+    parser = subparsers.add_parser(
+        "client", help="External-controller ceremony helpers"
+    )
     sub = parser.add_subparsers(dest="client_command", required=True)
-    post_sig = sub.add_parser("post-signature", help="POST CESR-encoded Ethereum signature")
-    post_sig.add_argument("--oracle-url", required=True)
-    post_sig.add_argument("--wallet-said", required=True)
-    post_sig.add_argument("--typed-data", required=True)
-    post_sig.add_argument("--private-key")
-    post_sig.add_argument("--cesr-signature")
-    post_sig.add_argument("--wallet")
-    post_sig.add_argument("--chain-id", type=int)
-    post_sig.add_argument("--timeout", type=float, default=30.0)
-    post_sig.set_defaults(handler=post_signature_handler)
-
-
-def post_signature_handler(args) -> None:
-    """Sign or forward a CESR signature and send it to a pending operation."""
-
-    body = build_signature_body(
-        typed_data_path=args.typed_data,
-        private_key=args.private_key,
-        cesr_signature=args.cesr_signature,
-        wallet=args.wallet,
-        chain_id=args.chain_id,
+    sign = sub.add_parser(
+        "sign", help="Sign an association challenge with a local test key"
     )
-    result = post_signature(
-        oracle_url=args.oracle_url,
-        wallet_said=args.wallet_said,
-        body=body,
-        timeout=args.timeout,
+    sign.add_argument("--challenge", required=True)
+    sign.add_argument("--private-key", required=True)
+    sign.add_argument("--out", required=True)
+    sign.set_defaults(handler=sign_handler)
+
+
+def sign_handler(args):
+    challenge = json.loads(Path(args.challenge).read_text())
+    fields = challenge["message"]
+    expected = build_challenge(
+        issuer_aid=fields["issuerAid"],
+        le_vlei_said=fields["leVleiSaid"],
+        ext_id=fields["extId"],
+        nonce=fields["nonce"],
     )
-    if result.body:
-        print(result.body.decode("utf-8"))
+    if challenge != expected:
+        raise ValueError("challenge does not match the EOA profile")
+    signature = Account.sign_message(
+        encode_typed_data(full_message=challenge), args.private_key
+    ).signature
+    Path(args.out).write_text("0x" + signature.hex() + "\n")

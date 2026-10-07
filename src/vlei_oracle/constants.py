@@ -1,20 +1,5 @@
-"""Schema, edge, signature, and EIP-712 constants accepted by the oracle.
-
-These values are policy, not discovery. The verifier should reject wallet
-presentations that do not match this pinned schema/signature/domain set instead
-of resolving alternate GL1 definitions at runtime.
-"""
+"""Pinned credential schema policy for the GLEIF-rooted association chain."""
 
 QVI_SCHEMA = "EBfdlu8R27Fbx-ehrqwImnK-8Cm79sqbAQ4MmvEAYqao"
 LE_SCHEMA = "ENPXp1vQzRF6JwIuS-mp2U8Uf1MoADoP_GqQ62VsDZWY"
-OOR_AUTH_SCHEMA = "EKA57bKBKxr_kN7iN5i7lMUxpMG-s19dRcmov1iDxz-E"
-OOR_SCHEMA = "EBNaNu-M9P5cgrnfl2Fvymy4E_jvxxyjb70PRtiANlJy"
-
-WALLET_SCHEMA = "EJRSV-fAssz09bAMqATc0Iz1NJ_slyzEvWdqLEMA0fGd"
-WALLET_CREDENTIAL_TYPE = "GL1_WALLET_ATTESTATION"
-WALLET_SIGNATURE_TYPE = "EIP712_GL1_ETHEREUM_WALLET_ATTESTATION"
-WALLET_EDGE_OPERATOR = "NI2I"
-
-EIP712_DOMAIN_NAME = "GL1 vLEI Oracle"
-EIP712_DOMAIN_VERSION = "1"
-EIP712_PRIMARY_TYPE = "GL1EthereumWalletAttestation"
+ASSOCIATION_SCHEMA = "EKeFW-30joNrTXUmq7Dpp2kExZgveYlsLfWrDml8hRYt"
