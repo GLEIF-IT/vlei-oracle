@@ -35,17 +35,32 @@ class RpcEndpoint:
     def __init__(self, *, chain="0x1", code="0x", unavailable=False):
         self.chain, self.code, self.unavailable = chain, code, unavailable
         self.calls = []
+        self.requests = []
+        self.block = {"number": "0x2a", "hash": "0x" + "12" * 32}
+        self.rpc_error = None
 
     def on_post(self, req, resp):
         request = req.media
         self.calls.append(request["method"])
+        self.requests.append(request)
         if self.unavailable:
             resp.status = falcon.HTTP_503
+            return
+        if self.rpc_error and request["method"] == "eth_getCode":
+            resp.media = {
+                "jsonrpc": "2.0",
+                "id": request["id"],
+                "error": self.rpc_error,
+            }
             return
         resp.media = {
             "jsonrpc": "2.0",
             "id": request["id"],
-            "result": self.chain if request["method"] == "eth_chainId" else self.code,
+            "result": {
+                "eth_chainId": self.chain,
+                "eth_getBlockByNumber": self.block,
+                "eth_getCode": self.code,
+            }[request["method"]],
         }
 
 
@@ -100,9 +115,19 @@ def test_worker_resolves_account_over_http(rpc, chain, code, expected):
     cue = worker.cues.popleft()
     assert cue["said"] == association["d"]
     assert cue["kin"] == expected
-    assert endpoint.calls == ["eth_chainId", "eth_getCode"]
+    assert endpoint.calls == ["eth_chainId", "eth_getBlockByNumber", "eth_getCode"]
     if expected == "verified":
         assert cue["verified"]["wallet"] == association["a"]["extId"].split(":")[2]
+        observation = cue["verified"]["observation"]
+        assert observation["blockNumber"] == 42
+        assert observation["blockHash"] == endpoint.block["hash"]
+        assert observation["chainId"] == 1
+        assert observation["code"] == code
+        assert observation["observedAt"]
+    assert endpoint.requests[-1]["params"][1] == {
+        "blockHash": endpoint.block["hash"],
+        "requireCanonical": True,
+    }
 
 
 def test_rpc_timeout_yields_and_closes_client():
@@ -200,8 +225,15 @@ def test_pending_work_survives_coordinator_restart(rpc, operation, interruption)
             [http.ServerDoer(server=server), second],
             lambda: baser.get_operation(association["d"]).state == "verified",
         )
-    assert baser.get_operation(association["d"]).failureReason == ""
-    assert endpoint.calls == ["eth_chainId", "eth_chainId", "eth_getCode"]
+    recovered = baser.get_operation(association["d"])
+    assert recovered.failureReason == ""
+    assert recovered.verified["observation"]["blockHash"] == endpoint.block["hash"]
+    assert endpoint.calls == [
+        "eth_chainId",
+        "eth_chainId",
+        "eth_getBlockByNumber",
+        "eth_getCode",
+    ]
 
 
 def test_revocation_during_rpc_prevents_success(rpc, operation):
@@ -226,4 +258,45 @@ def test_revocation_during_rpc_prevents_success(rpc, operation):
     op = baser.get_operation(association["d"])
     assert not op.verified
     assert "revoked" in op.failureReason
-    assert endpoint.calls == ["eth_chainId", "eth_getCode"]
+    assert endpoint.calls == ["eth_chainId", "eth_getBlockByNumber", "eth_getCode"]
+
+
+@pytest.mark.parametrize(
+    "block",
+    [
+        None,
+        {},
+        {"number": "0x2a", "hash": "0x1234"},
+        {"number": "0x00", "hash": "0x" + "12" * 32},
+    ],
+)
+def test_missing_or_malformed_block_remains_retryable(rpc, block):
+    endpoint, server, url = rpc
+    endpoint.block = block
+    worker = EoaVerifierDoer(rpc_url=url)
+    worker.msgs.append(json.loads(FIXTURE.read_text()))
+    run_until([http.ServerDoer(server=server), worker], lambda: bool(worker.cues))
+    assert worker.cues.popleft()["kin"] == "retry"
+    assert endpoint.calls == ["eth_chainId", "eth_getBlockByNumber"]
+
+
+def test_noncanonical_observation_is_not_account_invalidity(rpc):
+    endpoint, server, url = rpc
+    endpoint.rpc_error = {"code": -32000, "message": "block is no longer canonical"}
+    worker = EoaVerifierDoer(rpc_url=url)
+    worker.msgs.append(json.loads(FIXTURE.read_text()))
+    run_until([http.ServerDoer(server=server), worker], lambda: bool(worker.cues))
+    cue = worker.cues.popleft()
+    assert cue["kin"] == "retry"
+    assert "verified" not in cue
+
+
+@pytest.mark.parametrize("chain", [None, 1, "1", "0x01", "0x0", "0xzz"])
+def test_unusable_chain_response_remains_retryable(rpc, chain):
+    endpoint, server, url = rpc
+    endpoint.chain = chain
+    worker = EoaVerifierDoer(rpc_url=url)
+    worker.msgs.append(json.loads(FIXTURE.read_text()))
+    run_until([http.ServerDoer(server=server), worker], lambda: bool(worker.cues))
+    assert worker.cues.popleft()["kin"] == "retry"
+    assert endpoint.calls == ["eth_chainId"]
