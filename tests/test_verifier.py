@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import unittest
+from collections.abc import Callable
 from copy import deepcopy
-from typing import Callable
 
 from eth_account import Account
 from eth_account.messages import encode_typed_data
@@ -17,7 +17,6 @@ from vlei_oracle.constants import (
     WALLET_SCHEMA,
     WALLET_SIGNATURE_TYPE,
 )
-from vlei_oracle.keri_acdc import saidify_sad
 from vlei_oracle.verifier import VerificationError, verify_presentation
 from vlei_oracle.wallet import (
     build_typed_data,
@@ -25,7 +24,6 @@ from vlei_oracle.wallet import (
     encode_eth_signature_cesr,
     wallet_attributes_from_typed_data,
 )
-
 
 GEDA_AID = "EGEDA"
 QVI_AID = "EQVI"
@@ -178,6 +176,14 @@ class VerifierTest(unittest.TestCase):
         with self.assertRaisesRegex(VerificationError, "SAID"):
             self.verify(presentation, signature)
 
+    def test_malformed_raw_credential_fails_before_signature(self) -> None:
+        for raw in ["not an ACDC", "{}"]:
+            with self.subTest(raw=raw):
+                presentation, signature = self.presentation()
+                presentation["credentialRaws"] = {presentation["walletCredential"]: raw}
+                with self.assertRaisesRegex(VerificationError, "SAID"):
+                    self.verify(presentation, signature)
+
     def test_typed_data_and_wallet_attributes_are_minimal(self) -> None:
         typed_data = build_typed_data(
             legal_entity_aid=LE_AID,
@@ -238,8 +244,8 @@ class VerifierTest(unittest.TestCase):
         expires_at: int = 1_800_000_000,
         include_wallet_signature: bool = False,
     ) -> tuple[dict, str, str]:
-        qvi_credential = saidify_sad(
-            {
+        _, qvi_credential = coring.Saider.saidify(
+            sad={
                 "d": "",
                 "i": GEDA_AID,
                 "s": QVI_SCHEMA,
@@ -248,8 +254,8 @@ class VerifierTest(unittest.TestCase):
         )
         qvi_said = qvi_credential["d"]
 
-        le_credential = saidify_sad(
-            {
+        _, le_credential = coring.Saider.saidify(
+            sad={
                 "d": "",
                 "i": QVI_AID,
                 "s": LE_SCHEMA,
@@ -259,8 +265,8 @@ class VerifierTest(unittest.TestCase):
         )
         le_said = le_credential["d"]
 
-        auth_credential = saidify_sad(
-            {
+        _, auth_credential = coring.Saider.saidify(
+            sad={
                 "d": "",
                 "i": LE_AID,
                 "s": OOR_AUTH_SCHEMA,
@@ -275,8 +281,8 @@ class VerifierTest(unittest.TestCase):
         )
         auth_said = auth_credential["d"]
 
-        oor_credential = saidify_sad(
-            {
+        _, oor_credential = coring.Saider.saidify(
+            sad={
                 "d": "",
                 "i": QVI_AID,
                 "s": OOR_SCHEMA,
@@ -305,8 +311,8 @@ class VerifierTest(unittest.TestCase):
         if include_wallet_signature:
             wallet_attrs["walletSignatureType"] = WALLET_SIGNATURE_TYPE
             wallet_attrs["walletSignature"] = signature
-        wallet_credential = saidify_sad(
-            {
+        _, wallet_credential = coring.Saider.saidify(
+            sad={
                 "d": "",
                 "i": OOR_AID,
                 "s": WALLET_SCHEMA,
@@ -333,7 +339,7 @@ class VerifierTest(unittest.TestCase):
         credential = deepcopy(presentation["credentials"].pop(old_said))
         mutator(credential)
         credential["d"] = ""
-        new_credential = saidify_sad(credential)
+        _, new_credential = coring.Saider.saidify(sad=credential)
         presentation["walletCredential"] = new_credential["d"]
         presentation["credentials"][new_credential["d"]] = new_credential
 

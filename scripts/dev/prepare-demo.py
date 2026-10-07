@@ -87,10 +87,29 @@ def prepare_python_environment(directory: Path) -> Path:
     subprocess.run(
         [str(interpreter), "-m", "venv", "--symlinks", str(directory)], check=True
     )
-    return directory / "bin" / "python"
+    python = directory / "bin" / "python"
+    # The upstream and GLEIF distributions install the same import paths.
+    # Reusing an upstream environment would leave ambiguous package ownership.
+    installed = subprocess.check_output(
+        [
+            str(python),
+            "-c",
+            (
+                "from importlib.metadata import distributions; "
+                "print(' '.join(d.metadata['Name'].lower() for d in distributions()))"
+            ),
+        ],
+        text=True,
+    ).split()
+    if {"keri", "hio"}.intersection(installed):
+        raise ValueError(
+            "upstream keri/hio found; choose a fresh --directory for GLEIF packages"
+        )
+    return python
 
 
 def main() -> None:
+    """Prepare the selected dependency checkouts and, for a full demo, its environment."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--directory",
@@ -98,16 +117,26 @@ def main() -> None:
         default=ORACLE_ROOT / ".demo",
         help="dependency/environment directory (default: this checkout's .demo)",
     )
+    parser.add_argument(
+        "--schemas-only",
+        action="store_true",
+        help="prepare only the pinned vLEI schemas for the association HTTP exercise",
+    )
     args = parser.parse_args()
     if sys.version_info < (3, 12, 6):
         parser.error("Python 3.12.6 or newer is required by the pinned vLEI package")
     directory = args.directory.expanduser().resolve()
     dependencies = json.loads(DEPENDENCY_MANIFEST.read_text())
+    if args.schemas_only:
+        dependencies = {"vLEI": dependencies["vLEI"]}
     checkouts = {name: directory / "checkouts" / name for name in dependencies}
     for name, dependency in dependencies.items():
         prepare_checkout(
             checkouts[name], url=dependency["url"], commit=dependency["commit"]
         )
+    if args.schemas_only:
+        print(f"Schemas prepared: {checkouts['vLEI'] / 'schema/acdc'}")
+        return
     subprocess.run(
         [
             "git",
@@ -133,6 +162,18 @@ def main() -> None:
             str(ORACLE_ROOT) + "[dev]",
             "-r",
             str(Path(__file__).with_name("demo-requirements.txt")),
+        ],
+        check=True,
+    )
+    # vLEI's metadata still names upstream keri/hio. Install its schema tools
+    # without resolving those names; demo-requirements supplies the dependencies.
+    subprocess.run(
+        [
+            str(python),
+            "-m",
+            "pip",
+            "install",
+            "--no-deps",
             f"vlei @ git+{vlei['url']}@{vlei['commit']}",
         ],
         check=True,

@@ -18,6 +18,8 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
+from keri.core import coring, serdering
+
 from .constants import (
     LE_SCHEMA,
     OOR_AUTH_SCHEMA,
@@ -27,7 +29,6 @@ from .constants import (
     WALLET_SCHEMA,
     WALLET_SIGNATURE_TYPE,
 )
-from .keri_acdc import verify_acdc_raw, verify_said
 from .wallet import build_typed_data, verify_typed_signature
 
 
@@ -255,7 +256,15 @@ def _credential(
         raise VerificationError(f"credential {said} has schema {cred.get('s')}, expected {schema}")
     if verify_saids:
         raw = credential_raws.get(said)
-        said_verified = verify_acdc_raw(raw, said=said) if isinstance(raw, str) else verify_said(cred)
+        if isinstance(raw, str):
+            # Verify supplied ACDC bytes in their original serialization.
+            try:
+                credential_serder = serdering.SerderACDC(raw=raw.encode("utf-8"))
+            except Exception as exc:
+                raise VerificationError(f"credential {said} SAID does not verify") from exc
+            said_verified = credential_serder.said == said
+        else:
+            said_verified = coring.Saider(qb64=said).verify(sad=cred, prefixed=True)
         if not said_verified:
             raise VerificationError(f"credential {said} SAID does not verify")
     if cred.get("status") in ("revoked", "expired", "rev", "brv"):
@@ -264,6 +273,7 @@ def _credential(
 
 
 def _attrs(credential: dict[str, Any]) -> dict[str, Any]:
+    """Return the embedded credential attributes or reject a missing object."""
     attrs = credential.get("a")
     if not isinstance(attrs, dict):
         raise VerificationError(f"credential {credential.get('d')} has no embedded attributes")
@@ -271,6 +281,7 @@ def _attrs(credential: dict[str, Any]) -> dict[str, Any]:
 
 
 def _edges(credential: dict[str, Any]) -> dict[str, Any]:
+    """Return embedded credential edges for source-chain checks."""
     edges = credential.get("e")
     if not isinstance(edges, dict):
         raise VerificationError(f"credential {credential.get('d')} has no embedded edges")
@@ -297,6 +308,7 @@ def _edge_said(
 
 
 def _required_str(obj: dict[str, Any], key: str) -> str:
+    """Read a required nonempty string from credential evidence."""
     value = obj.get(key)
     if not isinstance(value, str) or not value:
         raise VerificationError(f"missing string field {key}")
@@ -304,6 +316,7 @@ def _required_str(obj: dict[str, Any], key: str) -> str:
 
 
 def _required_int(obj: dict[str, Any], key: str) -> int:
+    """Read an integer or decimal string from evidence, excluding booleans."""
     value = obj.get(key)
     if isinstance(value, bool):
         raise VerificationError(f"field {key} must be an integer")

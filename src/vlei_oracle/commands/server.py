@@ -26,6 +26,8 @@ def add_parser(subparsers) -> None:
     start.add_argument("--no-post", action="store_true")
     start.add_argument("--initial-aid-allowed", action="store_true")
     start.add_argument("--incept-file")
+    start.add_argument("--association-schema", default="", help="Association schema JSON; requires --no-post")
+    start.add_argument("--schema-dir", default="", help="Directory of source credential schemas")
     start.set_defaults(handler=start_handler)
 
 
@@ -49,5 +51,7 @@ def start_handler(args) -> None:
             no_post=args.no_post,
             initial_aid_allowed=args.initial_aid_allowed,
             incept_file=args.incept_file,
+            association_schema=args.association_schema,
+            schema_dir=args.schema_dir,
         )
     )
