@@ -147,5 +147,40 @@ def qualify_relationships(*, actors, issuers, registries, credentials, schemas,
         workflow.remove([check])
         assert reason in check.result["failureReason"], (label, check.result)
         assert not check.result["verified"] and not check.result["txHashes"]
+    # Native source-chain rejection is its own boundary: a signed/anchored
+    # LE artifact with a wrong issuer/holder link or QVI edge never becomes
+    # accepted evidence. Its child must stay pending, never publish authority.
+    for label in ("le_issuer_qvi_holder", "le_qvi_edge_schema"):
+        sad = deepcopy(credentials["qvi"].sad)
+        if label == "le_issuer_qvi_holder":
+            sad.update(i=le.pre, ri=registries["le"].regk)
+            source_hab, source_rgy = le, le_rgy
+            source_registry, registrar = registries["le"], issuers["le"].registrar
+        else:
+            sad["e"]["qvi"]["s"] = LE_SCHEMA
+            sad["e"] = coring.Saider.saidify(sad=sad["e"])[1]
+            source_hab, source_rgy = qvi, qvi_rgy
+            source_registry, registrar = registries["qvi"], issuers["qvi"].registrar
+        invalid_source = serdering.SerderACDC(sad=sad, makify=True)
+        source_bytes = yield from issue_invalid(registrar, source_hab, source_registry, invalid_source)
+        child = association(le, registries["le"], invalid_source.said)
+        child_bytes = yield from issue_invalid(issuers["le"].registrar, le, registries["le"], child)
+        evidence = streams["geda"] + streams["qvi"]
+        evidence += b"".join(source_hab.db.clonePreIter(pre=source_hab.pre))
+        evidence += b"".join(source_rgy.reger.clonePreIter(pre=source_registry.regk))
+        evidence += b"".join(source_rgy.reger.clonePreIter(pre=invalid_source.said)) + source_bytes
+        evidence += b"".join(le.db.clonePreIter(pre=le.pre))
+        evidence += b"".join(le_rgy.reger.clonePreIter(pre=registries["le"].regk))
+        evidence += grant(le, le_rgy, child, runtime.hab.pre, acdc=child_bytes)
+        check = PresentationDoer(port=oracle_port, recipient=runtime.hab.pre,
+                                 stream=evidence, said=child.said, expected="awaiting_artifacts")
+        workflow.extend([check])
+        while not check.done:
+            yield 0.01
+        workflow.remove([check])
+        assert not runtime.rgy.reger.saved.get(keys=(invalid_source.said,)), label
+        assert not check.result["verified"] and not check.result["txHashes"], label
+        assert "not accepted" in check.result["failureReason"], check.result
+    print("Native LE issuer/QVI holder and QVI edge failures cannot authorize a child", flush=True)
     print("Real source/TEL negatives reject issuer, unrelated holder, edge, schema, targeting, and copied LEI", flush=True)
     workflow.remove(aux_doers)
