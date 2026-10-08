@@ -40,6 +40,7 @@ from issuance_helpers import (
     grant,
     issuer_for,
     issue_credential,
+    revoke_credential,
     kli_issue,
     open_issuers,
     receive,
@@ -752,14 +753,7 @@ def exercise(schema_dir: Path, *, keep: bool = False, comply: Path | None = None
                 print("Actual two-chain posting isolates signed chain scope and registry state", flush=True)
 
             # 12. Revoke LE through Registrar, then present a previously withheld child.
-            revocation = registries["qvi"].revoke(said=le_credential.said)
-            issuers["qvi"].registrar.revoke(
-                le_credential, revocation, anchor(qvi, revocation)
-            )
-            while not issuers["qvi"].registrar.complete(
-                le_credential.said, sn=revocation.sn
-            ):
-                yield 0.01
+            yield from revoke_credential(issuers["qvi"], registries["qvi"], le_credential)
             withheld = associations["withheld"]
             check = PresentationDoer(
                 port=oracle_port,
