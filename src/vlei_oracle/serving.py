@@ -13,6 +13,7 @@ from hio.core import http
 from hio.help import decking
 from keri.app import habbing, httping, indirecting, notifying, oobiing, storing
 from keri.core import eventing, parsing, routing, scheming
+from keri.db import basing
 from keri.end import ending
 from keri.peer import exchanging
 from keri.vc import protocoling
@@ -156,6 +157,10 @@ def setup_service(config: ServiceConfig) -> ServiceRuntime:
 
     doers = [
         hby_doer,
+        basing.BaserDoer(baser=baser),
+        basing.BaserDoer(baser=rgy.reger),
+        basing.BaserDoer(baser=noter),
+        basing.BaserDoer(baser=mbx),
         rgy_doer,
         *oobiery.doers,
         rep,
