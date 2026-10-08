@@ -18,7 +18,7 @@ def add_parser(subparsers) -> None:
 
 
 def handler(args) -> None:
-    """Write the contract-address JSON consumed by ``server start``."""
+    """Write deployment addresses for inspection and explicit service flags."""
 
     parsed = parse_deploy_log(Path(args.log).read_text())
     Path(args.out).write_text(json.dumps(parsed, indent=2, sort_keys=True) + "\n")

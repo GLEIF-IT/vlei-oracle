@@ -88,6 +88,26 @@ established invalidity fails. The coordinator rechecks credential status before
 committing an asynchronous result. Account observations retain chain, canonical
 block hash/number, code and time off-chain.
 
+To maintain endorsements, omit `--no-post` and supply `--chain-id`,
+`--endorsement-registry`, and `--identity-registry`. Set the dedicated writer's
+key in `VLEI_ORACLE_POSTING_KEY` (or name another variable with
+`--posting-key-env`); the writer requires the registry's compliance-admin role.
+`--confirmations` defaults to two and `--posting-interval` to one second.
+The writer must not share its nonce stream with other processes.
+
+Successful posting progresses to `endorsed`. Current evidence is rechecked
+before each effect; observed revocation causes exact-association withdrawal and
+`withdrawn`. The store binds the chain, deployments, and writer, and persists
+signed transaction identities before broadcast. Restart reconciles receipts,
+nonces, and current registry state. Unknown consumed nonces require operator
+reconciliation and appear in the operation's failure reason.
+
+RPC or missing-evidence outages leave current endorsements in place. Polling
+latency includes the operation count, RPC waits, and confirmations; there is no
+unconditional finite stale-authority bound. Emergency pause and authorized exact
+withdrawal are independent operational controls. EOA key transfer remains
+unobservable; an endorsement does not establish continuous wallet control.
+
 Use fresh stores for this prototype; old operation stores are not upgraded.
 The issuance exercise isolates its test stores and local Anvil. It does not
 modify existing operator credentials or deploy to another network.

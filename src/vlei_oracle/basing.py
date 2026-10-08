@@ -19,6 +19,35 @@ STATE_AWAITING_ARTIFACTS = "awaiting_artifacts"
 STATE_VERIFYING = "verifying"
 STATE_VERIFIED = "verified"
 STATE_FAILED = "failed"
+STATE_ENDORSED = "endorsed"
+STATE_WITHDRAWN = "withdrawn"
+
+
+@dataclass
+class PostingScope:
+    """Immutable chain/deployment/writer scope of this operation store."""
+
+    chainId: int
+    writer: str
+    endorsement: str
+    identity: str
+
+
+@dataclass
+class TransactionRecord:
+    """Durable intent and signed identity, written before any broadcast."""
+
+    txHash: str
+    rawTransaction: str
+    transaction: dict[str, Any]
+    associationSaid: str
+    action: str
+    state: str = "pending"
+    receiptHash: str = ""
+    receiptNumber: int = 0
+    cancelHash: str = ""
+    cancelRaw: str = ""
+    failureReason: str = ""
 
 
 @dataclass
@@ -98,7 +127,28 @@ class OracleBaser(dbing.LMDBer):
 
         super().reopen(**kwa)
         self.ops = koming.Komer(db=self, subkey="ops.", schema=OperationRecord)
+        self.transactions = koming.Komer(db=self, subkey="txns.", schema=TransactionRecord)
+        self.scope = koming.Komer(db=self, subkey="scope.", schema=PostingScope)
         return self.env
+
+    def bind_posting_scope(self, scope: PostingScope):
+        """Refuse to reconcile an old intent against a different deployment."""
+        existing = self.scope.get(keys=("posting",))
+        if existing is not None and existing != scope:
+            raise ValueError("operation store belongs to a different posting scope")
+        self.scope.pin(keys=("posting",), val=scope)
+
+    def pin_transaction(self, intent: TransactionRecord):
+        """Commit intent, cancellation, or receipt progress synchronously."""
+        self.transactions.pin(keys=(intent.txHash,), val=intent)
+        return intent
+
+    def unfinished_transaction(self):
+        """The single writer reconciles its outstanding nonce before new work."""
+        for _, intent in self.transactions.getItemIter():
+            if intent.state != "confirmed":
+                return intent
+        return None
 
     def get_operation(self, association_said: str) -> OperationRecord | None:
         """Return the operation keyed by association SAID, if present."""

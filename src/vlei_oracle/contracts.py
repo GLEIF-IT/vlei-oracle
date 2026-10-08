@@ -7,10 +7,6 @@ dependency on Foundry artifact internals.
 
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Any
-
-
 def parse_deploy_log(text: str) -> dict[str, str]:
     """Parse DeployAll console output into contract addresses."""
 
@@ -34,11 +30,3 @@ def parse_deploy_log(text: str) -> dict[str, str]:
     if missing:
         raise ValueError(f"deployment log missing addresses: {', '.join(missing)}")
     return result
-
-
-def load_json_file(path: str | Path) -> dict[str, Any]:
-    """Load a JSON object from disk for CLI configuration."""
-
-    import json
-
-    return json.loads(Path(path).read_text())

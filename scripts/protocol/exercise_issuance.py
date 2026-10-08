@@ -21,6 +21,7 @@ from tempfile import TemporaryDirectory
 from uuid import uuid4
 
 from ceremony import association_from_challenge, write_credential
+from contract_fixture import DEPLOYER_KEY, POSTER_KEY, contract, deploy, read, send
 from eth_account import Account
 from eth_account.messages import encode_typed_data
 from hio.base import doing
@@ -42,11 +43,13 @@ from keri.help import helping
 
 from vlei_oracle.association_verifier import verify_association
 from vlei_oracle.constants import LE_SCHEMA, QVI_SCHEMA
+from vlei_oracle.contracting import ContractEffects
 from vlei_oracle.eoa import (
     build_challenge,
     normalize_ext_id,
 )
 from vlei_oracle.errors import MissingCredentialArtifactsError, VerificationError
+from vlei_oracle.posting_worker import EndorsementDoer
 from vlei_oracle.serving import ServiceConfig, setup_service
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -107,7 +110,7 @@ class PresentationDoer(doing.DoDoer):
         raise AssertionError(f"Expected {self.expected}: {result}")
 
 
-def exercise(schema_dir: Path, *, keep: bool = False) -> None:
+def exercise(schema_dir: Path, *, keep: bool = False, comply: Path | None = None) -> None:
     """Set up isolated actors, then schedule the complete issuance/HTTP workflow.
 
     ``schema_dir`` supplies QVI and LE schemas; this checkout supplies the
@@ -313,9 +316,12 @@ def exercise(schema_dir: Path, *, keep: bool = False) -> None:
                 ("delegated", PUBLIC_TEST_KEY, 31337),
                 ("withheld", PUBLIC_TEST_KEY, 31337),
             ]
+            if comply is not None:
+                cases.append(("beneficiary", "0x" + "0" * 63 + "2", 31337))
             for label, key, chain_id in cases:
                 nonce = str(uuid4())
-                ext_id = normalize_ext_id(chain_id, account.address)
+                wallet = Account.from_key(key).address if label == "beneficiary" else account.address
+                ext_id = normalize_ext_id(chain_id, wallet)
                 challenge = build_challenge(
                     issuer_aid=le.pre,
                     le_vlei_said=le_credential.said,
@@ -517,6 +523,91 @@ def exercise(schema_dir: Path, *, keep: bool = False) -> None:
                     assert not check.result["verified"], check.result
             print("Signer, chain, contract, and EIP-7702 cases passed", flush=True)
 
+            if comply is not None:
+                # Present a second wallet of the same entity before enabling posting.
+                beneficiary = Account.from_key("0x" + "0" * 63 + "2")
+                creder = associations["beneficiary"]
+                check = PresentationDoer(
+                    port=oracle_port, recipient=runtime.hab.pre,
+                    stream=replay(le, le_rgy, registries["le"], creder)
+                    + grant(le, le_rgy, creder, runtime.hab.pre),
+                    said=creder.said, expected="verified",
+                )
+                workflow.extend([check])
+                while not check.done:
+                    yield 0.01
+                workflow.remove([check])
+
+                addresses = yield from deploy(comply, rpc_url, artifacts)
+                poster_address = Account.from_key(POSTER_KEY).address
+                effects = ContractEffects(
+                    rpc_url=rpc_url, chain_id=31337, writer=poster_address,
+                    endorsement=addresses["oracleRegistry"], identity=addresses["identityRegistry"],
+                    confirmations=1,
+                )
+                # Separate test-controller effects from the dedicated oracle writer.
+                fixture_effects = ContractEffects(
+                    rpc_url=rpc_url, chain_id=31337, writer=Account.from_key(DEPLOYER_KEY).address,
+                    endorsement=addresses["oracleRegistry"], identity=addresses["identityRegistry"],
+                    confirmations=1,
+                )
+                workflow.extend([fixture_effects])
+                doers.append(fixture_effects)
+                for wallet in (account.address, poster_address):
+                    yield from fixture_effects.request("anvil_setBalance", [wallet, "0x56bc75e2d63100000"])
+                admin = contract(comply, "AdminControls", addresses["adminControls"])
+                token = contract(comply, "USDC", addresses["usdcToken"])
+                wrapper = contract(comply, "wUSDC", addresses["wrapper"])
+                role = fixture_effects.web3.keccak(text="COMPLIANCE_ADMIN_ROLE")
+                yield from send(fixture_effects, admin, "grantRole", [role, poster_address], DEPLOYER_KEY)
+                yield from send(fixture_effects, token, "mint", [account.address, 100000000], DEPLOYER_KEY)
+                yield from send(fixture_effects, token, "approve", [wrapper.address, 100000000], PUBLIC_TEST_KEY)
+                assert (yield from read(fixture_effects, wrapper, "transfer", [beneficiary.address, 1000000], sender=account.address)) == (False,)
+                yield from send(fixture_effects, wrapper, "transfer", [beneficiary.address, 1000000], PUBLIC_TEST_KEY)
+                assert (yield from read(fixture_effects, token, "balanceOf", [beneficiary.address])) == (0,)
+
+                posting = EndorsementDoer(
+                    baser=runtime.baser, rgy=runtime.rgy, trusted_geda_aid=geda.pre,
+                    association_schema=schema_said, effects=effects, private_key=POSTER_KEY,
+                    interval=0.05,
+                )
+                workflow.extend([posting])
+                doers.append(posting)
+                target_saids = [associations[label].said for label in ("delegated", "beneficiary")]
+                while any(runtime.baser.get_operation(said).state != "endorsed" for said in target_saids):
+                    yield 0.01
+                _, endorsement = yield from fixture_effects.observe(account.address)
+                assert endorsement[1] == associations["delegated"].said
+                yield from send(fixture_effects, wrapper, "transfer", [beneficiary.address, 1000000], PUBLIC_TEST_KEY)
+                assert (yield from read(fixture_effects, token, "balanceOf", [beneficiary.address])) == (1000000,)
+                print("Real endorsements permit transfer without global wallet admission", flush=True)
+                # A stale identity hint, even for the same entity and an admin
+                # wallet, must never substitute for that wallet's endorsement.
+                entity = runtime.baser.get_operation(target_saids[0]).verified["identityRef"]
+                yield from send(fixture_effects, fixture_effects.contracts["identity"],
+                                "registerIdentity", [entity, poster_address, b""], DEPLOYER_KEY)
+                yield from send(fixture_effects, wrapper, "transfer", [poster_address, 1000000], PUBLIC_TEST_KEY)
+                assert (yield from read(fixture_effects, token, "balanceOf", [poster_address])) == (0,)
+
+                old = associations["valid"]
+                while runtime.baser.get_operation(old.said).state != "withdrawn":
+                    yield 0.01
+                check = PresentationDoer(
+                    port=oracle_port, recipient=runtime.hab.pre,
+                    stream=grant(le, le_rgy, old, runtime.hab.pre),
+                    said=old.said, expected="withdrawn",
+                )
+                workflow.extend([check])
+                while not check.done:
+                    yield 0.01
+                workflow.remove([check])
+                _, endorsement = yield from fixture_effects.observe(account.address)
+                assert endorsement[1] == associations["delegated"].said
+                assert not any(intent.associationSaid == old.said and
+                               intent.action == "publishEndorsement"
+                               for _, intent in runtime.baser.transactions.getItemIter())
+                print("Unendorsed same-entity wallet and reordered old Grant cannot bypass policy", flush=True)
+
             # 12. Revoke LE through Registrar, then present a previously withheld child.
             revocation = registries["qvi"].revoke(said=le_credential.said)
             issuers["qvi"].registrar.revoke(
@@ -556,6 +647,16 @@ def exercise(schema_dir: Path, *, keep: bool = False) -> None:
             else:
                 raise AssertionError("Revoked LE passed fresh verification")
             print("Revoked LE blocks new acceptance and fresh verification", flush=True)
+            if comply is not None:
+                while any(runtime.baser.get_operation(said).state != "withdrawn" for said in target_saids):
+                    yield 0.01
+                for wallet in (account.address, beneficiary.address):
+                    _, endorsement = yield from fixture_effects.observe(wallet)
+                    assert endorsement == ("0x" + "00" * 32, "")
+                assert (yield from read(fixture_effects, wrapper, "transfer", [beneficiary.address, 1000000], sender=account.address)) == (False,)
+                yield from send(fixture_effects, wrapper, "transfer", [beneficiary.address, 1000000], PUBLIC_TEST_KEY)
+                assert (yield from read(fixture_effects, token, "balanceOf", [beneficiary.address])) == (1000000,)
+                print("Observed source revocation withdraws endorsements and rejects transfer", flush=True)
 
             # Commit success only after all assertions; a later timeout must fail.
             outcome.update(verified)
@@ -563,7 +664,7 @@ def exercise(schema_dir: Path, *, keep: bool = False) -> None:
             return True
 
         workflow = doing.DoDoer(doers=[*doers, doing.doify(run)])
-        doing.Doist(real=True, tock=0.01, limit=120.0).do(doers=[workflow])
+        doing.Doist(real=True, tock=0.01, limit=240.0 if comply else 120.0).do(doers=[workflow])
         assert outcome, "Issuance/HTTP exercise exceeded its time limit"
         print(
             json.dumps(
@@ -590,8 +691,9 @@ def main() -> None:
         action="store_true",
         help="retain stores under a fresh KLI base and print inspection commands",
     )
+    parser.add_argument("--comply-dir", type=Path, help="Extend through fresh Forge deployment, posting, and transfers")
     args = parser.parse_args()
-    exercise(args.schema_dir, keep=args.keep)
+    exercise(args.schema_dir, keep=args.keep, comply=args.comply_dir)
 
 
 if __name__ == "__main__":

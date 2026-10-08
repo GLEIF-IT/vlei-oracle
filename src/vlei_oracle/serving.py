@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -21,9 +21,11 @@ from keri.vdr.eventing import Tevery
 
 from .basing import OracleBaser
 from .constants import ASSOCIATION_SCHEMA
+from .contracting import ContractEffects
 from .endpoints import load_ends
 from .eoa_worker import EoaVerifierDoer
 from .handling import GrantNotificationDoer, OracleAgent, PresentationVerifierDoer
+from .posting_worker import EndorsementDoer
 from .schema_cache import pin_accepted_schemas
 
 
@@ -44,6 +46,12 @@ class ServiceConfig:
     temp: bool = False
     association_schema: str = ""
     schema_dir: str = ""
+    chain_id: int = 0
+    endorsement_registry: str = ""
+    identity_registry: str = ""
+    posting_key: str = field(default="", repr=False)
+    confirmations: int = 2
+    posting_interval: float = 1.0
 
 
 @dataclass
@@ -71,8 +79,15 @@ def setup_service(config: ServiceConfig) -> ServiceRuntime:
     created or reopened from the same Habery used by the HTTP and mailbox Doers.
     """
 
-    if not config.no_post or not config.rpc_url:
-        raise ValueError("association verification requires --no-post and --rpc-url")
+    if not config.rpc_url:
+        raise ValueError("association verification requires --rpc-url")
+    if not config.no_post and not (
+        config.chain_id > 0 and config.endorsement_registry and
+        config.identity_registry and config.posting_key
+    ):
+        raise ValueError("posting requires chain ID, both registries, and a posting key")
+    if config.confirmations < 1 or config.posting_interval <= 0:
+        raise ValueError("confirmations and posting interval must be positive")
     hby = habbing.Habery(
         name=config.name,
         base=config.base,
@@ -172,6 +187,20 @@ def setup_service(config: ServiceConfig) -> ServiceRuntime:
             ),
         ),
     ]
+    if not config.no_post:
+        from eth_account import Account
+
+        effects = ContractEffects(
+            rpc_url=config.rpc_url, chain_id=config.chain_id,
+            writer=Account.from_key(config.posting_key).address,
+            endorsement=config.endorsement_registry, identity=config.identity_registry,
+            confirmations=config.confirmations,
+        )
+        doers.append(EndorsementDoer(
+            baser=baser, rgy=rgy, trusted_geda_aid=config.trusted_geda_aid,
+            association_schema=association_schema, effects=effects,
+            private_key=config.posting_key, interval=config.posting_interval,
+        ))
     return ServiceRuntime(hby=hby, hab=hab, rgy=rgy, baser=baser, app=app, doers=doers)
 
 
