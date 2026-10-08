@@ -64,22 +64,35 @@ resume an earlier exercise. These test keystores have no passcode.
 
 Anvil and the oracle HTTP service still stop on exit. After a successful run,
 the LE credential is revoked by the final test; the retained oracle result is
-a snapshot of its earlier successful verification.
+labelled `initialVerification`; `finalOperations` records the later terminal states.
 
 ## Include deployed contracts and transfers
 
-Use the pinned comply checkout (with its submodules initialized) and Foundry:
+Prepare the pinned checkouts and a fresh environment, including submodules:
 
 ```sh
-.venv/bin/python scripts/protocol/exercise_issuance.py \
-  --schema-dir .demo/checkouts/vLEI/schema/acdc \
-  --comply-dir ../vlei-comply
+python3.12 scripts/dev/prepare-demo.py --directory .demo-association
+source .demo-association/demo.env
+```
+
+Use `.demo-association/venv/bin/python` in the commands below. The schemas are
+under `.demo-association/checkouts/vLEI/schema/acdc`. Requires authenticated
+GitHub CLI access to the GLEIF repositories. The preparer refuses to reset dirty
+or mismatched checkouts: choose a fresh directory after a pin changes.
+
+Run with the selected contract checkout and Foundry:
+
+```sh
+.demo-association/venv/bin/python scripts/protocol/exercise_issuance.py \
+  --schema-dir .demo-association/checkouts/vLEI/schema/acdc \
+  --comply-dir .demo-association/checkouts/vlei-comply
 ```
 
 The same issuance implementation now continues through fresh `DeployAll`
 contracts, a dedicated authorized oracle writer, durable signed intents,
 endorsements for two wallets, a real allowed wrapper transfer, source revocation,
-exact withdrawal, and a real rejected transfer. Token balances establish the
+exact withdrawal, and a real rejected transfer. A separate association revocation
+withdraws the beneficiary while its LE source and the originator remain valid. Token balances establish the
 outcomes; a successful receipt alone does not establish policy acceptance.
 No global wallet admission is used. A real signed EIP-7702 authorization
 transaction installs a delegation to deployed test code, and the oracle records
@@ -161,3 +174,10 @@ in `--no-post` mode. Posting flags and lifecycle are described in the root READM
 The obsolete wallet-transfer shell workflow has been removed. This exercise
 also covers contract posting and transfers when `--comply-dir` is supplied.
 It needs no global wallet whitelist.
+
+The contract extension asserts a 30-second local bound for initial/replacement
+posting, association withdrawal, and source withdrawal after evidence delivery
+(including the selected process/chain checks). It uses one local witness,
+auto-mining Anvil, one confirmation and a 50 ms in-process posting interval.
+These measured test conditions are not a production service guarantee. RPC or
+evidence outages and an unknown consumed writer nonce have no finite bound.

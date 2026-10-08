@@ -15,6 +15,7 @@ import shutil
 import socket
 import subprocess
 import sys
+from time import monotonic
 from contextlib import ExitStack
 from dataclasses import replace
 from pathlib import Path
@@ -191,6 +192,8 @@ def exercise(schema_dir: Path, *, keep: bool = False, comply: Path | None = None
         for issuer in issuers.values():
             doers.extend([issuer.registrar, issuer])
         outcome = {}
+        propagation = {}
+        final_operations = []
 
         def run(tymth, tock=0.0, **opts):
             """Advance explicit workflow steps while native HIO children do the work."""
@@ -752,8 +755,40 @@ def exercise(schema_dir: Path, *, keep: bool = False, comply: Path | None = None
                 assert (yield from fixture_effects.observe(account.address))[1][1] == associations["delegated"].said
                 print("Actual two-chain posting isolates signed chain scope and registry state", flush=True)
 
+            # Revoke the beneficiary association itself while its LE source is live.
+            if comply is not None:
+                revoked_association = associations["beneficiary"]
+                yield from revoke_credential(issuers["le"], registries["le"], revoked_association)
+                started = monotonic()
+                check = PresentationDoer(
+                    port=oracle_port, recipient=runtime.hab.pre,
+                    stream=replay(le, le_rgy, registries["le"], revoked_association),
+                    said=revoked_association.said, expected="withdrawn",
+                )
+                workflow.extend([check])
+                while not check.done:
+                    assert monotonic() - started < 30, "association withdrawal exceeded local 30s bound"
+                    yield 0.01
+                workflow.remove([check])
+                assert (yield from fixture_effects.observe(beneficiary.address))[1] == ("0x" + "00" * 32, "")
+                assert (yield from fixture_effects.observe(account.address))[1][1] == associations["delegated"].said
+                try:
+                    verify_association(rgy=runtime.rgy, said=revoked_association.said,
+                                       schema_said=schema_said, trusted_geda_aid=geda.pre)
+                except VerificationError as exc:
+                    assert "revoked" in str(exc), exc
+                else:
+                    raise AssertionError("Revoked association passed fresh verification")
+                assert (yield from read(fixture_effects, wrapper, "transfer", [beneficiary.address, 1000000], sender=account.address)) == (False,)
+                yield from send(fixture_effects, wrapper, "transfer", [beneficiary.address, 1000000], PUBLIC_TEST_KEY)
+                assert (yield from read(fixture_effects, token, "balanceOf", [beneficiary.address])) == (1000000,)
+                propagation["associationRevocationSeconds"] = round(monotonic() - started, 3)
+                assert propagation["associationRevocationSeconds"] < 30
+                print("Association revocation withdraws only its binding and rejects transfer", flush=True)
+
             # 12. Revoke LE through Registrar, then present a previously withheld child.
             yield from revoke_credential(issuers["qvi"], registries["qvi"], le_credential)
+            revocation_started = monotonic()
             withheld = associations["withheld"]
             check = PresentationDoer(
                 port=oracle_port,
@@ -786,6 +821,7 @@ def exercise(schema_dir: Path, *, keep: bool = False, comply: Path | None = None
             print("Revoked LE blocks new acceptance and fresh verification", flush=True)
             if comply is not None:
                 while any(runtime.baser.get_operation(said).state != "withdrawn" for said in target_saids):
+                    assert monotonic() - revocation_started < 30, "source withdrawal exceeded local 30s bound"
                     yield 0.01
                 for wallet in (account.address, beneficiary.address):
                     _, endorsement = yield from fixture_effects.observe(wallet)
@@ -832,7 +868,13 @@ def exercise(schema_dir: Path, *, keep: bool = False, comply: Path | None = None
                 assert (yield from second_effects.observe(account.address))[1] == ("0x" + "00" * 32, "")
                 print("Both chains propagate observed source revocation independently", flush=True)
 
+            if comply is not None:
+                propagation["sourceRevocationSeconds"] = round(monotonic() - revocation_started, 3)
+                assert propagation["sourceRevocationSeconds"] < 30, propagation
             # Commit success only after all assertions; a later timeout must fail.
+            final_operations.extend([{"associationSaid": op.associationSaid, "state": op.state,
+                                      "txHashes": op.txHashes, "failureReason": op.failureReason}
+                                     for _, op in runtime.baser.ops.getItemIter()])
             outcome.update(verified)
             workflow.remove(doers)
             return True
@@ -842,7 +884,9 @@ def exercise(schema_dir: Path, *, keep: bool = False, comply: Path | None = None
         assert outcome, "Issuance/HTTP exercise exceeded its time limit"
         print(
             json.dumps(
-                {"geda": geda.pre, "qvi": qvi.pre, "le": le.pre, "result": outcome},
+                {"geda": geda.pre, "qvi": qvi.pre, "le": le.pre,
+                 "initialVerification": outcome, "localPropagation": propagation,
+                 "finalOperations": final_operations},
                 indent=2,
             )
         )

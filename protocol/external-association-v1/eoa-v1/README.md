@@ -78,8 +78,10 @@ credentials and presents them to the running oracle.
 
 A verifier checks the association's credential chain, status, and embedded wallet
 signature. [endorsement.json](endorsement.json) illustrates the resulting
-wallet/entity/association binding for registry consumption. Association mode
-currently stops at `verified`; contract posting still uses legacy Legal Entity records.
+wallet/entity/association binding for registry consumption. Verification yields `verified`. When configured for posting, the service
+maintains the minimal exact-wallet endorsement and progresses to `endorsed`;
+observed revocation causes exact withdrawal. The contract trusts that oracle
+result. See the root README for dedicated-writer and recovery settings.
 
 ## Reproducing the examples
 
