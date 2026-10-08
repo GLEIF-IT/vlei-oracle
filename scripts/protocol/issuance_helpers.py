@@ -141,6 +141,11 @@ def open_issuers(stack, schemas, *, base, temp):
             registrar=registrar,
             verifier=verifying.Verifier(hby=hby, reger=rgy.reger),
         )
+    return actors, issuers
+
+
+def approve_qvi(actors):
+    """Approve test delegation and replay the KLI authorizer seal and KEL."""
     geda_hby, geda, _geda_rgy = actors["geda"]
     qvi_hby, qvi, qvi_rgy = actors["qvi"]
     _le_hby, le, _le_rgy = actors["le"]
@@ -160,4 +165,3 @@ def open_issuers(stack, schemas, *, base, temp):
     geda_hby.kvy.processEscrowDelegables()
     receive(qvi_hby, qvi_rgy, b"".join(le.db.clonePreIter(pre=le.pre)))
     assert qvi.pre in geda_hby.kevers, "GEDA has not accepted QVI delegation"
-    return actors, issuers

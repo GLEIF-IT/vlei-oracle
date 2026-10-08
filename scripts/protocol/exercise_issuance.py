@@ -28,6 +28,7 @@ from hio.core import http
 from issuance_helpers import (
     IssuerEscrows,
     anchor,
+    approve_qvi,
     grant,
     open_issuers,
     receive,
@@ -129,6 +130,7 @@ def exercise(schema_dir: Path, *, keep: bool = False) -> None:
         )
         # 2. Create single-key GEDA, delegated QVI, and LE identifiers and issuers.
         actors, issuers = open_issuers(stack, schemas, base=base, temp=temp)
+        approve_qvi(actors)
         _geda_hby, geda, _geda_rgy = actors["geda"]
         _qvi_hby, qvi, qvi_rgy = actors["qvi"]
         le_hby, le, le_rgy = actors["le"]
