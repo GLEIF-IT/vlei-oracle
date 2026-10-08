@@ -21,6 +21,8 @@ from tempfile import TemporaryDirectory
 from uuid import uuid4
 
 from ceremony import association_from_challenge, write_credential
+from transport_fixture import PresentationDoer
+from process_fixture import qualify_verification
 from contract_fixture import qualify_transfers, read, send
 from eth_account import Account
 from eth_account.messages import encode_typed_data
@@ -62,53 +64,9 @@ def free_port() -> int:
         return sock.getsockname()[1]
 
 
-class PresentationDoer(doing.DoDoer):
-    """Deliver CESR evidence and poll one oracle operation to an expected state.
 
-    Owns its HTTP client and yields while transport and server processing run.
-    HTTP acceptance confirms delivery; the status response confirms verification.
-    ``result`` is populated only after the expected state is observed.
-    """
-
-    def __init__(self, *, port, recipient, stream, said, expected):
-        self.client = http.Client(hostname="127.0.0.1", port=port)
-        self.client_doer = http.ClientDoer(client=self.client)
-        self.recipient, self.stream = recipient, stream
-        self.said, self.expected = said, expected
-        self.result = None
-        super().__init__(doers=[self.client_doer, doing.doify(self.run)])
-
-    def run(self, tymth, tock=0.0, **opts):
-        """Send all messages, consume their responses, then poll with fresh headers."""
-        yield tock
-        count = httping.streamCESRRequests(
-            self.client, bytearray(self.stream), self.recipient
-        )
-        for _ in range(count):
-            while not self.client.responses:
-                yield 0.01
-            response = self.client.responses.popleft()
-            assert response["status"] in (200, 202, 204), response
-        for _ in range(100):
-            # HIO retains headers by default; GET must drop the CESR POST headers.
-            self.client.request(
-                method="GET", path=f"/presentations/{self.said}", headers={}
-            )
-            while not self.client.responses:
-                yield 0.01
-            response = self.client.responses.popleft()
-            result = json.loads(response["body"])
-            if response["status"] == 200:
-                if result["state"] == self.expected:
-                    self.result = result
-                    self.remove([self.client_doer])
-                    return True
-                assert result["state"] not in ("failed", "verified"), result
-            yield 0.05
-        raise AssertionError(f"Expected {self.expected}: {result}")
-
-
-def exercise(schema_dir: Path, *, keep: bool = False, comply: Path | None = None) -> None:
+def exercise(schema_dir: Path, *, keep: bool = False, comply: Path | None = None,
+             process_check: bool = False) -> None:
     """Set up isolated actors, then schedule the complete issuance/HTTP workflow.
 
     ``schema_dir`` supplies QVI and LE schemas; this checkout supplies the
@@ -316,9 +274,11 @@ def exercise(schema_dir: Path, *, keep: bool = False, comply: Path | None = None
             ]
             if comply is not None:
                 cases.append(("beneficiary", "0x" + "0" * 63 + "2", 31337))
+            if process_check:
+                cases.append(("process", "0x" + "0" * 63 + "5", 31337))
             for label, key, chain_id in cases:
                 nonce = str(uuid4())
-                wallet = Account.from_key(key).address if label == "beneficiary" else account.address
+                wallet = Account.from_key(key).address if label in ("beneficiary", "process") else account.address
                 ext_id = normalize_ext_id(chain_id, wallet)
                 challenge = build_challenge(
                     issuer_aid=le.pre,
@@ -520,6 +480,22 @@ def exercise(schema_dir: Path, *, keep: bool = False, comply: Path | None = None
                 if expected == "failed":
                     assert not check.result["verified"], check.result
             print("Signer, chain, contract, and EIP-7702 cases passed", flush=True)
+            if process_check:
+                process_creder = associations["process"]
+                process_config = ServiceConfig(
+                    name="process-oracle", base="process-" + uuid4().hex,
+                    alias="oracle", http_port=free_port(), no_post=True,
+                    trusted_geda_aid=geda.pre, schema_dir=str(schema_dir.resolve()),
+                    rpc_url=f"http://127.0.0.1:{free_port()}",
+                )
+                process_config, process_aid, process_result = yield from qualify_verification(
+                    config=process_config, stack=stack, artifacts=artifacts, workflow=workflow,
+                    partial=lambda aid: b"".join(le.db.clonePreIter(pre=le.pre))
+                    + grant(le, le_rgy, process_creder, aid),
+                    complete=streams["geda"] + streams["qvi"]
+                    + replay(le, le_rgy, registries["le"], process_creder),
+                    association_said=process_creder.said, working_rpc=rpc_url,
+                )
 
             if comply is not None:
                 # Present a second wallet of the same entity before enabling posting.
@@ -672,8 +648,9 @@ def main() -> None:
         help="retain stores under a fresh KLI base and print inspection commands",
     )
     parser.add_argument("--comply-dir", type=Path, help="Extend through fresh Forge deployment, posting, and transfers")
+    parser.add_argument("--process-check", action="store_true", help="Qualify crash/restart through independent oracle CLI processes")
     args = parser.parse_args()
-    exercise(args.schema_dir, keep=args.keep, comply=args.comply_dir)
+    exercise(args.schema_dir, keep=args.keep, comply=args.comply_dir, process_check=args.process_check)
 
 
 if __name__ == "__main__":

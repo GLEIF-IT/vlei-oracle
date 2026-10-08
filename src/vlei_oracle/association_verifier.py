@@ -43,9 +43,10 @@ def verify_association(
         )
     if qvi.issuer != trusted_geda_aid:
         raise VerificationError("QVI credential is not issued by the trusted GEDA")
-    qvi_state = rgy.hby.kevers.get(le.issuer)
-    if qvi_state is None:
-        raise MissingCredentialArtifactsError("QVI key state is not available yet")
+    try:
+        qvi_state = rgy.hby.kevers[le.issuer]
+    except KeyError as exc:
+        raise MissingCredentialArtifactsError("QVI key state is not available yet") from exc
     if qvi_state.delpre != trusted_geda_aid:
         raise VerificationError("QVI AID is not delegated by the trusted GEDA")
 
@@ -68,8 +69,13 @@ def accepted_credential(rgy, said: str, schema_said: str) -> serdering.SerderACD
     if rgy.reger.saved.get(keys=(said,)) is None:
         raise MissingCredentialArtifactsError(f"credential {said} is not accepted yet")
     creder = stored_credential(rgy, said, schema_said)
-    tever = rgy.reger.tevers.get(creder.regi)
-    state = tever.vcState(said) if tever is not None else None
+    # Native read-through caches reload persisted state through indexed lookup.
+    # Their get() methods consult only the in-memory cache in this KERI version.
+    try:
+        tever = rgy.reger.tevers[creder.regi]
+    except KeyError as exc:
+        raise MissingCredentialArtifactsError(f"credential {said} has no registry state") from exc
+    state = tever.vcState(said)
     if state is None:
         raise MissingCredentialArtifactsError(f"credential {said} has no TEL state")
     if state.et not in ("iss", "bis"):
