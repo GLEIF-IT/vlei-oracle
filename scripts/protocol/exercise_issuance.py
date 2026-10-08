@@ -21,7 +21,7 @@ from tempfile import TemporaryDirectory
 from uuid import uuid4
 
 from ceremony import association_from_challenge, write_credential
-from contract_fixture import DEPLOYER_KEY, POSTER_KEY, contract, deploy, read, send
+from contract_fixture import qualify_transfers, read, send
 from eth_account import Account
 from eth_account.messages import encode_typed_data
 from hio.base import doing
@@ -43,13 +43,11 @@ from keri.help import helping
 
 from vlei_oracle.association_verifier import verify_association
 from vlei_oracle.constants import LE_SCHEMA, QVI_SCHEMA
-from vlei_oracle.contracting import ContractEffects
 from vlei_oracle.eoa import (
     build_challenge,
     normalize_ext_id,
 )
 from vlei_oracle.errors import MissingCredentialArtifactsError, VerificationError
-from vlei_oracle.posting_worker import EndorsementDoer
 from vlei_oracle.serving import ServiceConfig, setup_service
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -538,56 +536,14 @@ def exercise(schema_dir: Path, *, keep: bool = False, comply: Path | None = None
                     yield 0.01
                 workflow.remove([check])
 
-                addresses = yield from deploy(comply, rpc_url, artifacts)
-                poster_address = Account.from_key(POSTER_KEY).address
-                effects = ContractEffects(
-                    rpc_url=rpc_url, chain_id=31337, writer=poster_address,
-                    endorsement=addresses["oracleRegistry"], identity=addresses["identityRegistry"],
-                    confirmations=1,
-                )
-                # Separate test-controller effects from the dedicated oracle writer.
-                fixture_effects = ContractEffects(
-                    rpc_url=rpc_url, chain_id=31337, writer=Account.from_key(DEPLOYER_KEY).address,
-                    endorsement=addresses["oracleRegistry"], identity=addresses["identityRegistry"],
-                    confirmations=1,
-                )
-                workflow.extend([fixture_effects])
-                doers.append(fixture_effects)
-                for wallet in (account.address, poster_address):
-                    yield from fixture_effects.request("anvil_setBalance", [wallet, "0x56bc75e2d63100000"])
-                admin = contract(comply, "AdminControls", addresses["adminControls"])
-                token = contract(comply, "USDC", addresses["usdcToken"])
-                wrapper = contract(comply, "wUSDC", addresses["wrapper"])
-                role = fixture_effects.web3.keccak(text="COMPLIANCE_ADMIN_ROLE")
-                yield from send(fixture_effects, admin, "grantRole", [role, poster_address], DEPLOYER_KEY)
-                yield from send(fixture_effects, token, "mint", [account.address, 100000000], DEPLOYER_KEY)
-                yield from send(fixture_effects, token, "approve", [wrapper.address, 100000000], PUBLIC_TEST_KEY)
-                assert (yield from read(fixture_effects, wrapper, "transfer", [beneficiary.address, 1000000], sender=account.address)) == (False,)
-                yield from send(fixture_effects, wrapper, "transfer", [beneficiary.address, 1000000], PUBLIC_TEST_KEY)
-                assert (yield from read(fixture_effects, token, "balanceOf", [beneficiary.address])) == (0,)
-
-                posting = EndorsementDoer(
-                    baser=runtime.baser, rgy=runtime.rgy, trusted_geda_aid=geda.pre,
-                    association_schema=schema_said, effects=effects, private_key=POSTER_KEY,
-                    interval=0.05,
-                )
-                workflow.extend([posting])
-                doers.append(posting)
                 target_saids = [associations[label].said for label in ("delegated", "beneficiary")]
-                while any(runtime.baser.get_operation(said).state != "endorsed" for said in target_saids):
-                    yield 0.01
-                _, endorsement = yield from fixture_effects.observe(account.address)
-                assert endorsement[1] == associations["delegated"].said
-                yield from send(fixture_effects, wrapper, "transfer", [beneficiary.address, 1000000], PUBLIC_TEST_KEY)
-                assert (yield from read(fixture_effects, token, "balanceOf", [beneficiary.address])) == (1000000,)
-                print("Real endorsements permit transfer without global wallet admission", flush=True)
-                # A stale identity hint, even for the same entity and an admin
-                # wallet, must never substitute for that wallet's endorsement.
-                entity = runtime.baser.get_operation(target_saids[0]).verified["identityRef"]
-                yield from send(fixture_effects, fixture_effects.contracts["identity"],
-                                "registerIdentity", [entity, poster_address, b""], DEPLOYER_KEY)
-                yield from send(fixture_effects, wrapper, "transfer", [poster_address, 1000000], PUBLIC_TEST_KEY)
-                assert (yield from read(fixture_effects, token, "balanceOf", [poster_address])) == (0,)
+                fixture_effects, token, wrapper, children = yield from qualify_transfers(
+                    comply=comply, rpc_url=rpc_url, artifacts=artifacts,
+                    runtime=runtime, trusted_geda=geda.pre, schema_said=schema_said,
+                    sender_key=PUBLIC_TEST_KEY, recipient=beneficiary.address,
+                    target_saids=target_saids, workflow=workflow,
+                )
+                doers.extend(children)
 
                 old = associations["valid"]
                 while runtime.baser.get_operation(old.said).state != "withdrawn":
