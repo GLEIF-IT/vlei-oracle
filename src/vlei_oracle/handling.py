@@ -12,7 +12,7 @@ from typing import Any
 from hio.base import doing
 from hio.help import decking
 from keri import kering
-from keri.core import coring, serdering
+from keri.core import serdering
 from keri.peer import exchanging
 
 from .association_verifier import verify_association
@@ -134,8 +134,8 @@ class GrantNotificationDoer(doing.Doer):
         """Parse one IPEX Grant notice and create or fail its operation.
 
         Embedded ``anc``, ``iss``, and ``acdc`` artifacts are replayed into the
-        parser so the verifier store can materialize the wallet credential and
-        recursive source chain. The wallet schema check happens early because
+        parser so the verifier store can materialize the association and
+        recursive source chain. The association schema check happens early because
         the oracle accepts a pinned schema set, not whatever the sender provides.
         """
 
@@ -149,15 +149,20 @@ class GrantNotificationDoer(doing.Doer):
         if not isinstance(embeds, dict) or "acdc" not in embeds:
             raise ValueError(f"IPEX Grant {grant_said} has no embedded ACDC")
 
+        # Validate the immutable identity before replay or operation creation.
+        # IPEX authentication commits the envelope, not the ACDC's claimed SAID.
+        creder = serdering.SerderACDC(sad=embeds["acdc"])
         for label in ("anc", "iss", "acdc"):
             if label not in embeds or label not in pathed:
                 continue
-            sadder = coring.Sadder(ked=embeds[label])
+            sadder = (
+                creder if label == "acdc" else serdering.SerderKERI(sad=embeds[label])
+            )
             ims = bytearray(sadder.raw)
             ims.extend(pathed[label])
             self.parser.parseOne(ims=ims)
 
-        acdc = embeds["acdc"]
+        acdc = creder.sad
         association_said = acdc["d"]
         association_schema = acdc.get("s", "")
         if association_schema != self.expected_association_schema:
@@ -169,7 +174,7 @@ class GrantNotificationDoer(doing.Doer):
             )
             return self.baser.mark_failed(
                 op,
-                f"wallet credential schema {association_schema} does not match expected {self.expected_association_schema}",
+                f"association schema {association_schema} does not match expected {self.expected_association_schema}",
             )
 
         op = self.baser.start_operation(

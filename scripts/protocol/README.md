@@ -20,7 +20,8 @@ uv pip install --python .venv/bin/python -e '.[dev]' -r scripts/protocol/require
 
 The preparer checks out the pinned public vLEI schemas. Python uses PyPI's
 `gleif_keri==1.2.15rc1`. The exercise starts its own Anvil and HIO/Falcon server on local
-ephemeral ports and closes its temporary KERI stores and processes on exit.
+ephemeral ports, starts one native KERI witness, and closes its temporary KERI
+stores and processes on exit.
 
 Use a fresh virtual environment when switching from upstream `keri`/`hio`:
 the GLEIF packages own those same import paths. The RC requires
@@ -29,11 +30,15 @@ the GLEIF packages own those same import paths. The RC requires
 The test GEDA delegates the QVI identifier and issues its QVI credential. The
 QVI issues the chained LE credential. The LE signs and issues an untargeted
 association containing the wallet's EIP-712 proof. All identifiers use one key
-and no witnesses. The oracle independently processes their signed KELs, TELs,
+and one local witness. Actors discover the witness through native OOBI resolution
+and collect actual receipts through the native Registrar. The oracle independently
+processes their signed, receipted KELs, TELs,
 credentials, and addressed IPEX Grant over HTTP.
 
 Fresh receivers test missing issuance TEL and KEL anchors without accepting the
-association. Assertions also cover pending source evidence, successful verification, wrong signer,
+association. Removing receipts from an accepted association's real KEL store
+keeps verification pending until the receipts return. Assertions also cover
+pending source evidence, successful verification, wrong signer,
 wrong chain, ordinary contract code, and EIP-7702 delegation. Revoking the LE
 prevents acceptance of a new child and makes fresh verification of an already
 accepted association fail. The oracle rejects a candidate whose accepted source
@@ -87,8 +92,9 @@ constructor adds a subject nonce, which the association schema does not use.
 
 Two deliberate test choices replace CLI transport plumbing: GEDA's local
 approval records the same authorizer seal as `kli delegate confirm --interact`,
-and issuer/holder evidence is replayed directly rather than discovered through
-witnesses or mailboxes. Oracle traffic still crosses its real CESR HTTP endpoint.
+and issuer/holder credential evidence is replayed directly rather than delivered
+through mailboxes. Witness discovery and receipt collection use native network
+doers. Oracle traffic crosses its real CESR HTTP endpoint.
 Separate source delivery tests a Grant arriving before its supporting chain.
 
 ## Service interface

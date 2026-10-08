@@ -114,8 +114,8 @@ class IssuerEscrows(doing.Doer):
         return False
 
 
-def open_issuers(stack, schemas, *, base, temp):
-    """Open the isolated test GEDA/QVI/LE stores and approve QVI delegation."""
+def open_issuers(stack, schemas, *, base, temp, witness):
+    """Open isolated, witnessed GEDA/QVI/LE stores and native issuance doers."""
     actors, issuers = {}, {}
     for name in ("geda", "qvi", "le"):
         hby = stack.enter_context(habbing.openHby(name=name, base=base, temp=temp))
@@ -127,7 +127,8 @@ def open_issuers(stack, schemas, *, base, temp):
             isith="1",
             ncount=1,
             nsith="1",
-            wits=[],
+            wits=[witness.pre],
+            toad=1,
             **({"delpre": actors["geda"][1].pre} if name == "qvi" else {}),
         )
         rgy = credentialing.Regery(hby=hby, name=name, base=base, temp=temp)
@@ -144,23 +145,31 @@ def open_issuers(stack, schemas, *, base, temp):
     return actors, issuers
 
 
-def approve_qvi(actors):
-    """Approve test delegation and replay the KLI authorizer seal and KEL."""
+def collect_receipts(issuer, hab, sn):
+    """Yield while the native Registrar's receipt worker contacts the witness."""
+    receiptor = issuer.registrar.receiptor
+    receiptor.msgs.append({"pre": hab.pre, "sn": sn})
+    while not any(cue["pre"] == hab.pre and cue["sn"] == sn for cue in receiptor.cues):
+        yield 0.01
+
+
+def approve_qvi(actors, issuers):
+    """Schedule witnessed delegation approval using the KLI authorizer seal."""
     geda_hby, geda, _geda_rgy = actors["geda"]
     qvi_hby, qvi, qvi_rgy = actors["qvi"]
     _le_hby, le, _le_rgy = actors["le"]
-
-    # Sign GEDA's approval, matching `kli delegate confirm --interact`.
-    # ConfirmDoer records this authorizer couple; direct replay replaces its
-    # witness query because these test identifiers intentionally have no witnesses.
+    # Introduce the non-delegated inception events before GEDA's approval.
+    yield from collect_receipts(issuers["geda"], geda, 0)
+    yield from collect_receipts(issuers["le"], le, 0)
     inception = serdering.SerderKERI(raw=qvi.makeOwnEvent(sn=0))
     geda.interact(data=[eventing.SealEvent(qvi.pre, "0", inception.said)._asdict()])
     couple = coring.Seqner(sn=geda.kever.sn).qb64b + geda.kever.serder.saidb
     for hby in (geda_hby, qvi_hby):
         hby.db.setAes(dbing.dgKey(qvi.pre, inception.said), couple)
+    yield from collect_receipts(issuers["geda"], geda, geda.kever.sn)
     receive(qvi_hby, qvi_rgy, b"".join(geda.db.clonePreIter(pre=geda.pre)))
-    # Delegator approval is a protected local operation, as in the KLI;
-    # unprotected remote input is deliberately escrowed for local delegates.
+    # The receipt worker sends cloneDelegation context before the delegated event.
+    yield from collect_receipts(issuers["qvi"], qvi, 0)
     geda_hby.psr.parse(ims=bytearray(b"".join(qvi.db.clonePreIter(pre=qvi.pre))))
     geda_hby.kvy.processEscrowDelegables()
     receive(qvi_hby, qvi_rgy, b"".join(le.db.clonePreIter(pre=le.pre)))
