@@ -37,6 +37,7 @@ from issuance_helpers import (
     anchor,
     approve_qvi,
     grant,
+    issuer_for,
     open_issuers,
     receive,
     replay,
@@ -172,12 +173,13 @@ def exercise(schema_dir: Path, *, keep: bool = False, comply: Path | None = None
                 print(shlex.join([kli, "vc", "list", *args, "--verbose"]))
             print(f"\nOracle operations: {runtime.baser.path}", flush=True)
         rpc = http.Client(hostname="127.0.0.1", port=rpc_port, reconnectable=True)
+        issuer_escrows = IssuerEscrows(list(issuers.values()))
         doers = [
             *witness_doers,
             *(doer for resolver in oobiers for doer in resolver.doers),
             *runtime.doers,
             http.ClientDoer(client=rpc),
-            IssuerEscrows(list(issuers.values())),
+            issuer_escrows,
         ]
         for issuer in issuers.values():
             doers.extend([issuer.registrar, issuer])

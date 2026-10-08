@@ -114,6 +114,15 @@ class IssuerEscrows(doing.Doer):
         return False
 
 
+def issuer_for(hby, rgy):
+    """Compose the native single-sig issuance runtime for one controller store."""
+    registrar = credentialing.Registrar(hby=hby, rgy=rgy, counselor=None)
+    return credentialing.Credentialer(
+        hby=hby, rgy=rgy, registrar=registrar,
+        verifier=verifying.Verifier(hby=hby, reger=rgy.reger),
+    )
+
+
 def open_issuers(stack, schemas, *, base, temp, witness):
     """Open isolated, witnessed GEDA/QVI/LE stores and native issuance doers."""
     actors, issuers = {}, {}
@@ -135,13 +144,7 @@ def open_issuers(stack, schemas, *, base, temp, witness):
         stack.callback(rgy.reger.close, clear=temp)
         actors[name] = (hby, hab, rgy)
         # Single-sig needs no multisig Counselor; retain the KLI lifecycle doers.
-        registrar = credentialing.Registrar(hby=hby, rgy=rgy, counselor=None)
-        issuers[name] = credentialing.Credentialer(
-            hby=hby,
-            rgy=rgy,
-            registrar=registrar,
-            verifier=verifying.Verifier(hby=hby, reger=rgy.reger),
-        )
+        issuers[name] = issuer_for(hby, rgy)
     return actors, issuers
 
 
