@@ -81,7 +81,11 @@ contracts, a dedicated authorized oracle writer, durable signed intents,
 endorsements for two wallets, a real allowed wrapper transfer, source revocation,
 exact withdrawal, and a real rejected transfer. Token balances establish the
 outcomes; a successful receipt alone does not establish policy acceptance.
-No global wallet admission is used. Fixture token/admin calls run in test-side
+No global wallet admission is used. A real signed EIP-7702 authorization
+transaction installs a delegation to deployed test code, and the oracle records
+that exact designation before endorsement. This qualifies account eligibility;
+the test token code is not a production wallet implementation.
+Fixture token/admin calls run in test-side
 helpers; all service network waits remain native HIO requests.
 
 Add `--process-check` to crash/restart actual oracle CLI processes while source
@@ -95,8 +99,11 @@ retained for inspection, including when an assertion fails.
 
 The contract tests also exercise saved-hash recovery, explicit same-nonce
 cancellation, reorg reconciliation with the same signed identity, and wrong-chain
-refusal. Two-chain qualification remains an additional gate. `anvil_setCode` account cases still
-classify code; they do not claim a signed EIP-7702 authorization transaction.
+refusal. Add `--two-chain-check` to deploy on independent chains 31337/31338:
+the first chain's signed association is rejected on the second, its properly
+scoped association is posted there, and both independently withdraw on observed
+source revocation. `anvil_setCode` cases remain code-classification simulations,
+separate from the actual authorization transaction.
 
 ## KLI alignment
 

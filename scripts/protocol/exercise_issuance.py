@@ -27,7 +27,7 @@ from process_fixture import (
     authorize_writer, qualify_after_submission, qualify_before_submission,
     qualify_verification,
 )
-from contract_fixture import POSTER_KEY, qualify_transfers, read, send
+from contract_fixture import DEPLOYER_KEY, POSTER_KEY, deploy, qualify_transfers, read, send
 from eth_account import Account
 from eth_account.messages import encode_typed_data
 from hio.base import doing
@@ -75,7 +75,8 @@ def free_port() -> int:
 
 
 def exercise(schema_dir: Path, *, keep: bool = False, comply: Path | None = None,
-             process_check: bool = False, kli_check: bool = False) -> None:
+             process_check: bool = False, kli_check: bool = False,
+             two_chain_check: bool = False) -> None:
     """Set up isolated actors, then schedule the complete issuance/HTTP workflow.
 
     ``schema_dir`` supplies QVI and LE schemas; this checkout supplies the
@@ -696,6 +697,64 @@ def exercise(schema_dir: Path, *, keep: bool = False, comply: Path | None = None
                         stack=stack, artifacts=artifacts, workflow=workflow,
                     )
 
+            if two_chain_check:
+                second_rpc_port, second_oracle_port = free_port(), free_port()
+                second_anvil = stack.enter_context(subprocess.Popen(
+                    [shutil.which("anvil") or "anvil", "--host", "127.0.0.1",
+                     "--port", str(second_rpc_port), "--chain-id", "31338", "--silent"],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                ))
+                stack.callback(second_anvil.terminate)
+                second_rpc_url = f"http://127.0.0.1:{second_rpc_port}"
+                probe = ContractEffects(
+                    rpc_url=second_rpc_url, chain_id=31338,
+                    writer=Account.from_key(DEPLOYER_KEY).address,
+                    endorsement=account.address, identity=account.address,
+                )
+                workflow.extend([probe])
+                yield from probe.check_chain()
+                workflow.remove([probe])
+                second_addresses = yield from deploy(comply, second_rpc_url, artifacts)
+                second_effects = ContractEffects(
+                    rpc_url=second_rpc_url, chain_id=31338,
+                    writer=Account.from_key(DEPLOYER_KEY).address,
+                    endorsement=second_addresses["oracleRegistry"], identity=second_addresses["identityRegistry"],
+                    confirmations=1,
+                )
+                workflow.extend([second_effects])
+                doers.append(second_effects)
+                yield from authorize_writer(effects=second_effects, comply=comply, key=POSTER_KEY)
+                second_runtime = setup_service(ServiceConfig(
+                    name="second-chain-oracle", base=base, temp=temp, no_post=False,
+                    host="127.0.0.1", http_port=second_oracle_port,
+                    trusted_geda_aid=geda.pre, schema_dir=str(schema_dir), rpc_url=second_rpc_url,
+                    chain_id=31338, endorsement_registry=second_addresses["oracleRegistry"],
+                    identity_registry=second_addresses["identityRegistry"], posting_key=POSTER_KEY,
+                    confirmations=1, posting_interval=0.05,
+                ))
+                workflow.extend(second_runtime.doers)
+                doers.extend(second_runtime.doers)
+                for label, expected in (("valid", "failed"), ("wrong_chain", "endorsed")):
+                    creder = associations[label]
+                    check = PresentationDoer(
+                        port=second_oracle_port, recipient=second_runtime.hab.pre,
+                        stream=streams["geda"] + streams["qvi"]
+                        + replay(le, le_rgy, registries["le"], creder)
+                        + grant(le, le_rgy, creder, second_runtime.hab.pre),
+                        said=creder.said, expected=expected,
+                    )
+                    workflow.extend([check])
+                    while not check.done:
+                        yield 0.01
+                    workflow.remove([check])
+                    if expected == "failed":
+                        assert "oracle network" in check.result["failureReason"]
+                        assert not check.result["verified"] and not check.result["txHashes"]
+                        assert (yield from second_effects.observe(account.address))[1] == ("0x" + "00" * 32, "")
+                assert (yield from second_effects.observe(account.address))[1][1] == associations["wrong_chain"].said
+                assert (yield from fixture_effects.observe(account.address))[1][1] == associations["delegated"].said
+                print("Actual two-chain posting isolates signed chain scope and registry state", flush=True)
+
             # 12. Revoke LE through Registrar, then present a previously withheld child.
             revocation = registries["qvi"].revoke(said=le_credential.said)
             issuers["qvi"].registrar.revoke(
@@ -741,17 +800,6 @@ def exercise(schema_dir: Path, *, keep: bool = False, comply: Path | None = None
                 for wallet in (account.address, beneficiary.address):
                     _, endorsement = yield from fixture_effects.observe(wallet)
                     assert endorsement == ("0x" + "00" * 32, "")
-                    check = PresentationDoer(
-                        port=broadcast_config.http_port, recipient=broadcast_aid,
-                        stream=replay(qvi, qvi_rgy, registries["qvi"], le_credential),
-                        said=broadcast_creder.said, expected="withdrawn",
-                    )
-                    workflow.extend([check])
-                    while not check.done:
-                        yield 0.01
-                    workflow.remove([check])
-                    _, endorsement = yield from fixture_effects.observe(broadcast_result["verified"]["wallet"])
-                    assert endorsement == ("0x" + "00" * 32, "")
                 assert (yield from read(fixture_effects, wrapper, "transfer", [beneficiary.address, 1000000], sender=account.address)) == (False,)
                 yield from send(fixture_effects, wrapper, "transfer", [beneficiary.address, 1000000], PUBLIC_TEST_KEY)
                 assert (yield from read(fixture_effects, token, "balanceOf", [beneficiary.address])) == (1000000,)
@@ -768,7 +816,31 @@ def exercise(schema_dir: Path, *, keep: bool = False, comply: Path | None = None
                     workflow.remove([check])
                     _, endorsement = yield from fixture_effects.observe(posted_result["verified"]["wallet"])
                     assert endorsement == ("0x" + "00" * 32, "")
+                    check = PresentationDoer(
+                        port=broadcast_config.http_port, recipient=broadcast_aid,
+                        stream=replay(qvi, qvi_rgy, registries["qvi"], le_credential),
+                        said=broadcast_creder.said, expected="withdrawn",
+                    )
+                    workflow.extend([check])
+                    while not check.done:
+                        yield 0.01
+                    workflow.remove([check])
+                    _, endorsement = yield from fixture_effects.observe(broadcast_result["verified"]["wallet"])
+                    assert endorsement == ("0x" + "00" * 32, "")
                     print("Independent posting process propagates observed source revocation", flush=True)
+
+            if two_chain_check:
+                check = PresentationDoer(
+                    port=second_oracle_port, recipient=second_runtime.hab.pre,
+                    stream=replay(qvi, qvi_rgy, registries["qvi"], le_credential),
+                    said=associations["wrong_chain"].said, expected="withdrawn",
+                )
+                workflow.extend([check])
+                while not check.done:
+                    yield 0.01
+                workflow.remove([check])
+                assert (yield from second_effects.observe(account.address))[1] == ("0x" + "00" * 32, "")
+                print("Both chains propagate observed source revocation independently", flush=True)
 
             # Commit success only after all assertions; a later timeout must fail.
             outcome.update(verified)
@@ -806,9 +878,13 @@ def main() -> None:
     parser.add_argument("--comply-dir", type=Path, help="Extend through fresh Forge deployment, posting, and transfers")
     parser.add_argument("--process-check", action="store_true", help="Qualify crash/restart through independent oracle CLI processes")
     parser.add_argument("--kli-check", action="store_true", help="Qualify native CLI issuance; retains fresh test stores")
+    parser.add_argument("--two-chain-check", action="store_true", help="Qualify actual signed-chain isolation through two deployments")
     args = parser.parse_args()
+    if args.two_chain_check and args.comply_dir is None:
+        parser.error("--two-chain-check requires --comply-dir")
     exercise(args.schema_dir, keep=args.keep, comply=args.comply_dir,
-             process_check=args.process_check, kli_check=args.kli_check)
+             process_check=args.process_check, kli_check=args.kli_check,
+             two_chain_check=args.two_chain_check)
 
 
 if __name__ == "__main__":
