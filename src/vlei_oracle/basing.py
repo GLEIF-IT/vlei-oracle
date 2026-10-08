@@ -100,7 +100,20 @@ class OracleBaser(dbing.LMDBer):
         self.scope.pin(keys=("posting",), val=scope)
 
     def pin_transaction(self, intent: TransactionRecord):
-        """Commit intent, cancellation, or receipt progress synchronously."""
+        """Keep signed attempts immutable while recording chain progress.
+
+        Original and same-nonce cancellation bytes must be durable before their
+        first broadcast. Observations may change; an attempt identity may not.
+        """
+        existing = self.transactions.get(keys=(intent.txHash,))
+        if existing is not None:
+            for field in ("rawTransaction", "transaction", "associationSaid", "action"):
+                if getattr(existing, field) != getattr(intent, field):
+                    raise ValueError("cannot change a persisted signed attempt")
+            if existing.cancelHash and (existing.cancelHash, existing.cancelRaw) != (intent.cancelHash, intent.cancelRaw):
+                raise ValueError("cannot change a persisted cancellation")
+        if bool(intent.cancelHash) != bool(intent.cancelRaw):
+            raise ValueError("cancellation requires both hash and signed bytes")
         self.transactions.pin(keys=(intent.txHash,), val=intent)
         return intent
 

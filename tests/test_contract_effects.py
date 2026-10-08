@@ -233,3 +233,29 @@ def test_operation_store_refuses_different_deployment_scope(tmp_path):
             reopened.bind_posting_scope(PostingScope(31338, scope.writer, scope.endorsement, scope.identity))
     finally:
         reopened.close(clear=True)
+
+
+
+def test_signed_attempts_are_immutable_across_reopen(tmp_path):
+    from dataclasses import replace
+
+    store = OracleBaser(name="immutable", headDirPath=str(tmp_path))
+    transaction = {"nonce": 0, "gasPrice": 1, "gas": 21000, "to": WALLET,
+                   "value": 0, "chainId": 31337}
+    intent = store.pin_transaction(signed_intent(transaction))
+    store.close()
+    store.reopen()
+    try:
+        with pytest.raises(ValueError, match="signed attempt"):
+            store.pin_transaction(replace(intent, associationSaid="different"))
+        with pytest.raises(ValueError, match="signed attempt"):
+            store.pin_transaction(replace(intent, rawTransaction="0x00"))
+        with pytest.raises(ValueError, match="both hash and signed bytes"):
+            store.pin_transaction(replace(intent, cancelHash="cancel"))
+        cancel = signed_intent({**transaction, "gasPrice": 2})
+        intent.cancelHash, intent.cancelRaw = cancel.txHash, cancel.rawTransaction
+        store.pin_transaction(intent)
+        with pytest.raises(ValueError, match="persisted cancellation"):
+            store.pin_transaction(replace(intent, cancelHash="different"))
+    finally:
+        store.close(clear=True)
