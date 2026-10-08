@@ -11,7 +11,7 @@ from .association_verifier import verify_association
 from .basing import STATE_ENDORSED, STATE_WITHDRAWN, PostingScope, TransactionRecord
 from .eoa_worker import EoaVerifierDoer
 from .errors import MissingCredentialArtifactsError, VerificationError
-from .posting import next_action
+from .posting import ZERO_IDENTITY, next_action
 
 
 def issuance_position(rgy, said):
@@ -75,12 +75,41 @@ class EndorsementDoer(doing.DoDoer):
             schema_said=self.association_schema, trusted_geda_aid=self.trusted_geda_aid,
         )
 
+    def chain_order(self, op, endorsement):
+        """Require evidence for the current assertion before replacing it.
+
+        A fresh operation store may not know a later on-chain association. Read
+        immutable issuance anchors from native credential/TEL stores rather
+        than treating absence of a local operation as permission to overwrite.
+        """
+        entity, said = endorsement
+        if (entity, said) == (ZERO_IDENTITY, ""):
+            return True, ""
+        if entity != op.verified["identityRef"]:
+            raise MissingCredentialArtifactsError(
+                "current wallet entity requires explicit withdrawal before replacement"
+            )
+        if said == op.associationSaid:
+            return True, ""
+        try:
+            current_issuer, current_sn = issuance_position(self.rgy, said)
+        except MissingCredentialArtifactsError as exc:
+            raise MissingCredentialArtifactsError(
+                "current on-chain association evidence is unavailable"
+            ) from exc
+        issuer, sn = issuance_position(self.rgy, op.associationSaid)
+        if issuer != current_issuer:
+            raise MissingCredentialArtifactsError("current endorsement issuer is inconsistent")
+        return (True, "") if sn > current_sn else (
+            False, "superseded or ambiguous on-chain association"
+        )
+
     def evidence(self, op):
         """Yield for profile recheck, then re-read current KERI state."""
         try:
+            association = self.current_credential(op)
             if not self.desired(op):
                 return False, "superseded by newer verified association"
-            association = self.current_credential(op)
             self.eoa.msgs.append(association.sad)
             while not self.eoa.cues:
                 yield self.tock
@@ -138,6 +167,9 @@ class EndorsementDoer(doing.DoDoer):
                 yield from self.effects.submit(intent.rawTransaction, intent.txHash)
             return
         valid, reason = yield from self.evidence(op)
+        if valid:
+            _, endorsement = yield from self.effects.observe(op.verified["wallet"])
+            valid, reason = self.chain_order(op, endorsement)
         if not valid and intent.action != "withdrawEndorsement":
             transaction = yield from self.effects.cancellation(intent)
             intent.cancelHash, intent.cancelRaw = self.sign(transaction)
@@ -154,6 +186,8 @@ class EndorsementDoer(doing.DoDoer):
         """Reconcile one wallet from current evidence and observed chain state."""
         valid, reason = yield from self.evidence(op)
         identity, endorsement = yield from self.effects.observe(op.verified["wallet"])
+        if valid:
+            valid, reason = self.chain_order(op, endorsement)
         action = next_action(op.verified, identity=identity, endorsement=endorsement, valid=valid)
         if action is None:
             state = STATE_ENDORSED if valid else STATE_WITHDRAWN

@@ -562,6 +562,30 @@ def exercise(schema_dir: Path, *, keep: bool = False, comply: Path | None = None
                 assert not any(intent.associationSaid == old.said and
                                intent.action == "publishEndorsement"
                                for _, intent in runtime.baser.transactions.getItemIter())
+                # Real-store boundary: a missing local operation does not make
+                # the already published later association older than this one.
+                posting = children[-1]
+                current_said = endorsement[1]
+                current_op = runtime.baser.get_operation(current_said)
+                current_creder = runtime.rgy.reger.creds.get(keys=(current_said,))
+                runtime.baser.ops.rem(keys=(current_said,))
+                try:
+                    old_op = runtime.baser.get_operation(old.said)
+                    assert posting.desired(old_op)
+                    assert posting.chain_order(old_op, endorsement)[0] is False
+                    runtime.rgy.reger.creds.rem(keys=(current_said,))
+                    try:
+                        try:
+                            posting.chain_order(old_op, endorsement)
+                        except MissingCredentialArtifactsError as exc:
+                            assert "current on-chain association" in str(exc), exc
+                        else:
+                            raise AssertionError("Missing current evidence allowed replacement")
+                    finally:
+                        runtime.rgy.reger.creds.pin(keys=(current_said,), val=current_creder)
+                finally:
+                    runtime.baser.pin_operation(current_op)
+                print("On-chain issuance evidence blocks stale updates without local history", flush=True)
                 print("Unendorsed same-entity wallet and reordered old Grant cannot bypass policy", flush=True)
 
             # 12. Revoke LE through Registrar, then present a previously withheld child.
