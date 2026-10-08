@@ -9,7 +9,7 @@ from eth_account.messages import encode_typed_data
 from ceremony import write_credential
 from issuance_helpers import grant, issue_credential, replay, revoke_credential
 from transport_fixture import PresentationDoer
-from vlei_oracle.eoa import build_challenge, normalize_ext_id
+from vlei_oracle.verification.eoa import build_challenge, normalize_ext_id
 
 
 def qualify_replacement(*, le, rgy, registry, issuer, le_said, previous,

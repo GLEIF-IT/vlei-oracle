@@ -20,14 +20,16 @@ from keri.vc import protocoling
 from keri.vdr import credentialing, verifying
 from keri.vdr.eventing import Tevery
 
-from .basing import OracleBaser
-from .constants import ASSOCIATION_SCHEMA
-from .contracting import ContractEffects
-from .endpoints import load_ends
-from .eoa_worker import EoaVerifierDoer
-from .handling import GrantNotificationDoer, OracleAgent, PresentationVerifierDoer
-from .posting_worker import EndorsementDoer
-from .schema_cache import pin_accepted_schemas
+from vlei_oracle.basing import OracleBaser
+from vlei_oracle.endorsement.effects import ContractEffects
+from vlei_oracle.endorsement.reconciling import EndorsementDoer
+from vlei_oracle.receiving.endpoints import load_ends
+from vlei_oracle.receiving.grants import GrantNotificationDoer
+from vlei_oracle.receiving.processing import OracleAgent
+from vlei_oracle.verification.constants import ASSOCIATION_SCHEMA
+from vlei_oracle.verification.coordinating import PresentationVerifierDoer
+from vlei_oracle.verification.schema_cache import pin_accepted_schemas
+from vlei_oracle.verification.worker import EoaVerifierDoer
 
 
 @dataclass(frozen=True)

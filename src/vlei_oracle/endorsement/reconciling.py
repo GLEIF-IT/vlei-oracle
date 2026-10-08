@@ -7,11 +7,11 @@ from keri.core import coring
 from keri.db import dbing
 from web3 import Web3
 
-from .association_verifier import verify_association
-from .basing import STATE_ENDORSED, STATE_WITHDRAWN, PostingScope, TransactionRecord
-from .eoa_worker import EoaVerifierDoer
-from .errors import MissingCredentialArtifactsError, VerificationError
-from .posting import ZERO_IDENTITY, next_action
+from vlei_oracle.verification.credentials import verify_association
+from vlei_oracle.basing import STATE_ENDORSED, STATE_WITHDRAWN, PostingScope, TransactionRecord
+from vlei_oracle.verification.worker import EoaVerifierDoer
+from vlei_oracle.verification.errors import MissingCredentialArtifactsError, VerificationError
+from vlei_oracle.endorsement.decisions import ZERO_IDENTITY, next_action
 
 
 def issuance_position(rgy, said):

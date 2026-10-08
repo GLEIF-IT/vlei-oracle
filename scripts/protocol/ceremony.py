@@ -17,14 +17,14 @@ from keri import kering
 from keri.core import coring, serdering
 from keri.kering import Protocols, versify
 
-from vlei_oracle.constants import LE_SCHEMA
-from vlei_oracle.eoa import (
+from vlei_oracle.verification.constants import LE_SCHEMA
+from vlei_oracle.verification.eoa import (
     DOMAIN_TAG,
     PROOF_ALGORITHM,
     build_challenge,
     verify_eoa_proof,
 )
-from vlei_oracle.schema_cache import association_schemer
+from vlei_oracle.verification.schema_cache import association_schemer
 
 
 def association_from_challenge(challenge, signature, registry):

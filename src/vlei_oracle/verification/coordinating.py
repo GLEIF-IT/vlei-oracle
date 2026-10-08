@@ -1,0 +1,160 @@
+"""Coordinate durable verification work and revalidate asynchronous results."""
+
+from __future__ import annotations
+
+from hio.base import doing
+from keri import kering
+from keri.core import serdering
+from keri.peer import exchanging
+
+from vlei_oracle.basing import (
+    STATE_AWAITING_ARTIFACTS,
+    STATE_FAILED,
+    STATE_VERIFIED,
+    STATE_VERIFYING,
+    OperationRecord,
+    OracleBaser,
+)
+from vlei_oracle.verification.credentials import verify_association
+from vlei_oracle.verification.errors import MissingCredentialArtifactsError, VerificationError
+
+
+class PresentationVerifierDoer(doing.DoDoer):
+    """Verify received credentials against accepted KERI state and wallet proof.
+
+    Grants carry the proof in the ACDC. Missing artifacts remain pending;
+    invalid proofs fail. Owns the EOA worker lifecycle and commits its result cues.
+    One association is dispatched at a time, bounding in-memory work. RPC errors
+    remain retryable; restart rediscovers unfinished operations from the store.
+    Verification-only runs terminate at ``verified``.
+    """
+
+    def __init__(
+        self,
+        *,
+        baser: OracleBaser,
+        rgy,
+        trusted_geda_aid: str,
+        association_schema: str = "",
+        eoa_verifier=None,
+        retry_delay: float = 5.0,
+        **kwa,
+    ):
+        self.baser = baser
+        self.rgy = rgy
+        self.trusted_geda_aid = trusted_geda_aid
+        self.association_schema = association_schema
+        self.eoa_verifier = eoa_verifier
+        self.retry_delay = retry_delay
+        # These are scheduling hints only; operation state remains in OracleBaser.
+        # Restart may retry sooner, but cannot lose or falsely complete the work.
+        self.retry_at = {}
+        self.pending = None
+        if eoa_verifier is None:
+            raise ValueError("association verification requires an EOA worker")
+        children = [eoa_verifier] if eoa_verifier is not None else []
+        super().__init__(doers=[*children, doing.doify(self.verify_do)], **kwa)
+
+    def verify_do(self, tymth, tock=0.0, **opts):
+        """Coordinate persisted work and worker cues on the shared HIO clock."""
+        yield tock
+        while True:
+            self.process_results()
+            self.process_ready()
+            yield self.tock
+
+    def process_results(self) -> None:
+        """Apply a matching cue; recheck KERI/TEL state after asynchronous work."""
+        if self.eoa_verifier is None:
+            return
+        while self.eoa_verifier.cues:
+            cue = self.eoa_verifier.cues.popleft()
+            said = cue["said"]
+            if said != self.pending:
+                continue
+            self.pending = None
+            op = self.baser.get_operation(said)
+            if op is None or op.state != STATE_VERIFYING:
+                continue
+            if cue["kin"] == "retry":
+                op.failureReason = cue["error"]
+                op.retryCount += 1
+                self.baser.pin_operation(op)
+                self.retry_at[said] = self.tyme + self.retry_delay
+            elif cue["kin"] == "failed":
+                self.baser.mark_failed(op, cue["error"])
+            elif cue["kin"] == "verified":
+                try:
+                    # A revocation can arrive while the RPC client is waiting.
+                    verify_association(
+                        rgy=self.rgy,
+                        said=said,
+                        schema_said=self.association_schema,
+                        trusted_geda_aid=self.trusted_geda_aid,
+                    )
+                except MissingCredentialArtifactsError as exc:
+                    self.baser.mark_awaiting_artifacts(op, str(exc))
+                except VerificationError as exc:
+                    self.baser.mark_failed(op, str(exc))
+                else:
+                    op.verified = cue["verified"]
+                    op.state = STATE_VERIFIED
+                    op.failureReason = ""
+                    self.baser.pin_operation(op)
+
+    def process_ready(self) -> None:
+        """Retry operations ready for verification or waiting for KERI artifacts."""
+
+        for op in list(
+            self.baser.operations_by_state(STATE_VERIFYING, STATE_AWAITING_ARTIFACTS)
+        ):
+            if self.pending is not None:
+                break
+            if self.retry_at.get(op.associationSaid, 0) > self.tyme:
+                continue
+            self.verify_operation(op)
+
+    def verify_operation(self, op: OperationRecord) -> OperationRecord:
+        """Verify the selected credential profile before any posting transition."""
+
+        try:
+            # KERIpy may discard an invalid child before logging its bytes.
+            # The accepted Grant already owns the immutable candidate; use
+            # it for rejection, never as a substitute for KERI acceptance.
+            exn = None
+            if op.grantSaid:
+                exn, _ = exchanging.cloneMessage(self.rgy.hby, said=op.grantSaid)
+            candidate = (
+                serdering.SerderACDC(sad=exn.ked["e"]["acdc"])
+                if exn is not None
+                else None
+            )
+            association = verify_association(
+                rgy=self.rgy,
+                said=op.associationSaid,
+                schema_said=self.association_schema,
+                candidate=candidate,
+                trusted_geda_aid=self.trusted_geda_aid,
+            )
+            # The database remains the work list. The queue contains only the
+            # current dispatch, so restart recovers work without queue persistence.
+            self.retry_at.pop(op.associationSaid, None)
+            op.state = STATE_VERIFYING
+            self.baser.pin_operation(op)
+            self.pending = op.associationSaid
+            self.eoa_verifier.msgs.append(association.sad)
+            return op
+        except MissingCredentialArtifactsError as exc:
+            return self.baser.mark_awaiting_artifacts(op, str(exc))
+        except (VerificationError, kering.ValidationError) as exc:
+            return self.baser.mark_failed(op, str(exc))
+
+
+def pending_states() -> tuple[str, ...]:
+    """States requiring further evidence or verification work."""
+    return (STATE_AWAITING_ARTIFACTS, STATE_VERIFYING)
+
+
+def terminal_states() -> tuple[str, ...]:
+    """Completed verification states."""
+    return (STATE_VERIFIED, STATE_FAILED)

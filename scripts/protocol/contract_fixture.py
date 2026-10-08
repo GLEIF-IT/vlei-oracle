@@ -10,9 +10,9 @@ from time import monotonic
 from eth_account import Account
 from web3 import Web3
 
-from vlei_oracle.contracts import parse_deploy_log
-from vlei_oracle.contracting import ContractEffects
-from vlei_oracle.posting_worker import EndorsementDoer
+from vlei_oracle.commands.parse_deploy_log import parse_deploy_log
+from vlei_oracle.endorsement.effects import ContractEffects
+from vlei_oracle.endorsement.reconciling import EndorsementDoer
 
 DEPLOYER_KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
 POSTER_KEY = "0x" + "0" * 63 + "3"

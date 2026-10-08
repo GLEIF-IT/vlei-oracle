@@ -12,9 +12,9 @@ from hio.base import doing
 from hio.core import http, tcp
 
 from vlei_oracle.basing import OperationRecord, OracleBaser
-from vlei_oracle.eoa_worker import EoaVerifierDoer
-from vlei_oracle.handling import PresentationVerifierDoer
-from vlei_oracle.errors import VerificationError
+from vlei_oracle.verification.worker import EoaVerifierDoer
+from vlei_oracle.verification.coordinating import PresentationVerifierDoer
+from vlei_oracle.verification.errors import VerificationError
 
 FIXTURE = (
     Path(__file__).resolve().parents[1]
@@ -195,7 +195,7 @@ def test_pending_work_survives_coordinator_restart(rpc, operation, interruption)
     endpoint.unavailable = interruption == "rpc_failure"
     first = coordinator(baser, association, url)
     with patch(
-        "vlei_oracle.handling.verify_association",
+        "vlei_oracle.verification.coordinating.verify_association",
         return_value=SimpleNamespace(sad=association),
     ):
         run_until(
@@ -249,7 +249,7 @@ def test_revocation_during_rpc_prevents_success(rpc, operation):
         return SimpleNamespace(sad=association)
 
     with patch(
-        "vlei_oracle.handling.verify_association", side_effect=current_association
+        "vlei_oracle.verification.coordinating.verify_association", side_effect=current_association
     ):
         run_until(
             [http.ServerDoer(server=server), verifier],

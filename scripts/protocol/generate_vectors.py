@@ -15,7 +15,7 @@ from eth_account.messages import encode_typed_data
 from eth_utils import keccak
 from keri.core import serdering
 
-from vlei_oracle.eoa import (
+from vlei_oracle.verification.eoa import (
     build_challenge,
     challenge_hashes,
 )

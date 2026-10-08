@@ -7,7 +7,7 @@ from hio.base import doing
 from hio.core import http
 from web3 import Web3
 
-from .rpc import request_rpc
+from vlei_oracle.rpc import request_rpc
 
 
 class ContractEffects(doing.DoDoer):
@@ -28,7 +28,7 @@ class ContractEffects(doing.DoDoer):
             ("endorsement", endorsement, "VLEIOracleRegistry.json"),
             ("identity", identity, "IdentityRegistry.json"),
         ):
-            abi = json.loads(files("vlei_oracle").joinpath("contract_data", filename).read_text())
+            abi = json.loads(files("vlei_oracle.endorsement").joinpath("contract_data", filename).read_text())
             self.contracts[key] = self.web3.eth.contract(
                 address=Web3.to_checksum_address(address), abi=abi
             )

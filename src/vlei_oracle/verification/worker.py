@@ -7,8 +7,8 @@ from hio.core import http
 from hio.help import decking
 from keri.help import helping
 
-from .eoa import verify_eoa_account, verify_eoa_proof
-from .rpc import request_rpc
+from vlei_oracle.verification.eoa import verify_eoa_account, verify_eoa_proof
+from vlei_oracle.rpc import request_rpc
 
 
 class EoaVerifierDoer(doing.DoDoer):

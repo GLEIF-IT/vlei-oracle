@@ -13,8 +13,8 @@ import pytest
 from web3 import Web3
 
 from vlei_oracle.basing import OracleBaser, PostingScope, TransactionRecord
-from vlei_oracle.contracting import ContractEffects
-from vlei_oracle.contracts import parse_deploy_log
+from vlei_oracle.endorsement.effects import ContractEffects
+from vlei_oracle.commands.parse_deploy_log import parse_deploy_log
 
 KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
 WALLET = Account.from_key("0x" + "0" * 63 + "1").address

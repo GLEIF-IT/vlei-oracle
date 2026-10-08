@@ -3,7 +3,7 @@
 import pytest
 
 from vlei_oracle.basing import OracleBaser
-from vlei_oracle.constants import ASSOCIATION_SCHEMA
+from vlei_oracle.verification.constants import ASSOCIATION_SCHEMA
 
 
 @pytest.mark.parametrize(
@@ -47,7 +47,7 @@ def test_false_acdc_said_cannot_poison_an_operation(tmp_path):
 
     from keri import kering
 
-    from vlei_oracle.handling import GrantNotificationDoer
+    from vlei_oracle.receiving.grants import GrantNotificationDoer
 
     # Only the envelope lookup is stubbed. Native ACDC validation must reject
     # the claimed identity before replay or creating durable work for it.
@@ -72,7 +72,7 @@ def test_false_acdc_said_cannot_poison_an_operation(tmp_path):
             expected_association_schema=ASSOCIATION_SCHEMA,
         )
         with patch(
-            "vlei_oracle.handling.exchanging.cloneMessage", return_value=(exn, {})
+            "vlei_oracle.receiving.grants.exchanging.cloneMessage", return_value=(exn, {})
         ), pytest.raises(kering.ValidationError):
             doer.process_grant_notice({"d": "grant"})
         assert baser.get_operation(claimed_said) is None
