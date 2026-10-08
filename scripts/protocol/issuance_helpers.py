@@ -4,6 +4,10 @@ The oracle library receives and verifies; these helpers own test controllers,
 credential issuance setup, and supporting evidence transport.
 """
 
+from pathlib import Path
+import subprocess
+import sys
+
 from hio.base import doing
 from keri.app import habbing, signing
 from keri.core import coring, eventing, parsing, serdering
@@ -121,6 +125,27 @@ def issuer_for(hby, rgy):
         hby=hby, rgy=rgy, registrar=registrar,
         verifier=verifying.Verifier(hby=hby, reger=rgy.reger),
     )
+
+
+def kli_issue(*, base, credential, artifacts, workflow):
+    """Run native full-credential issuance while the real witness keeps running."""
+    log_path = artifacts / "kli-issuance.log"
+    with log_path.open("w") as log:
+        with subprocess.Popen(
+            [str(Path(sys.executable).with_name("kli")), "vc", "create",
+             "--name", "le", "--base", base, "--alias", "le",
+             "--registry-name", "le", "--credential", "@" + str(credential)],
+            stdout=log, stderr=subprocess.STDOUT,
+        ) as process:
+            try:
+                deadline = workflow.tyme + 30
+                while process.poll() is None:
+                    assert workflow.tyme < deadline, "native KLI issuance timed out: " + log_path.read_text()
+                    yield 0.01
+                assert process.returncode == 0, log_path.read_text()
+            finally:
+                if process.poll() is None:
+                    process.terminate()
 
 
 def open_issuers(stack, schemas, *, base, temp, witness):

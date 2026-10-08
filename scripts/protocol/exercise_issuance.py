@@ -38,6 +38,7 @@ from issuance_helpers import (
     approve_qvi,
     grant,
     issuer_for,
+    kli_issue,
     open_issuers,
     receive,
     replay,
@@ -47,6 +48,7 @@ from keri.app import habbing, httping, indirecting, oobiing
 from keri.core import coring, scheming
 from keri.db import basing, dbing
 from keri.help import helping
+from keri.vdr import credentialing
 
 from vlei_oracle.association_verifier import verify_association
 from vlei_oracle.constants import LE_SCHEMA, QVI_SCHEMA
@@ -73,7 +75,7 @@ def free_port() -> int:
 
 
 def exercise(schema_dir: Path, *, keep: bool = False, comply: Path | None = None,
-             process_check: bool = False) -> None:
+             process_check: bool = False, kli_check: bool = False) -> None:
     """Set up isolated actors, then schedule the complete issuance/HTTP workflow.
 
     ``schema_dir`` supplies QVI and LE schemas; this checkout supplies the
@@ -82,6 +84,7 @@ def exercise(schema_dir: Path, *, keep: bool = False, comply: Path | None = None
     ``keep`` retains stores under a fresh KLI-compatible base, even on failure;
     it does not keep the HTTP service or Anvil running.
     """
+    keep = keep or kli_check
     temp = not keep
     base = f"issuance-{uuid4().hex}" if keep else ""
     if keep:
@@ -187,6 +190,7 @@ def exercise(schema_dir: Path, *, keep: bool = False, comply: Path | None = None
 
         def run(tymth, tock=0.0, **opts):
             """Advance explicit workflow steps while native HIO children do the work."""
+            nonlocal le_hby, le, le_rgy
             yield tock
             # 5. Wait for Anvil through a nonblocking HIO JSON-RPC request.
             rpc.request(
@@ -323,6 +327,63 @@ def exercise(schema_dir: Path, *, keep: bool = False, comply: Path | None = None
                 while not issuer.complete(creder.said):
                     yield 0.01
                 associations[label] = creder
+
+            if kli_check:
+                key = "0x" + "0" * 63 + "8"
+                challenge = build_challenge(
+                    issuer_aid=le.pre, le_vlei_said=le_credential.said,
+                    ext_id=normalize_ext_id(31337, Account.from_key(key).address),
+                    nonce=str(uuid4()),
+                )
+                signature = Account.sign_message(encode_typed_data(full_message=challenge), key).signature
+                cli_file = artifacts / "native-kli.json"
+                creder = write_credential(
+                    challenge=challenge, signature="0x" + signature.hex(),
+                    registry=registries["le"].regk,
+                    nonce_store=Path(le_rgy.reger.path) / "association-nonces.sqlite3",
+                    output=cli_file,
+                )
+                # Give one writer exclusive control; the witness and other
+                # actors keep running while KLI owns the LE stores.
+                old_issuer = issuers["le"]
+                workflow.remove([old_issuer, old_issuer.registrar, *oobiers[-1].doers])
+                issuer_escrows.issuers.remove(old_issuer)
+                le_rgy.reger.close()
+                le_hby.close()
+                yield from kli_issue(base=base, credential=cli_file, artifacts=artifacts, workflow=workflow)
+                le_hby = stack.enter_context(habbing.openHby(name="le", base=base, temp=False))
+                le = le_hby.habByName("le")
+                le_rgy = credentialing.Regery(hby=le_hby, name="le", base=base)
+                stack.callback(le_rgy.reger.close)
+                actors["le"] = (le_hby, le, le_rgy)
+                issuers["le"] = issuer_for(le_hby, le_rgy)
+                issuer_escrows.issuers.append(issuers["le"])
+                registries["le"] = le_rgy.registryByName("le")
+                reopened_doers = [issuers["le"].registrar, issuers["le"]]
+                workflow.extend(reopened_doers)
+                doers.extend(reopened_doers)
+                assert le_rgy.reger.saved.get(keys=(creder.said,))
+                assert le_rgy.reger.creds.get(keys=(creder.said,)).raw == creder.raw
+                cli_port = free_port()
+                cli_runtime = setup_service(ServiceConfig(
+                    name="native-kli-oracle", base=base, temp=False, no_post=True,
+                    host="127.0.0.1", http_port=cli_port, trusted_geda_aid=geda.pre,
+                    schema_dir=str(schema_dir), rpc_url=rpc_url,
+                ))
+                workflow.extend(cli_runtime.doers)
+                check = PresentationDoer(
+                    port=cli_port, recipient=cli_runtime.hab.pre,
+                    stream=streams["geda"] + streams["qvi"]
+                    + replay(le, le_rgy, registries["le"], creder)
+                    + grant(le, le_rgy, creder, cli_runtime.hab.pre),
+                    said=creder.said, expected="verified",
+                )
+                workflow.extend([check])
+                while not check.done:
+                    yield 0.01
+                workflow.remove([check])
+                workflow.remove(cli_runtime.doers)
+                print("Native KLI issued the pre-signed untargeted ACDC and HTTP verification passed", flush=True)
 
             # Missing TEL/anchor evidence in fresh receivers must stay pending.
             # These are HTTP acceptance checks, independent of the original session.
@@ -744,8 +805,10 @@ def main() -> None:
     )
     parser.add_argument("--comply-dir", type=Path, help="Extend through fresh Forge deployment, posting, and transfers")
     parser.add_argument("--process-check", action="store_true", help="Qualify crash/restart through independent oracle CLI processes")
+    parser.add_argument("--kli-check", action="store_true", help="Qualify native CLI issuance; retains fresh test stores")
     args = parser.parse_args()
-    exercise(args.schema_dir, keep=args.keep, comply=args.comply_dir, process_check=args.process_check)
+    exercise(args.schema_dir, keep=args.keep, comply=args.comply_dir,
+             process_check=args.process_check, kli_check=args.kli_check)
 
 
 if __name__ == "__main__":

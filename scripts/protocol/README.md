@@ -105,6 +105,13 @@ Registry inception, issuance, and revocation use KERIpy's `Registrar` and
 under one HIO `Doist`. Each HTTP presentation runs in its own `DoDoer` alongside
 the oracle. Anvil control requests use a HIO HTTP client as well.
 
+Add `--kli-check` to issue another finished, pre-signed untargeted ACDC through
+the actual `kli vc create --credential` command. The exercise exclusively hands
+the LE's stores to KLI while the witness remains live, then reopens them and
+checks the exact stored credential and independent HTTP verification. This
+option retains a fresh KLI base and prints inspection commands. A separate
+receiver preserves the original missing-source test topology.
+
 The oracle's verification coordinator owns an EOA worker with request and result
 queues. Local KERI and signature checks remain ordinary functions; RPC waits
 use HIO HTTP clients. Account code is read at an identified canonical block using
