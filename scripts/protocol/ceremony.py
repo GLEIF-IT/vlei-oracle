@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import json
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 
 from keri import kering
@@ -77,7 +78,11 @@ def association_from_challenge(challenge, signature, registry):
 
 def consume_nonce(nonce_store, *, issuer, nonce, association_said):
     """Commit exact issuer-scoped consumption before credential publication."""
-    with sqlite3.connect(nonce_store, timeout=0.0) as ledger:
+    with closing(sqlite3.connect(nonce_store, timeout=0.0)) as ledger, ledger:
+        # Acquire the writer reservation before any schema/read lock. With a
+        # deferred transaction, two initializers can otherwise block each other's
+        # lock upgrade and both fail. Contenders still fail without waiting.
+        ledger.execute("BEGIN IMMEDIATE")
         ledger.execute(
             "CREATE TABLE IF NOT EXISTS consumed (issuer TEXT, nonce TEXT, association TEXT, PRIMARY KEY (issuer, nonce))"
         )

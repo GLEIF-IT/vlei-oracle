@@ -128,7 +128,8 @@ def test_consumed_nonce_survives_a_new_process(tmp_path):
     assert not (tmp_path / "second.json").exists()
 
 
-def test_concurrent_nonce_consumption_allows_one_artifact(tmp_path):
+@pytest.mark.parametrize("attempt", range(10))
+def test_concurrent_nonce_consumption_allows_one_artifact(tmp_path, attempt):
     challenge, signature = ceremony()
 
     def finish(index):
