@@ -2,7 +2,7 @@
 
 Uses the KLI's Registrar and Credentialer under one HIO scheduler. GEDA, QVI,
 LE, and oracle have separate KERI stores (temporary unless --keep is set).
-Identifiers are single-sig and witness-free; the local GEDA is a test trust root.
+Identifiers are single-sig with one local witness; GEDA is a test trust root.
 See README.md for setup and the reasons for direct transport in this exercise.
 """
 
@@ -35,8 +35,10 @@ from issuance_helpers import (
     replay,
     rules,
 )
-from keri.app import httping
+from keri.app import habbing, httping, indirecting, oobiing
 from keri.core import coring, scheming
+from keri.db import basing, dbing
+from keri.help import helping
 
 from vlei_oracle.association_verifier import verify_association
 from vlei_oracle.constants import LE_SCHEMA, QVI_SCHEMA
@@ -44,7 +46,7 @@ from vlei_oracle.eoa import (
     build_challenge,
     normalize_ext_id,
 )
-from vlei_oracle.errors import VerificationError
+from vlei_oracle.errors import MissingCredentialArtifactsError, VerificationError
 from vlei_oracle.serving import ServiceConfig, setup_service
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -129,8 +131,28 @@ def exercise(schema_dir: Path, *, keep: bool = False) -> None:
             stack.enter_context(TemporaryDirectory(prefix="vlei-ceremony-"))
         )
         # 2. Create single-key GEDA, delegated QVI, and LE identifiers and issuers.
-        actors, issuers = open_issuers(stack, schemas, base=base, temp=temp)
-        approve_qvi(actors)
+        witness_port = free_port()
+        witness_hby = stack.enter_context(
+            habbing.openHby(name="association-witness", base=base, temp=temp)
+        )
+        witness_alias = "witness-" + uuid4().hex
+        witness_doers = indirecting.setupWitness(
+            hby=witness_hby, alias=witness_alias, tcpPort=None, httpPort=witness_port
+        )
+        witness = witness_hby.habByName(witness_alias)
+        witness_url = f"http://127.0.0.1:{witness_port}"
+        witness_hby.psr.parse(ims=witness.makeEndRole(eid=witness.pre))
+        witness_hby.psr.parse(ims=witness.makeLocScheme(url=witness_url))
+        actors, issuers = open_issuers(
+            stack, schemas, base=base, temp=temp, witness=witness
+        )
+        oobi = f"{witness_url}/oobi/{witness.pre}/controller"
+        oobiers = []
+        for hby, _, _ in actors.values():
+            hby.db.oobis.pin(
+                keys=(oobi,), val=basing.OobiRecord(date=helping.nowIso8601())
+            )
+            oobiers.append(oobiing.Oobiery(hby=hby, clienter=httping.Clienter()))
         _geda_hby, geda, _geda_rgy = actors["geda"]
         _qvi_hby, qvi, qvi_rgy = actors["qvi"]
         le_hby, le, le_rgy = actors["le"]
@@ -186,6 +208,8 @@ def exercise(schema_dir: Path, *, keep: bool = False) -> None:
             print(f"\nOracle operations: {runtime.baser.path}", flush=True)
         rpc = http.Client(hostname="127.0.0.1", port=rpc_port, reconnectable=True)
         doers = [
+            *witness_doers,
+            *(doer for resolver in oobiers for doer in resolver.doers),
             *runtime.doers,
             http.ClientDoer(client=rpc),
             IssuerEscrows(list(issuers.values())),
@@ -207,6 +231,15 @@ def exercise(schema_dir: Path, *, keep: bool = False) -> None:
                 yield 0.01
             response = json.loads(rpc.responses.popleft()["body"])
             assert int(response["result"], 16) == 31337, response
+
+            for hby, _, _ in actors.values():
+                while hby.db.roobi.get(keys=(oobi,)) is None:
+                    yield 0.01
+                assert hby.db.roobi.get(keys=(oobi,)).state == oobiing.Result.resolved
+            yield from approve_qvi(actors, issuers)
+            print(
+                "Witness OOBI discovery and receipted delegation completed", flush=True
+            )
 
             # 6. Use Registrar.incept and its completion signal, as `kli vc registry incept` does.
             registries = {}
@@ -417,6 +450,30 @@ def exercise(schema_dir: Path, *, keep: bool = False) -> None:
                 assert "trusted GEDA" in str(exc), exc
             else:
                 raise AssertionError("Unrelated trust root passed verification")
+
+            # Direct real-store negative: acceptance alone must not bypass receipts.
+            state = runtime.rgy.reger.tevers[association.regi].vcState(association.said)
+            anchor_key = dbing.dgKey(association.issuer, state.a["d"])
+            receipt_sigs = [bytes(wig) for wig in runtime.hby.db.getWigs(anchor_key)]
+            assert receipt_sigs
+            runtime.hby.db.delWigs(anchor_key)
+            try:
+                try:
+                    verify_association(
+                        rgy=runtime.rgy,
+                        said=association.said,
+                        schema_said=schema_said,
+                        trusted_geda_aid=geda.pre,
+                    )
+                except MissingCredentialArtifactsError as exc:
+                    assert "witness receipts" in str(exc), exc
+                else:
+                    raise AssertionError(
+                        "Accepted index bypassed missing witness receipts"
+                    )
+            finally:
+                runtime.hby.db.putWigs(anchor_key, receipt_sigs)
+            print("Accepted association still requires witness receipts", flush=True)
 
             # 11. Check bad signatures/networks, ordinary contracts, and EIP-7702 EOAs.
             for label, expected, reason in [

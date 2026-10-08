@@ -1,7 +1,8 @@
 """Verify received association credentials against accepted KERI state."""
 
-from keri import kering
-from keri.core import coring, serdering
+from keri import core, kering
+from keri.core import coring, eventing, serdering
+from keri.db import dbing
 from keri.vdr import credentialing
 
 from .constants import LE_SCHEMA, QVI_SCHEMA
@@ -52,7 +53,9 @@ def verify_association(
     for block in (association.attrib["proof"], association.attrib, association.edge):
         if not coring.Saider(qb64=block["d"]).verify(sad=block, prefixed=True):
             raise VerificationError("association block SAID does not verify")
-    return accepted_credential(rgy, said, schema_said)
+    association = accepted_credential(rgy, said, schema_said)
+    verify_witnessed_anchor(rgy, association)
+    return association
 
 
 def accepted_credential(rgy, said: str, schema_said: str) -> serdering.SerderACDC:
@@ -105,3 +108,39 @@ def stored_credential(
     except kering.ValidationError as exc:
         raise VerificationError(f"credential {said} does not match its schema") from exc
     return creder
+
+
+def verify_witnessed_anchor(rgy, association):
+    """Use native anchor, historical witness-state, and signature APIs."""
+    tever = rgy.reger.tevers[association.regi]
+    state = tever.vcState(association.said)
+    if state.et not in ("iss", "bis"):
+        raise VerificationError("association is revoked")
+    seqner = coring.Seqner(sn=state.a["s"])
+    saider = coring.Saider(qb64=state.a["d"])
+    raw = rgy.reger.getTvt(dbing.dgKey(association.said, state.d))
+    if raw is None or not tever.verifyAnchor(
+        serder=serdering.SerderKERI(raw=bytes(raw)), seqner=seqner, saider=saider
+    ):
+        raise MissingCredentialArtifactsError(
+            "association issuance anchor is unavailable"
+        )
+    est = rgy.hby.kvy.fetchEstEvent(pre=association.issuer, sn=seqner.sn)
+    if est is None:
+        raise MissingCredentialArtifactsError(
+            "issuer establishment event is unavailable"
+        )
+    if not est.bn:
+        raise VerificationError("association issuer has no witnessed KEL")
+    wits = rgy.hby.kvy.fetchWitnessState(association.issuer, seqner.sn)
+    anchor = rgy.hby.db.getEvt(dbing.dgKey(association.issuer, saider.qb64))
+    wigs = rgy.hby.db.getWigs(dbing.dgKey(association.issuer, saider.qb64))
+    _, indices = eventing.verifySigs(
+        raw=bytes(anchor),
+        sigers=[core.Siger(qb64b=bytes(wig)) for wig in wigs],
+        verfers=[core.Verfer(qb64=wit.qb64) for wit in wits],
+    )
+    if len(set(indices)) < est.bn:
+        raise MissingCredentialArtifactsError(
+            "association anchor lacks witness receipts"
+        )
