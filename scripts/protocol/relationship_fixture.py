@@ -32,6 +32,18 @@ def association(hab, registry, le_said):
     return association_from_challenge(challenge, "0x" + signature.hex(), registry.regk)
 
 
+def issue_invalid(registrar, hab, registry, creder):
+    """Witness a deliberately invalid test artifact without synthetic acceptance."""
+    issuance = registry.issue(said=creder.said)
+    registrar.issue(creder, issuance, anchor(hab, issuance))
+    while not registrar.complete(creder.said):
+        yield 0.01
+    return signing.serialize(
+        creder, coring.Prefixer(qb64=issuance.pre),
+        coring.Seqner(sn=issuance.sn), coring.Saider(qb64=issuance.said),
+    )
+
+
 def qualify_relationships(*, actors, issuers, registries, credentials, schemas,
                           streams, runtime, oracle_port, workflow, stack,
                           base, temp, witness, witness_url):
@@ -119,17 +131,8 @@ def qualify_relationships(*, actors, issuers, registries, credentials, schemas,
     for label, hab, rgy, registry, creder, reason in cases:
         # Deliberate negative fixture: anchor genuine issuance, but do not ask
         # Credentialer to accept an artifact known to violate its source/schema.
-        issuance = registry.issue(said=creder.said)
-        issuers["qvi" if hab.pre == qvi.pre else "le"].registrar.issue(
-            creder, issuance, anchor(hab, issuance)
-        )
         registrar = issuers["qvi" if hab.pre == qvi.pre else "le"].registrar
-        while not registrar.complete(creder.said):
-            yield 0.01
-        acdc = signing.serialize(
-            creder, coring.Prefixer(qb64=issuance.pre),
-            coring.Seqner(sn=issuance.sn), coring.Saider(qb64=issuance.said),
-        )
+        acdc = yield from issue_invalid(registrar, hab, registry, creder)
         evidence = streams["geda"] + streams["qvi"]
         evidence += b"".join(hab.db.clonePreIter(pre=hab.pre))
         evidence += b"".join(rgy.reger.clonePreIter(pre=registry.regk))
