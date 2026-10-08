@@ -55,7 +55,7 @@ from keri.db import basing, dbing
 from keri.help import helping
 from keri.vdr import credentialing
 
-from vlei_oracle.verification.credentials import verify_association
+from vlei_oracle.verification.credentials import assess_association, reconstruct_binding, verify_association
 from vlei_oracle.verification.constants import LE_SCHEMA, QVI_SCHEMA
 from vlei_oracle.endorsement.effects import ContractEffects
 from vlei_oracle.verification.eoa import (
@@ -847,6 +847,13 @@ def exercise(schema_dir: Path, *, keep: bool = False, comply: Path | None = None
                 assert "revoked" in str(exc), exc
             else:
                 raise AssertionError("Revoked LE passed fresh verification")
+            binding = reconstruct_binding(rgy=runtime.rgy, said=association.said,
+                                          schema_said=schema_said)
+            assert binding["wallet"] == association.attrib["extId"].split(":")[2]
+            assert binding["associationSaid"] == association.said
+            assert assess_association(rgy=runtime.rgy, said=association.said,
+                                      schema_said=schema_said,
+                                      trusted_geda_aid=geda.pre).outcome == "invalid"
             print("Revoked LE blocks new acceptance and fresh verification", flush=True)
             if comply is not None:
                 while any(runtime.baser.get_operation(said).state != "withdrawn" for said in target_saids):

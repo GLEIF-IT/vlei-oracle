@@ -7,7 +7,7 @@ from keri.core import coring
 from keri.db import dbing
 from web3 import Web3
 
-from vlei_oracle.verification.credentials import verify_association
+from vlei_oracle.verification.credentials import assess_association, reconstruct_binding
 from vlei_oracle.basing import STATE_ENDORSED, STATE_WITHDRAWN, PostingScope, TransactionRecord
 from vlei_oracle.verification.worker import EoaVerifierDoer
 from vlei_oracle.verification.errors import MissingCredentialArtifactsError, VerificationError
@@ -49,6 +49,12 @@ class EndorsementDoer(doing.DoDoer):
         ))
         super().__init__(doers=[effects, self.eoa, doing.doify(self.run)])
 
+    def binding(self, op):
+        return reconstruct_binding(
+            rgy=self.rgy, said=op.associationSaid,
+            schema_said=self.association_schema, grant_said=op.grantSaid,
+        )
+
     def desired(self, op):
         """Do not let reordered old issuance overwrite a newer verified result.
 
@@ -58,7 +64,7 @@ class EndorsementDoer(doing.DoDoer):
         """
         positions = []
         for _, candidate in self.baser.ops.getItemIter():
-            if candidate.verified.get("wallet") == op.verified["wallet"]:
+            if candidate.verified and self.binding(candidate)["wallet"] == self.binding(op)["wallet"]:
                 issuer, sn = issuance_position(self.rgy, candidate.associationSaid)
                 positions.append((issuer, sn, candidate.associationSaid))
         if len({issuer for issuer, _, _ in positions}) != 1:
@@ -70,10 +76,15 @@ class EndorsementDoer(doing.DoDoer):
         return op.associationSaid == latest[0]
 
     def current_credential(self, op):
-        return verify_association(
+        assessment = assess_association(
             rgy=self.rgy, said=op.associationSaid,
             schema_said=self.association_schema, trusted_geda_aid=self.trusted_geda_aid,
         )
+        if assessment.outcome == "unavailable":
+            raise MissingCredentialArtifactsError(assessment.reason)
+        if assessment.outcome == "invalid":
+            raise VerificationError(assessment.reason)
+        return assessment.credential
 
     def chain_order(self, op, endorsement):
         """Require evidence for the current assertion before replacing it.
@@ -85,7 +96,7 @@ class EndorsementDoer(doing.DoDoer):
         entity, said = endorsement
         if (entity, said) == (ZERO_IDENTITY, ""):
             return True, ""
-        if entity != op.verified["identityRef"]:
+        if entity != self.binding(op)["identityRef"]:
             raise MissingCredentialArtifactsError(
                 "current wallet entity requires explicit withdrawal before replacement"
             )
@@ -170,7 +181,7 @@ class EndorsementDoer(doing.DoDoer):
             return
         valid, reason = yield from self.evidence(op)
         if valid:
-            _, endorsement = yield from self.effects.observe(op.verified["wallet"])
+            _, endorsement = yield from self.effects.observe(self.binding(op)["wallet"])
             try:
                 self.current_credential(op)
                 valid, reason = (
@@ -194,10 +205,10 @@ class EndorsementDoer(doing.DoDoer):
     def process(self, op):
         """Reconcile one wallet from current evidence and observed chain state."""
         valid, reason = yield from self.evidence(op)
-        identity, endorsement = yield from self.effects.observe(op.verified["wallet"])
+        identity, endorsement = yield from self.effects.observe(self.binding(op)["wallet"])
         if valid:
             valid, reason = self.chain_order(op, endorsement)
-        action = next_action(op.verified, identity=identity, endorsement=endorsement, valid=valid)
+        action = next_action(self.binding(op), identity=identity, endorsement=endorsement, valid=valid)
         if action is None:
             state = STATE_ENDORSED if valid else STATE_WITHDRAWN
             if op.state != state or op.failureReason != reason:

@@ -159,12 +159,17 @@ def verify_eoa_account(
     """Check resolved chain/account facts after proof verification succeeds."""
     if chain_id != ext_id_chain(association["a"]["extId"]):
         raise ValueError("association chain does not match oracle network")
-    wallet = association["a"]["extId"].split(":")[2]
     # EIP-7702 represents delegation as 0xef0100 followed by a 20-byte address.
     if code and not (len(code) == 23 and code[:3] == b"\xef\x01\x00"):
         raise ValueError("external account has contract code, not an EOA delegation")
+    return association_binding(association)
+
+
+def association_binding(association: dict[str, Any]) -> dict[str, str]:
+    """Extract immutable EOA identity without asserting credential acceptance."""
+    ext_id_chain(association["a"]["extId"])
     return {
-        "wallet": wallet,
+        "wallet": association["a"]["extId"].split(":")[2],
         "identityRef": "0x" + keccak(text=association["i"]).hex(),
         "associationSaid": association["d"],
     }
