@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 from vlei_oracle.serving import ServiceConfig, run_service
 
 
@@ -22,11 +24,17 @@ def add_parser(subparsers) -> None:
     start.add_argument("--trusted-geda-aid", required=True)
     start.add_argument("--rpc-url", default="")
     start.add_argument("--no-post", action="store_true")
+    start.add_argument("--chain-id", type=int, default=0)
+    start.add_argument("--endorsement-registry", default="")
+    start.add_argument("--identity-registry", default="")
+    start.add_argument("--posting-key-env", default="VLEI_ORACLE_POSTING_KEY")
+    start.add_argument("--confirmations", type=int, default=2)
+    start.add_argument("--posting-interval", type=float, default=1.0)
     start.add_argument("--incept-file")
     start.add_argument(
         "--association-schema",
         default="",
-        help="Association schema JSON; requires --no-post",
+        help="Association schema JSON; must match the pinned protocol",
     )
     start.add_argument(
         "--schema-dir", default="", help="Directory of source credential schemas"
@@ -51,5 +59,11 @@ def start_handler(args) -> None:
             incept_file=args.incept_file,
             association_schema=args.association_schema,
             schema_dir=args.schema_dir,
+            chain_id=args.chain_id,
+            endorsement_registry=args.endorsement_registry,
+            identity_registry=args.identity_registry,
+            posting_key=os.getenv(args.posting_key_env, "") if not args.no_post else "",
+            confirmations=args.confirmations,
+            posting_interval=args.posting_interval,
         )
     )

@@ -30,7 +30,7 @@ vlei-oracle = "vlei_oracle.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-vlei_oracle = ["schema_data/acdc/*.json"]
+vlei_oracle = ["schema_data/acdc/*.json", "contract_data/*.json"]
 
 [tool.pytest.ini_options]
 pythonpath = ["scripts/protocol"]

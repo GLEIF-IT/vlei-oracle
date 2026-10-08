@@ -66,6 +66,30 @@ Anvil and the oracle HTTP service still stop on exit. After a successful run,
 the LE credential is revoked by the final test; the retained oracle result is
 a snapshot of its earlier successful verification.
 
+## Include deployed contracts and transfers
+
+Use the pinned comply checkout (with its submodules initialized) and Foundry:
+
+```sh
+.venv/bin/python scripts/protocol/exercise_issuance.py \
+  --schema-dir .demo/checkouts/vLEI/schema/acdc \
+  --comply-dir ../vlei-comply
+```
+
+The same issuance implementation now continues through fresh `DeployAll`
+contracts, a dedicated authorized oracle writer, durable signed intents,
+endorsements for two wallets, a real allowed wrapper transfer, source revocation,
+exact withdrawal, and a real rejected transfer. Token balances establish the
+outcomes; a successful receipt alone does not establish policy acceptance.
+No global wallet admission is used. Fixture token/admin calls run in test-side
+helpers; all service network waits remain native HIO requests.
+
+The contract tests also exercise saved-hash recovery, explicit same-nonce
+cancellation, reorg reconciliation with the same signed identity, and wrong-chain
+refusal. These are distinct from independent-process restart and two-chain
+qualification, which remain additional gates. `anvil_setCode` account cases still
+classify code; they do not claim a signed EIP-7702 authorization transaction.
+
 ## KLI alignment
 
 Registry inception, issuance, and revocation use KERIpy's `Registrar` and
@@ -110,8 +134,8 @@ Send the finished credential and supporting KERI evidence through the CESR
 HTTP endpoint and IPEX Grant. Poll `GET /presentations/<association SAID>`;
 `verified` includes `wallet`, `identityRef`, and `associationSaid`. The embedded
 proof needs no signature POST. This result records verification at that time;
-it does not create or maintain an on-chain endorsement.
+in `--no-post` mode. Posting flags and lifecycle are described in the root README.
 
 The obsolete wallet-transfer shell workflow has been removed. This exercise
-currently covers issuance and verification; contract posting and transfer
-qualification are separate work. It needs no global wallet whitelist.
+also covers contract posting and transfers when `--comply-dir` is supplied.
+It needs no global wallet whitelist.
