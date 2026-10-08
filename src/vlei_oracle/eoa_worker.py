@@ -1,6 +1,5 @@
 """HIO request/cue flow for EOA proof and account verification."""
 
-import json
 import re
 
 from hio.base import doing
@@ -9,6 +8,7 @@ from hio.help import decking
 from keri.help import helping
 
 from .eoa import verify_eoa_account, verify_eoa_proof
+from .rpc import request_rpc
 
 
 class EoaVerifierDoer(doing.DoDoer):
@@ -50,14 +50,28 @@ class EoaVerifierDoer(doing.DoDoer):
                 client_doer = http.ClientDoer(client=client)
                 self.extend([client_doer])
                 wallet = association["a"]["extId"].split(":")[2]
-                chain = yield from self.request(client, 1, "eth_chainId", [])
+                chain = yield from request_rpc(
+                    client,
+                    request_id=1,
+                    method="eth_chainId",
+                    params=[],
+                    tymth=self.tymth,
+                    timeout=self.timeout,
+                    tock=self.tock,
+                )
                 if not isinstance(chain, str) or not re.fullmatch(
                     r"0x[1-9a-f][0-9a-f]*", chain
                 ):
                     raise ValueError("eth_chainId returned an invalid quantity")
                 chain_id = int(chain, 16)
-                block = yield from self.request(
-                    client, 2, "eth_getBlockByNumber", ["latest", False]
+                block = yield from request_rpc(
+                    client,
+                    request_id=2,
+                    method="eth_getBlockByNumber",
+                    params=["latest", False],
+                    tymth=self.tymth,
+                    timeout=self.timeout,
+                    tock=self.tock,
                 )
                 if (
                     not isinstance(block, dict)
@@ -67,11 +81,14 @@ class EoaVerifierDoer(doing.DoDoer):
                     or not re.fullmatch(r"0x[0-9a-f]{64}", block.get("hash", ""))
                 ):
                     raise ValueError("RPC returned no identified block")
-                code_hex = yield from self.request(
+                code_hex = yield from request_rpc(
                     client,
-                    3,
-                    "eth_getCode",
-                    [wallet, {"blockHash": block["hash"], "requireCanonical": True}],
+                    request_id=3,
+                    method="eth_getCode",
+                    params=[wallet, {"blockHash": block["hash"], "requireCanonical": True}],
+                    tymth=self.tymth,
+                    timeout=self.timeout,
+                    tock=self.tock,
                 )
                 if not isinstance(code_hex, str) or not re.fullmatch(
                     r"0x(?:[0-9a-f]{2})*", code_hex
@@ -100,27 +117,3 @@ class EoaVerifierDoer(doing.DoDoer):
             else:
                 result["observation"] = observation
                 self.cues.append({"kin": "verified", "said": said, "verified": result})
-
-    def request(self, client, request_id, method, params):
-        """Yield while one RPC request runs; reject unusable transport responses."""
-        client.request(
-            method="POST",
-            data={
-                "jsonrpc": "2.0",
-                "id": request_id,
-                "method": method,
-                "params": params,
-            },
-        )
-        deadline = self.tyme + self.timeout
-        while not client.responses:
-            if self.tyme >= deadline:
-                raise TimeoutError(f"{method} timed out")
-            yield self.tock
-        response = client.responses.popleft()
-        if response["status"] != 200:
-            raise ValueError(f"{method} HTTP status {response['status']}")
-        payload = json.loads(response["body"])
-        if payload.get("id") != request_id or "error" in payload:
-            raise ValueError(f"{method} returned an invalid RPC response")
-        return payload["result"]
