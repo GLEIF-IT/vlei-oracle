@@ -16,14 +16,18 @@ import socket
 import subprocess
 import sys
 from contextlib import ExitStack
+from dataclasses import replace
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from uuid import uuid4
 
 from ceremony import association_from_challenge, write_credential
 from transport_fixture import PresentationDoer
-from process_fixture import qualify_verification
-from contract_fixture import qualify_transfers, read, send
+from process_fixture import (
+    authorize_writer, qualify_after_submission, qualify_before_submission,
+    qualify_verification,
+)
+from contract_fixture import POSTER_KEY, qualify_transfers, read, send
 from eth_account import Account
 from eth_account.messages import encode_typed_data
 from hio.base import doing
@@ -45,11 +49,13 @@ from keri.help import helping
 
 from vlei_oracle.association_verifier import verify_association
 from vlei_oracle.constants import LE_SCHEMA, QVI_SCHEMA
+from vlei_oracle.contracting import ContractEffects
 from vlei_oracle.eoa import (
     build_challenge,
     normalize_ext_id,
 )
 from vlei_oracle.errors import MissingCredentialArtifactsError, VerificationError
+from vlei_oracle.posting_worker import EndorsementDoer
 from vlei_oracle.serving import ServiceConfig, setup_service
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -276,9 +282,11 @@ def exercise(schema_dir: Path, *, keep: bool = False, comply: Path | None = None
                 cases.append(("beneficiary", "0x" + "0" * 63 + "2", 31337))
             if process_check:
                 cases.append(("process", "0x" + "0" * 63 + "5", 31337))
+                if comply is not None:
+                    cases.append(("process_broadcast", "0x" + "0" * 63 + "6", 31337))
             for label, key, chain_id in cases:
                 nonce = str(uuid4())
-                wallet = Account.from_key(key).address if label in ("beneficiary", "process") else account.address
+                wallet = Account.from_key(key).address if label in ("beneficiary", "process", "process_broadcast") else account.address
                 ext_id = normalize_ext_id(chain_id, wallet)
                 challenge = build_challenge(
                     issuer_aid=le.pre,
@@ -561,8 +569,69 @@ def exercise(schema_dir: Path, *, keep: bool = False, comply: Path | None = None
                         runtime.rgy.reger.creds.pin(keys=(current_said,), val=current_creder)
                 finally:
                     runtime.baser.pin_operation(current_op)
+                # Controlled worker-result boundary over the real native stores:
+                # newer work arriving during RPC must invalidate the old dispatch.
+                checker = EndorsementDoer(
+                    baser=runtime.baser, rgy=runtime.rgy, trusted_geda_aid=geda.pre,
+                    association_schema=schema_said, private_key=POSTER_KEY,
+                    effects=ContractEffects(
+                        rpc_url=rpc_url, chain_id=31337,
+                        writer=Account.from_key(POSTER_KEY).address,
+                        endorsement=fixture_effects.contracts["endorsement"].address,
+                        identity=fixture_effects.contracts["identity"].address,
+                    ),
+                )
+                runtime.baser.ops.rem(keys=(current_said,))
+                pending = checker.evidence(old_op)
+                try:
+                    next(pending)
+                    assert checker.eoa.msgs
+                    runtime.baser.pin_operation(current_op)
+                    checker.eoa.cues.append({
+                        "said": old.said, "kin": "verified", "verified": old_op.verified,
+                    })
+                    try:
+                        next(pending)
+                    except StopIteration as result:
+                        assert result.value[0] is False and "superseded" in result.value[1]
+                    else:
+                        raise AssertionError("Superseded dispatch survived its RPC boundary")
+                finally:
+                    pending.close()
+                    runtime.baser.pin_operation(current_op)
                 print("On-chain issuance evidence blocks stale updates without local history", flush=True)
                 print("Unendorsed same-entity wallet and reordered old Grant cannot bypass policy", flush=True)
+                if process_check:
+                    process_key = "0x" + "0" * 63 + "4"
+                    yield from authorize_writer(effects=fixture_effects, comply=comply, key=process_key)
+                    process_config = replace(
+                        process_config, no_post=False, chain_id=31337,
+                        endorsement_registry=fixture_effects.contracts["endorsement"].address,
+                        identity_registry=fixture_effects.contracts["identity"].address,
+                        posting_key=process_key, confirmations=1, posting_interval=0.05,
+                    )
+                    posting_process, process_aid, posted_result = yield from qualify_before_submission(
+                        config=process_config, effects=fixture_effects,
+                        association_said=process_creder.said, proxy_port=free_port(),
+                        stack=stack, artifacts=artifacts, workflow=workflow,
+                    )
+                    broadcast_key = "0x" + "0" * 63 + "7"
+                    yield from authorize_writer(effects=fixture_effects, comply=comply, key=broadcast_key)
+                    broadcast_config = replace(
+                        process_config, name="broadcast-oracle",
+                        base="process-" + uuid4().hex, http_port=free_port(),
+                        posting_key=broadcast_key,
+                    )
+                    broadcast_creder = associations["process_broadcast"]
+                    print(f"Retaining process-test stores: --name {broadcast_config.name} --base {broadcast_config.base}", flush=True)
+                    broadcast_process, broadcast_aid, broadcast_result = yield from qualify_after_submission(
+                        config=broadcast_config, effects=fixture_effects,
+                        association_said=broadcast_creder.said,
+                        evidence=lambda aid: streams["geda"] + streams["qvi"]
+                        + replay(le, le_rgy, registries["le"], broadcast_creder)
+                        + grant(le, le_rgy, broadcast_creder, aid),
+                        stack=stack, artifacts=artifacts, workflow=workflow,
+                    )
 
             # 12. Revoke LE through Registrar, then present a previously withheld child.
             revocation = registries["qvi"].revoke(said=le_credential.said)
@@ -609,10 +678,34 @@ def exercise(schema_dir: Path, *, keep: bool = False, comply: Path | None = None
                 for wallet in (account.address, beneficiary.address):
                     _, endorsement = yield from fixture_effects.observe(wallet)
                     assert endorsement == ("0x" + "00" * 32, "")
+                    check = PresentationDoer(
+                        port=broadcast_config.http_port, recipient=broadcast_aid,
+                        stream=replay(qvi, qvi_rgy, registries["qvi"], le_credential),
+                        said=broadcast_creder.said, expected="withdrawn",
+                    )
+                    workflow.extend([check])
+                    while not check.done:
+                        yield 0.01
+                    workflow.remove([check])
+                    _, endorsement = yield from fixture_effects.observe(broadcast_result["verified"]["wallet"])
+                    assert endorsement == ("0x" + "00" * 32, "")
                 assert (yield from read(fixture_effects, wrapper, "transfer", [beneficiary.address, 1000000], sender=account.address)) == (False,)
                 yield from send(fixture_effects, wrapper, "transfer", [beneficiary.address, 1000000], PUBLIC_TEST_KEY)
                 assert (yield from read(fixture_effects, token, "balanceOf", [beneficiary.address])) == (1000000,)
                 print("Observed source revocation withdraws endorsements and rejects transfer", flush=True)
+                if process_check:
+                    check = PresentationDoer(
+                        port=process_config.http_port, recipient=process_aid,
+                        stream=replay(qvi, qvi_rgy, registries["qvi"], le_credential),
+                        said=process_creder.said, expected="withdrawn",
+                    )
+                    workflow.extend([check])
+                    while not check.done:
+                        yield 0.01
+                    workflow.remove([check])
+                    _, endorsement = yield from fixture_effects.observe(posted_result["verified"]["wallet"])
+                    assert endorsement == ("0x" + "00" * 32, "")
+                    print("Independent posting process propagates observed source revocation", flush=True)
 
             # Commit success only after all assertions; a later timeout must fail.
             outcome.update(verified)

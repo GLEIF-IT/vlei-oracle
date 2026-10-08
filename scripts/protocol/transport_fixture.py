@@ -51,6 +51,11 @@ class PresentationDoer(doing.DoDoer):
                     self.result = result
                     self.remove([self.client_doer])
                     return True
-                assert result["state"] not in ("failed", "verified"), result
+                terminal = (
+                    {"failed", "withdrawn"} if self.expected == "endorsed"
+                    else {"failed"} if self.expected == "withdrawn"
+                    else {"failed", "verified"}
+                )
+                assert result["state"] not in terminal, result
             yield 0.05
         raise AssertionError(f"Expected {self.expected}: {result}")
