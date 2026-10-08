@@ -7,7 +7,7 @@ hints, while the transaction journal owns recovery of uncertain external effects
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from typing import Any
 
 from keri.db import dbing, koming
@@ -36,12 +36,11 @@ class TransactionRecord:
 
     txHash: str
     rawTransaction: str
-    transaction: dict[str, Any]
+    nonce: int
+    gasPrice: int
     associationSaid: str
     action: str
     state: str = "pending"
-    receiptHash: str = ""
-    receiptNumber: int = 0
     cancelHash: str = ""
     cancelRaw: str = ""
     failureReason: str = ""
@@ -68,7 +67,6 @@ class ManagedAssociation:
     associationSaid: str
     state: str = STATE_VERIFIED
     failureReason: str = ""
-    txHashes: list[str] = field(default_factory=list)
 
 
 class OracleBaser(dbing.LMDBer):
@@ -107,7 +105,7 @@ class OracleBaser(dbing.LMDBer):
         """
         existing = self.transactions.get(keys=(intent.txHash,))
         if existing is not None:
-            for field in ("rawTransaction", "transaction", "associationSaid", "action"):
+            for field in ("rawTransaction", "nonce", "gasPrice", "associationSaid", "action"):
                 if getattr(existing, field) != getattr(intent, field):
                     raise ValueError("cannot change a persisted signed attempt")
             if existing.cancelHash and (existing.cancelHash, existing.cancelRaw) != (intent.cancelHash, intent.cancelRaw):
@@ -117,12 +115,33 @@ class OracleBaser(dbing.LMDBer):
         self.transactions.pin(keys=(intent.txHash,), val=intent)
         return intent
 
+    def complete_transaction(self, intent, tx_hash, succeeded):
+        """Save the attempt outcome, not its reconstructible receipt snapshot."""
+        if tx_hash not in (intent.txHash, intent.cancelHash):
+            raise ValueError("completion belongs to another signed attempt")
+        state = (
+            "cancelled" if tx_hash == intent.cancelHash and succeeded
+            else "cancellation_reverted" if tx_hash == intent.cancelHash
+            else "confirmed" if succeeded else "reverted"
+        )
+        if intent.state != state or intent.failureReason:
+            intent.state, intent.failureReason = state, ""
+            self.pin_transaction(intent)
+
     def unfinished_transaction(self):
         """The single writer reconciles its outstanding nonce before new work."""
         for _, intent in self.transactions.getItemIter():
-            if intent.state != "confirmed":
+            if intent.state == "pending":
                 return intent
         return None
+
+    def transaction_status(self, association_said):
+        """Read relationships directly from the recovery journal, without RPC."""
+        return [{"txHash": intent.txHash, "cancelHash": intent.cancelHash,
+                 "action": intent.action, "state": intent.state,
+                 "failureReason": intent.failureReason}
+                for _, intent in self.transactions.getItemIter()
+                if intent.associationSaid == association_said]
 
     def get_verification(self, association_said: str) -> VerificationWork | None:
         """Return the operation keyed by association SAID, if present."""
@@ -181,12 +200,13 @@ class OracleBaser(dbing.LMDBer):
         """Compose local lifecycle status without RPC or evidence reconstruction."""
         member = self.get_managed(association_said)
         if member is not None:
-            return {**asdict(member), "verificationState": STATE_VERIFIED, "managed": True}
+            return {**asdict(member), "verificationState": STATE_VERIFIED,
+                    "managed": True, "transactions": self.transaction_status(association_said)}
         work = self.get_verification(association_said)
         if work is None:
             return None
         return {**work.to_json(), "verificationState": work.state,
-                "managed": False, "txHashes": []}
+                "managed": False, "transactions": self.transaction_status(association_said)}
 
     def mark_awaiting_artifacts(
         self, op: VerificationWork, reason: str

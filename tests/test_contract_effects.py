@@ -84,7 +84,7 @@ def signed_intent(tx, *, said="association", action="publishEndorsement"):
     signed = Account.from_key(KEY).sign_transaction(tx)
     return TransactionRecord(
         txHash=Web3.to_hex(signed.hash), rawTransaction=Web3.to_hex(signed.raw_transaction),
-        transaction=tx, associationSaid=said, action=action,
+        nonce=tx["nonce"], gasPrice=tx["gasPrice"], associationSaid=said, action=action,
     )
 
 
@@ -124,7 +124,7 @@ def test_lost_submission_result_recovers_saved_identity(deployment, tmp_path):
             identity, endorsement = yield from effects.observe(WALLET)
             nonce = yield from effects.request("eth_getTransactionCount", [effects.writer, "latest"])
             assert endorsement == (IDENTITY, "association")
-            assert int(nonce, 16) == saved.transaction["nonce"] + 1
+            assert int(nonce, 16) == saved.nonce + 1
             return result
 
         kin, tx_hash, receipt = drive(effects_for(deployment), recover)
@@ -135,9 +135,15 @@ def test_lost_submission_result_recovers_saved_identity(deployment, tmp_path):
 
 
 def test_explicit_same_nonce_cancellation_prevents_stale_publication(deployment, tmp_path):
+    from vlei_oracle.endorsement.reconciling import EndorsementDoer
+
     store = OracleBaser(name="cancel", headDirPath=str(tmp_path))
+    poster = object.__new__(EndorsementDoer)
+    poster.baser = store
 
     def workflow(effects):
+        poster.effects = effects
+        snapshot = yield from effects.request("evm_snapshot", [])
         yield from effects.request("anvil_setAutomine", [False])
         try:
             tx = yield from effects.prepare(("endorsement", "publishEndorsement", [WALLET, IDENTITY, "stale"]))
@@ -148,12 +154,28 @@ def test_explicit_same_nonce_cancellation_prevents_stale_publication(deployment,
             signed = Account.from_key(KEY).sign_transaction(cancel)
             intent.cancelHash, intent.cancelRaw = Web3.to_hex(signed.hash), Web3.to_hex(signed.raw_transaction)
             store.pin_transaction(intent)
+            store.close()
+            store.reopen()
+            saved = store.unfinished_transaction()
+            assert (saved.cancelHash, saved.cancelRaw) == (intent.cancelHash, intent.cancelRaw)
+            intent = saved
             yield from effects.submit(intent.cancelRaw, intent.cancelHash)
             yield from effects.request("evm_mine", [])
             result = yield from effects.reconcile(intent)
             _, endorsement = yield from effects.observe(WALLET)
             assert endorsement[1] != "stale"
             assert result[1] == intent.cancelHash and result[2]["status"] == "0x1"
+            yield from poster.reconcile(intent)
+            assert intent.state == "cancelled"
+            assert (yield from effects.request("evm_revert", [snapshot])) is True
+            assert not (yield from poster.refresh_completion(intent))
+            reopened = store.unfinished_transaction()
+            assert reopened.cancelHash == intent.cancelHash
+            yield from poster.reconcile(reopened)  # Same cancellation bytes rebroadcast.
+            yield from effects.request("evm_mine", [])
+            yield from poster.reconcile(reopened)  # Fresh canonical receipt.
+            assert reopened.state == "cancelled"
+            assert (yield from effects.observe(WALLET))[1][1] != "stale"
             return result
         finally:
             yield from effects.request("anvil_setAutomine", [True])
@@ -221,7 +243,8 @@ def test_unknown_nonce_consumption_requires_reconciliation(deployment):
     drive(effects_for(deployment), workflow)
 
 
-def test_operation_store_refuses_different_deployment_scope(tmp_path):
+@pytest.mark.parametrize("field", ["chainId", "writer", "endorsement", "identity"])
+def test_operation_store_refuses_different_deployment_scope(tmp_path, field):
     store = OracleBaser(name="scope", headDirPath=str(tmp_path))
     scope = PostingScope(31337, WALLET.lower(), WALLET.lower(), WALLET.lower())
     store.bind_posting_scope(scope)
@@ -230,7 +253,8 @@ def test_operation_store_refuses_different_deployment_scope(tmp_path):
     try:
         reopened.bind_posting_scope(scope)
         with pytest.raises(ValueError, match="posting scope"):
-            reopened.bind_posting_scope(PostingScope(31338, scope.writer, scope.endorsement, scope.identity))
+            from dataclasses import replace
+            reopened.bind_posting_scope(replace(scope, **{field: 31338 if field == "chainId" else "0x" + "ab" * 20}))
     finally:
         reopened.close(clear=True)
 
@@ -257,5 +281,42 @@ def test_signed_attempts_are_immutable_across_reopen(tmp_path):
         store.pin_transaction(intent)
         with pytest.raises(ValueError, match="persisted cancellation"):
             store.pin_transaction(replace(intent, cancelHash="different"))
+    finally:
+        store.close(clear=True)
+
+
+
+def test_completed_journal_reopens_after_reorg_without_receipt_snapshot(deployment, tmp_path):
+    from vlei_oracle.endorsement.reconciling import EndorsementDoer
+
+    store = OracleBaser(name="completed-reorg", headDirPath=str(tmp_path))
+    effects = effects_for(deployment)
+    # Only receipt recovery is exercised here; no credential or signing context
+    # is needed, and all chain calls still use the real HIO/Anvil boundary.
+    poster = object.__new__(EndorsementDoer)
+    poster.baser, poster.effects = store, effects
+
+    def workflow(effects):
+        snapshot = yield from effects.request("evm_snapshot", [])
+        tx = yield from effects.prepare(("endorsement", "publishEndorsement", [WALLET, IDENTITY, "completed-reorg"]))
+        intent = store.pin_transaction(signed_intent(tx, said="completed-reorg"))
+        yield from effects.submit(intent.rawTransaction, intent.txHash)
+        yield from poster.reconcile(intent)
+        assert intent.state == "confirmed" and store.unfinished_transaction() is None
+        store.close()
+        store.reopen()
+        saved = store.transactions.get(keys=(intent.txHash,))
+        assert "receipt" not in repr(saved).lower()
+        assert (yield from effects.request("evm_revert", [snapshot])) is True
+        assert (yield from poster.refresh_completion(saved)) is False
+        reopened = store.unfinished_transaction()
+        assert reopened.txHash == intent.txHash and reopened.rawTransaction == intent.rawTransaction
+        yield from effects.submit(reopened.rawTransaction, reopened.txHash)
+        yield from poster.reconcile(reopened)
+        assert reopened.state == "confirmed"
+        return True
+
+    try:
+        drive(effects, workflow)
     finally:
         store.close(clear=True)

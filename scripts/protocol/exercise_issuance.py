@@ -429,7 +429,7 @@ def exercise(schema_dir: Path, *, keep: bool = False, comply: Path | None = None
                 workflow.extend([*fresh.doers, check])
                 while not check.done:
                     yield 0.01
-                assert not check.result["managed"] and not check.result["txHashes"]
+                assert not check.result["managed"] and not check.result["transactions"]
                 assert fresh.rgy.reger.saved.get(keys=(association.said,)) is None
                 workflow.remove([*fresh.doers, check])
             print(
@@ -469,7 +469,7 @@ def exercise(schema_dir: Path, *, keep: bool = False, comply: Path | None = None
             verified = check.result
             assert reconstruct_binding(rgy=runtime.rgy, said=association.said, schema_said=schema_said)["wallet"] == account.address.lower(), verified
             assert verified["associationSaid"] == association.said and verified["managed"], verified
-            assert not verified["txHashes"], verified
+            assert not verified["transactions"], verified
             try:
                 verify_association(
                     rgy=runtime.rgy,
@@ -543,7 +543,7 @@ def exercise(schema_dir: Path, *, keep: bool = False, comply: Path | None = None
                     yield 0.01
                 workflow.remove([check])
                 assert reason in check.result["failureReason"], check.result
-                assert not check.result["txHashes"], check.result
+                assert not check.result["transactions"], check.result
                 if expected == "failed":
                     assert not check.result["managed"], check.result
             print("Signer, chain, contract, and EIP-7702 cases passed", flush=True)
@@ -758,7 +758,7 @@ def exercise(schema_dir: Path, *, keep: bool = False, comply: Path | None = None
                     workflow.remove([check])
                     if expected == "failed":
                         assert "oracle network" in check.result["failureReason"]
-                        assert not check.result["managed"] and not check.result["txHashes"]
+                        assert not check.result["managed"] and not check.result["transactions"]
                         assert (yield from second_effects.observe(account.address))[1] == ("0x" + "00" * 32, "")
                 assert (yield from second_effects.observe(account.address))[1][1] == associations["wrong_chain"].said
                 assert (yield from fixture_effects.observe(account.address))[1][1] == associations["delegated"].said
@@ -832,7 +832,7 @@ def exercise(schema_dir: Path, *, keep: bool = False, comply: Path | None = None
                 assert monotonic() - revocation_started < 30, "source fanout exceeded local 30s bound"
                 yield 0.01
             workflow.remove(revocation_checks)
-            assert not check.result["managed"] and not check.result["txHashes"], (
+            assert not check.result["managed"] and not check.result["transactions"], (
                 check.result
             )
             assert "revoked" in check.result["failureReason"], check.result
@@ -882,7 +882,7 @@ def exercise(schema_dir: Path, *, keep: bool = False, comply: Path | None = None
 
             # Commit success only after all assertions; a later timeout must fail.
             final_operations.extend([{"associationSaid": op.associationSaid, "state": op.state,
-                                      "txHashes": op.txHashes, "failureReason": op.failureReason}
+                                      "transactions": runtime.baser.transaction_status(op.associationSaid), "failureReason": op.failureReason}
                                      for _, op in runtime.baser.managed.getItemIter()])
             outcome.update(verified)
             workflow.remove(doers)

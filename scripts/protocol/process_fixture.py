@@ -180,10 +180,10 @@ def qualify_before_submission(*, config, effects, association_said, proxy_port,
     while not check.done:
         yield 0.01
     workflow.remove([check])
-    assert intent.txHash in check.result["txHashes"]
-    assert len(check.result["txHashes"]) == 2
-    nonce = yield from effects.request("eth_getTransactionCount", [intent.transaction["from"], "latest"])
-    assert int(nonce, 16) == intent.transaction["nonce"] + 2
+    assert intent.txHash in [entry["txHash"] for entry in check.result["transactions"]]
+    assert len(check.result["transactions"]) == 2
+    nonce = yield from effects.request("eth_getTransactionCount", [Account.from_key(config.posting_key).address, "latest"])
+    assert int(nonce, 16) == intent.nonce + 2
     print("Independent posting process recovers persisted intent before broadcast with no duplicate nonce", flush=True)
     return process, aid, check.result
 
@@ -226,7 +226,7 @@ def qualify_after_submission(*, config, effects, association_said, evidence,
     store = OracleBaser(name=config.name, base=config.base, readonly=True)
     try:
         intent = store.unfinished_transaction()
-        assert intent and intent.transaction["nonce"] == baseline
+        assert intent and intent.nonce == baseline
     finally:
         store.close()
     transaction = yield from effects.request("eth_getTransactionByHash", [intent.txHash])
@@ -243,8 +243,8 @@ def qualify_after_submission(*, config, effects, association_said, evidence,
     while not recovered.done:
         yield 0.01
     workflow.remove([recovered])
-    assert intent.txHash in recovered.result["txHashes"]
-    assert len(recovered.result["txHashes"]) == 2
+    assert intent.txHash in [entry["txHash"] for entry in recovered.result["transactions"]]
+    assert len(recovered.result["transactions"]) == 2
     nonce = yield from effects.request("eth_getTransactionCount", [writer, "latest"])
     assert int(nonce, 16) == baseline + 2
     print("Independent posting process recovers after broadcast and lost receipt without a duplicate nonce", flush=True)

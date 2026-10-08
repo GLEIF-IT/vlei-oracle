@@ -40,7 +40,7 @@ class EndorsementDoer(doing.DoDoer):
         self.account = Account.from_key(private_key)
         if self.account.address != effects.writer:
             raise ValueError("signer does not match the posting writer")
-        self.interval, self.cursor = interval, 0
+        self.interval, self.cursor, self.journal_cursor = interval, 0, 0
         self.eoa = EoaVerifierDoer(rpc_url=effects.rpc_url)
         baser.bind_posting_scope(PostingScope(
             effects.chain_id, self.account.address.lower(),
@@ -150,24 +150,12 @@ class EndorsementDoer(doing.DoDoer):
         kin, tx_hash, receipt = yield from self.effects.reconcile(intent)
         op = self.baser.get_managed(intent.associationSaid)
         if kin == "receipt":
-            intent.receiptHash = receipt["blockHash"]
-            intent.receiptNumber = int(receipt["blockNumber"], 16)
             if receipt["confirmed"]:
-                intent.state = "confirmed"
-                intent.failureReason = "" if int(receipt["status"], 16) else "transaction reverted"
-                if tx_hash not in op.txHashes:
-                    op.txHashes.append(tx_hash)
-                    self.baser.pin_managed(op)
-            self.baser.pin_transaction(intent)
+                self.baser.complete_transaction(intent, tx_hash, int(receipt["status"], 16) == 1)
             return
-        if intent.receiptHash:
-            intent.receiptHash, intent.receiptNumber = "", 0
-            self.baser.pin_transaction(intent)
         if kin == "conflict":
             intent.failureReason = "writer nonce consumed without this transaction; operator reconciliation required"
             self.baser.pin_transaction(intent)
-            op.failureReason = intent.failureReason
-            self.baser.pin_managed(op)
             return
         if intent.cancelHash:
             if kin == "absent":
@@ -200,6 +188,21 @@ class EndorsementDoer(doing.DoDoer):
                 self.current_credential(op)
             yield from self.effects.submit(intent.rawTransaction, intent.txHash)
 
+    def refresh_completion(self, intent):
+        """Reopen an orphaned attempt from fresh RPC, preserving its identity.
+
+        RPC errors propagate as unknown and never become absence. A previously
+        confirmed cancellation also needs this check: a reorg can expose its
+        original stale attempt again even when no registry action is needed.
+        """
+        kin, tx_hash, receipt = yield from self.effects.reconcile(intent)
+        if kin == "receipt" and receipt["confirmed"]:
+            self.baser.complete_transaction(intent, tx_hash, int(receipt["status"], 16) == 1)
+            return True
+        intent.state, intent.failureReason = "pending", ""
+        self.baser.pin_transaction(intent)
+        return False
+
     def process(self, op):
         """Reconcile one wallet from current evidence and observed chain state."""
         valid, reason = yield from self.evidence(op)
@@ -213,6 +216,10 @@ class EndorsementDoer(doing.DoDoer):
                 op.state, op.failureReason = state, reason
                 self.baser.pin_managed(op)
             return
+        # No new nonce while an earlier signed effect has lost confirmation.
+        for _, completed in self.baser.transactions.getItemIter():
+            if completed.state != "pending" and not (yield from self.refresh_completion(completed)):
+                return
         transaction = yield from self.effects.prepare(action)
         # Transaction preparation yields. Evidence must still hold afterwards.
         if valid:
@@ -221,7 +228,8 @@ class EndorsementDoer(doing.DoDoer):
                 return
         tx_hash, raw = self.sign(transaction)
         intent = TransactionRecord(
-            txHash=tx_hash, rawTransaction=raw, transaction=transaction,
+            txHash=tx_hash, rawTransaction=raw, nonce=transaction["nonce"],
+            gasPrice=transaction["gasPrice"],
             associationSaid=op.associationSaid, action=action[1],
         )
         self.baser.pin_transaction(intent)
@@ -238,6 +246,15 @@ class EndorsementDoer(doing.DoDoer):
                 if intent is not None:
                     yield from self.reconcile(intent)
                 else:
+                    # Bound idle reorg checks to one completed attempt per turn.
+                    completed = [record for _, record in self.baser.transactions.getItemIter()
+                                 if record.state != "pending"]
+                    if completed:
+                        intent = completed[self.journal_cursor % len(completed)]
+                        self.journal_cursor += 1
+                        if not (yield from self.refresh_completion(intent)):
+                            continue
+                        intent = None
                     candidates = [op for _, op in self.baser.managed.getItemIter()]
                     if candidates:
                         op = candidates[self.cursor % len(candidates)]
@@ -248,10 +265,6 @@ class EndorsementDoer(doing.DoDoer):
                 if intent is not None:
                     intent.failureReason = str(exc)
                     self.baser.pin_transaction(intent)
-                    failed = self.baser.get_managed(intent.associationSaid)
-                    if failed.failureReason != str(exc):
-                        failed.failureReason = str(exc)
-                        self.baser.pin_managed(failed)
                 elif op is not None and op.failureReason != str(exc):
                     op.failureReason = str(exc)
                     self.baser.pin_managed(op)

@@ -76,8 +76,13 @@ it does not make network requests to reconstruct evidence.
 confirmations and a one-second posting interval. Missing evidence or RPC failure
 stays pending. Inspect verification and management failure reasons and the durable signed transaction
 journal for ambiguous submissions; never discard the store to allocate a new
-nonce. An unknown consumed nonce requires resolving the writer's actual chain
-history. Restart the same service/store/deployment to reconcile saved identities.
+nonce. The journal keeps exact original/cancellation signed bytes and hashes,
+association/action references, nonce and original gas price (for safe same-nonce
+cancellation), completion outcome, and current blockage. Deployment scope is
+stored once. Receipt/block snapshots and workflow transaction-hash lists are
+absent; `transactions` in status reads the journal relationship directly.
+RPC outage is unknown, not evidence that a signed attempt is absent. An unknown
+consumed nonce requires resolving the writer's actual chain history. Restart the same service/store/deployment to reconcile saved identities.
 
 ## Replace and revoke
 
