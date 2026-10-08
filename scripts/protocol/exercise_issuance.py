@@ -429,7 +429,7 @@ def exercise(schema_dir: Path, *, keep: bool = False, comply: Path | None = None
                 workflow.extend([*fresh.doers, check])
                 while not check.done:
                     yield 0.01
-                assert not check.result["verified"] and not check.result["txHashes"]
+                assert not check.result["managed"] and not check.result["txHashes"]
                 assert fresh.rgy.reger.saved.get(keys=(association.said,)) is None
                 workflow.remove([*fresh.doers, check])
             print(
@@ -467,8 +467,8 @@ def exercise(schema_dir: Path, *, keep: bool = False, comply: Path | None = None
                 yield 0.01
             workflow.remove([check])
             verified = check.result
-            assert verified["verified"]["wallet"] == account.address.lower(), verified
-            assert verified["verified"]["associationSaid"] == association.said, verified
+            assert reconstruct_binding(rgy=runtime.rgy, said=association.said, schema_said=schema_said)["wallet"] == account.address.lower(), verified
+            assert verified["associationSaid"] == association.said and verified["managed"], verified
             assert not verified["txHashes"], verified
             try:
                 verify_association(
@@ -545,7 +545,7 @@ def exercise(schema_dir: Path, *, keep: bool = False, comply: Path | None = None
                 assert reason in check.result["failureReason"], check.result
                 assert not check.result["txHashes"], check.result
                 if expected == "failed":
-                    assert not check.result["verified"], check.result
+                    assert not check.result["managed"], check.result
             print("Signer, chain, contract, and EIP-7702 cases passed", flush=True)
             yield from qualify_relationships(
                 actors=actors, issuers=issuers, registries=registries, credentials=credentials,
@@ -661,7 +661,7 @@ def exercise(schema_dir: Path, *, keep: bool = False, comply: Path | None = None
                     assert checker.eoa.msgs
                     runtime.baser.pin_managed(current_op)
                     checker.eoa.cues.append({
-                        "said": old.said, "kin": "verified", "verified": old_op.verified,
+                        "said": old.said, "kin": "verified", "verified": {"observation": {"chainId": 31337}},
                     })
                     try:
                         next(pending)
@@ -758,7 +758,7 @@ def exercise(schema_dir: Path, *, keep: bool = False, comply: Path | None = None
                     workflow.remove([check])
                     if expected == "failed":
                         assert "oracle network" in check.result["failureReason"]
-                        assert not check.result["verified"] and not check.result["txHashes"]
+                        assert not check.result["managed"] and not check.result["txHashes"]
                         assert (yield from second_effects.observe(account.address))[1] == ("0x" + "00" * 32, "")
                 assert (yield from second_effects.observe(account.address))[1][1] == associations["wrong_chain"].said
                 assert (yield from fixture_effects.observe(account.address))[1][1] == associations["delegated"].said
@@ -832,7 +832,7 @@ def exercise(schema_dir: Path, *, keep: bool = False, comply: Path | None = None
                 assert monotonic() - revocation_started < 30, "source fanout exceeded local 30s bound"
                 yield 0.01
             workflow.remove(revocation_checks)
-            assert not check.result["verified"] and not check.result["txHashes"], (
+            assert not check.result["managed"] and not check.result["txHashes"], (
                 check.result
             )
             assert "revoked" in check.result["failureReason"], check.result
@@ -873,7 +873,7 @@ def exercise(schema_dir: Path, *, keep: bool = False, comply: Path | None = None
                 print("Observed source revocation withdraws endorsements and rejects transfer", flush=True)
                 if process_check:
                     for result in (posted_result, broadcast_result):
-                        _, endorsement = yield from fixture_effects.observe(result["verified"]["wallet"])
+                        _, endorsement = yield from fixture_effects.observe(account.address.lower())
                         assert endorsement == ("0x" + "00" * 32, "")
                     print("Independent posting process propagates observed source revocation", flush=True)
             if two_chain_check:

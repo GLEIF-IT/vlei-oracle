@@ -13,6 +13,7 @@ from web3 import Web3
 from vlei_oracle.commands.parse_deploy_log import parse_deploy_log
 from vlei_oracle.endorsement.effects import ContractEffects
 from vlei_oracle.endorsement.reconciling import EndorsementDoer
+from vlei_oracle.verification.credentials import reconstruct_binding
 
 DEPLOYER_KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
 POSTER_KEY = "0x" + "0" * 63 + "3"
@@ -150,7 +151,7 @@ def qualify_transfers(*, comply, rpc_url, artifacts, runtime, trusted_geda,
         assert monotonic() - started < 60, "initial posting exceeded local 60s watchdog"
         yield 0.01
     print(f"Local initial posting completed in {monotonic() - started:.3f}s (watchdog 60s)", flush=True)
-    assert runtime.baser.get_managed(target_saids[0]).verified["observation"]["code"] == (
+    assert (yield from fixture_effects.request("eth_getCode", [account.address, "latest"])) == (
         "0xef0100" + token.address[2:].lower()
     )
     _, endorsement = yield from fixture_effects.observe(account.address)
@@ -160,7 +161,7 @@ def qualify_transfers(*, comply, rpc_url, artifacts, runtime, trusted_geda,
     print("Real endorsements permit transfer without global wallet admission", flush=True)
     # A stale identity hint, even for the same entity and an admin
     # wallet, must never substitute for that wallet's endorsement.
-    entity = runtime.baser.get_managed(target_saids[0]).verified["identityRef"]
+    entity = reconstruct_binding(rgy=runtime.rgy, said=target_saids[0], schema_said=schema_said)["identityRef"]
     yield from send(fixture_effects, fixture_effects.contracts["identity"],
                     "registerIdentity", [entity, poster_address, b""], DEPLOYER_KEY)
     yield from send(fixture_effects, wrapper, "transfer", [poster_address, 1000000], sender_key)
