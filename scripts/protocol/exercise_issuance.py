@@ -23,6 +23,7 @@ from uuid import uuid4
 
 from ceremony import association_from_challenge, write_credential
 from transport_fixture import PresentationDoer
+from relationship_fixture import qualify_relationships
 from process_fixture import (
     authorize_writer, qualify_after_submission, qualify_before_submission,
     qualify_verification,
@@ -38,6 +39,7 @@ from issuance_helpers import (
     approve_qvi,
     grant,
     issuer_for,
+    issue_credential,
     kli_issue,
     open_issuers,
     receive,
@@ -250,14 +252,7 @@ def exercise(schema_dir: Path, *, keep: bool = False, comply: Path | None = None
                         else "254900OPPU84GM83MG36"
                     },
                 )
-                issuance = registries[name].issue(
-                    said=creder.said, dt=creder.attrib["dt"]
-                )
-                anc = anchor(registries[name].hab, issuance)
-                issuer.issue(creder, issuance)
-                issuer.registrar.issue(creder, issuance, anc)
-                while not issuer.complete(creder.said):
-                    yield 0.01
+                yield from issue_credential(issuer, registries[name], creder)
                 credentials[name] = creder
                 streams[name] = replay(
                     registries[name].hab, issuer.rgy, registries[name], creder
@@ -321,12 +316,7 @@ def exercise(schema_dir: Path, *, keep: bool = False, comply: Path | None = None
                     )
                 issuer = issuers["le"]
                 issuer.validate(creder)
-                issuance = registries["le"].issue(said=creder.said)
-                anc = anchor(le, issuance)
-                issuer.issue(creder, issuance)
-                issuer.registrar.issue(creder, issuance, anc)
-                while not issuer.complete(creder.said):
-                    yield 0.01
+                yield from issue_credential(issuer, registries["le"], creder)
                 associations[label] = creder
 
             if kli_check:
@@ -552,6 +542,12 @@ def exercise(schema_dir: Path, *, keep: bool = False, comply: Path | None = None
                 if expected == "failed":
                     assert not check.result["verified"], check.result
             print("Signer, chain, contract, and EIP-7702 cases passed", flush=True)
+            yield from qualify_relationships(
+                actors=actors, issuers=issuers, registries=registries, credentials=credentials,
+                schemas=by_said, streams=streams, runtime=runtime,
+                oracle_port=oracle_port, workflow=workflow, stack=stack,
+                base=base, temp=temp, witness=witness, witness_url=witness_url,
+            )
             if process_check:
                 process_creder = associations["process"]
                 process_config = ServiceConfig(
