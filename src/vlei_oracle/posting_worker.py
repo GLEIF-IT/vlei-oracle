@@ -121,6 +121,8 @@ class EndorsementDoer(doing.DoDoer):
             if cue["kin"] == "failed":
                 return False, cue["error"]
             self.current_credential(op)
+            if not self.desired(op):
+                return False, "superseded by newer verified association"
             if cue["verified"]["observation"]["chainId"] != self.effects.chain_id:
                 raise MissingCredentialArtifactsError("profile observation is on another chain")
             op.verified = cue["verified"]
@@ -169,7 +171,14 @@ class EndorsementDoer(doing.DoDoer):
         valid, reason = yield from self.evidence(op)
         if valid:
             _, endorsement = yield from self.effects.observe(op.verified["wallet"])
-            valid, reason = self.chain_order(op, endorsement)
+            try:
+                self.current_credential(op)
+                valid, reason = (
+                    self.chain_order(op, endorsement) if self.desired(op)
+                    else (False, "superseded by newer verified association")
+                )
+            except (VerificationError, kering.ValidationError) as exc:
+                valid, reason = False, str(exc)
         if not valid and intent.action != "withdrawEndorsement":
             transaction = yield from self.effects.cancellation(intent)
             intent.cancelHash, intent.cancelRaw = self.sign(transaction)
