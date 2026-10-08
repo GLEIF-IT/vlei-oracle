@@ -13,7 +13,7 @@ gh repo clone GLEIF-IT/vlei-oracle
 cd vlei-oracle
 python3.12 scripts/dev/prepare-demo.py --directory .demo-association
 source .demo-association/demo.env
-.demo-association/venv/bin/python -m pytest -q
+VLEI_COMPLY_DIR="$COMPLY_DIR" .demo-association/venv/bin/python -m pytest -q
 (cd "$COMPLY_DIR" && forge test && python3 scripts/dev/test_startup.py)
 "$COMPLY_DIR/scripts/dev/init-local-vlei-fixture.sh" --two-chain-check --process-check --kli-check
 ```
