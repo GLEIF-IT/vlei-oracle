@@ -40,6 +40,16 @@ def replay(hab, rgy, registry, creder) -> bytes:
     )
 
 
+def issue_credential(issuer, registry, creder):
+    """Schedule native TEL/KEL issuance and wait for Credentialer completion."""
+    issuance = registry.issue(said=creder.said, dt=creder.attrib.get("dt"))
+    anc = anchor(registry.hab, issuance)
+    issuer.issue(creder, issuance)
+    issuer.registrar.issue(creder, issuance, anc)
+    while not issuer.complete(creder.said):
+        yield 0.01
+
+
 def receive(hby, rgy, stream) -> None:
     """Give an issuer supporting KERI evidence through the standard parser.
 
