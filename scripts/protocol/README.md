@@ -110,6 +110,10 @@ The same native stores and AID recover verification without another Grant. Each 
 fresh persistent process-test namespace before starting; those test stores are
 retained for inspection, including when an assertion fails.
 
+After initial endorsement, a newly issued beneficiary association replaces its
+live binding. Native revocation of the superseded association leaves the new
+binding intact. The fixture separately records live supersession latency.
+
 The contract tests also exercise saved-hash recovery, explicit same-nonce
 cancellation, reorg reconciliation with the same signed identity, and wrong-chain
 refusal. Add `--two-chain-check` to deploy on independent chains 31337/31338:
@@ -175,8 +179,9 @@ The obsolete wallet-transfer shell workflow has been removed. This exercise
 also covers contract posting and transfers when `--comply-dir` is supplied.
 It needs no global wallet whitelist.
 
-The contract extension asserts a 30-second local bound for initial/replacement
-posting, association withdrawal, and source withdrawal after evidence delivery
+The contract extension uses a 60-second initial-publication watchdog and asserts
+a 30-second local bound for live replacement, association withdrawal, and source
+withdrawal after evidence delivery
 (including the selected process/chain checks). It uses one local witness,
 auto-mining Anvil, one confirmation and a 50 ms in-process posting interval.
 These measured test conditions are not a production service guarantee. RPC or
