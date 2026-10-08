@@ -21,7 +21,7 @@ def load_ends(app: falcon.App, *, baser: OracleBaser, rxbs: bytearray, mbx) -> N
 
 
 class PresentationStatusEnd:
-    """Expose durable operation state for polling clients and e2e checkpoints."""
+    """Expose local lifecycle state for polling clients and e2e checkpoints."""
 
     def __init__(self, *, baser: OracleBaser):
         self.baser = baser
@@ -41,13 +41,13 @@ class PresentationStatusEnd:
 
 
 class HealthEnd:
-    """Expose a lightweight service liveness and operation-count response."""
+    """Expose a lightweight service liveness and lifecycle-count response."""
 
     def __init__(self, *, baser: OracleBaser):
         self.baser = baser
 
     def on_get(self, req: falcon.Request, rep: falcon.Response) -> None:
-        """Return service liveness plus operation counts grouped by state."""
+        """Return service liveness plus verification and management counts grouped by state."""
 
         _ = req
         counts: dict[str, int] = {}

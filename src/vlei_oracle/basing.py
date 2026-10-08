@@ -22,7 +22,7 @@ STATE_WITHDRAWN = "withdrawn"
 
 @dataclass
 class PostingScope:
-    """Immutable chain/deployment/writer scope of this operation store."""
+    """Immutable chain/deployment/writer scope of the recovery journal."""
 
     chainId: int
     writer: str
@@ -55,10 +55,6 @@ class VerificationWork:
     grantSaid: str = ""
     failureReason: str = ""
 
-    def to_json(self) -> dict[str, Any]:
-        """Return only local work status; evidence is assessed separately."""
-        return asdict(self)
-
 
 @dataclass
 class ManagedAssociation:
@@ -70,7 +66,7 @@ class ManagedAssociation:
 
 
 class OracleBaser(dbing.LMDBer):
-    """Local durable operation store for the always-on oracle service."""
+    """Minimal local work, management membership, and signed-effect recovery."""
 
     TailDirPath = "vlei-oracle/db"
     AltTailDirPath = ".vlei-oracle/db"
@@ -81,7 +77,7 @@ class OracleBaser(dbing.LMDBer):
         super().__init__(name=name, reopen=reopen, **kwa)
 
     def reopen(self, **kwa: Any):
-        """Open the LMDB environment and bind the operation Komer."""
+        """Open native LMDB and bind the independently owned record families."""
 
         super().reopen(**kwa)
         self.verifications = koming.Komer(db=self, subkey="verification.", schema=VerificationWork)
@@ -94,7 +90,7 @@ class OracleBaser(dbing.LMDBer):
         """Refuse to reconcile an old intent against a different deployment."""
         existing = self.scope.get(keys=("posting",))
         if existing is not None and existing != scope:
-            raise ValueError("operation store belongs to a different posting scope")
+            raise ValueError("workflow store belongs to a different posting scope")
         self.scope.pin(keys=("posting",), val=scope)
 
     def pin_transaction(self, intent: TransactionRecord):
@@ -144,7 +140,7 @@ class OracleBaser(dbing.LMDBer):
                 if intent.associationSaid == association_said]
 
     def get_verification(self, association_said: str) -> VerificationWork | None:
-        """Return the operation keyed by association SAID, if present."""
+        """Return verification work keyed by association SAID, if present."""
 
         return self.verifications.get(keys=(association_said,))
 
@@ -160,7 +156,7 @@ class OracleBaser(dbing.LMDBer):
         association_said: str,
         grant_said: str,
     ) -> VerificationWork | None:
-        """Create an operation from an IPEX Grant, preserving idempotency."""
+        """Start Grant verification once; managed associations stay enrolled."""
 
         if self.get_managed(association_said) is not None:
             return None
@@ -205,7 +201,7 @@ class OracleBaser(dbing.LMDBer):
         work = self.get_verification(association_said)
         if work is None:
             return None
-        return {**work.to_json(), "verificationState": work.state,
+        return {**asdict(work), "verificationState": work.state,
                 "managed": False, "transactions": self.transaction_status(association_said)}
 
     def mark_awaiting_artifacts(
@@ -220,14 +216,14 @@ class OracleBaser(dbing.LMDBer):
         return self.pin_verification(op)
 
     def mark_failed(self, op: VerificationWork, reason: str) -> VerificationWork:
-        """Mark an operation terminal after verification or posting failure."""
+        """Record an established verification rejection for operator intervention."""
 
         op.state = STATE_FAILED
         op.failureReason = reason
         return self.pin_verification(op)
 
     def verification_by_state(self, *states: str):
-        """Yield operations currently in any requested state."""
+        """Yield verification work in any requested state."""
 
         wanted = set(states)
         for _, op in self.verifications.getItemIter():

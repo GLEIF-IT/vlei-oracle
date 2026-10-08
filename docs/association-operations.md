@@ -83,6 +83,8 @@ stored once. Receipt/block snapshots and workflow transaction-hash lists are
 absent; `transactions` in status reads the journal relationship directly.
 RPC outage is unknown, not evidence that a signed attempt is absent. An unknown
 consumed nonce requires resolving the writer's actual chain history. Restart the same service/store/deployment to reconcile saved identities.
+Completed attempts are rechecked from RPC for reorg recovery, including signed
+cancellations; an orphaned completion reopens the same signed attempt.
 
 ## Replace and revoke
 
@@ -118,9 +120,9 @@ A compromised oracle posting key requires immediate role removal by an
 uncompromised administrator, emergency pause, inspection of every affected
 registry binding and writer nonce, and a replacement dedicated writer. A fresh
 writer/deployment scope requires a fresh oracle operation store; preserve the old
-journal for audit and reconcile its outstanding transactions. A compromised
-verifier host also requires rebuilding verified evidence from trusted native
-sources before publishing new results. Restart alone does not repair compromise.
+journal to reconcile its outstanding signed effects. A compromised
+verifier host also requires rebuilding native evidence from trusted sources
+and rechecking current validity before publishing new results. Restart alone does not repair compromise.
 
 The registry trusts its authorized writer. The local Chainlink AllowAll engine
 and direct underlying-token bypass are deferred production controls. EOA proof

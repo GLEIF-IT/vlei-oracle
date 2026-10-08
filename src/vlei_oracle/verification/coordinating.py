@@ -7,8 +7,6 @@ from keri import kering
 
 from vlei_oracle.basing import (
     STATE_AWAITING_ARTIFACTS,
-    STATE_FAILED,
-    STATE_VERIFIED,
     STATE_VERIFYING,
     VerificationWork,
     OracleBaser,
@@ -135,13 +133,3 @@ class PresentationVerifierDoer(doing.DoDoer):
             return self.baser.mark_awaiting_artifacts(op, str(exc))
         except (VerificationError, kering.ValidationError) as exc:
             return self.baser.mark_failed(op, str(exc))
-
-
-def pending_states() -> tuple[str, ...]:
-    """States requiring further evidence or verification work."""
-    return (STATE_AWAITING_ARTIFACTS, STATE_VERIFYING)
-
-
-def terminal_states() -> tuple[str, ...]:
-    """Completed verification states."""
-    return (STATE_VERIFIED, STATE_FAILED)
