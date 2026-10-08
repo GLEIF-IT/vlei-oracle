@@ -11,7 +11,7 @@ import pytest
 from hio.base import doing
 from hio.core import http, tcp
 
-from vlei_oracle.basing import OperationRecord, OracleBaser
+from vlei_oracle.basing import VerificationWork, OracleBaser
 from vlei_oracle.verification.worker import EoaVerifierDoer
 from vlei_oracle.verification.coordinating import PresentationVerifierDoer
 from vlei_oracle.verification.errors import VerificationError
@@ -169,8 +169,8 @@ def test_invalid_proof_never_requests_rpc(rpc, invalid_proof):
 def operation(tmp_path):
     association = json.loads(FIXTURE.read_text())
     baser = OracleBaser(name="test-eoa-flow", temp=False, headDirPath=str(tmp_path))
-    op = OperationRecord(associationSaid=association["d"], state="verifying")
-    baser.pin_operation(op)
+    op = VerificationWork(associationSaid=association["d"], state="verifying")
+    baser.pin_verification(op)
     try:
         yield baser, association
     finally:
@@ -201,14 +201,14 @@ def test_pending_work_survives_coordinator_restart(rpc, operation, interruption)
         run_until(
             [http.ServerDoer(server=server), first],
             lambda: (
-                baser.get_operation(association["d"]).retryCount == 1
+                baser.get_verification(association["d"]).retryCount == 1
                 if interruption == "rpc_failure"
                 else bool(endpoint.calls)
             ),
         )
-        pending = baser.get_operation(association["d"])
+        pending = baser.get_verification(association["d"])
         assert pending.state == "verifying"
-        assert not pending.verified
+        assert baser.get_managed(association["d"]) is None
         if interruption == "rpc_failure":
             assert "503" in pending.failureReason
         assert not any(
@@ -223,11 +223,11 @@ def test_pending_work_survives_coordinator_restart(rpc, operation, interruption)
         second = coordinator(baser, association, url)
         run_until(
             [http.ServerDoer(server=server), second],
-            lambda: baser.get_operation(association["d"]).state == "verified",
+            lambda: baser.get_verification(association["d"]).state == "verified",
         )
-    recovered = baser.get_operation(association["d"])
+    recovered = baser.get_verification(association["d"])
     assert recovered.failureReason == ""
-    assert recovered.verified["observation"]["blockHash"] == endpoint.block["hash"]
+    assert baser.get_managed(association["d"]).verified["observation"]["blockHash"] == endpoint.block["hash"]
     assert endpoint.calls == [
         "eth_chainId",
         "eth_chainId",
@@ -253,10 +253,10 @@ def test_revocation_during_rpc_prevents_success(rpc, operation):
     ):
         run_until(
             [http.ServerDoer(server=server), verifier],
-            lambda: baser.get_operation(association["d"]).state == "failed",
+            lambda: baser.get_verification(association["d"]).state == "failed",
         )
-    op = baser.get_operation(association["d"])
-    assert not op.verified
+    op = baser.get_verification(association["d"])
+    assert baser.get_managed(association["d"]) is None
     assert "revoked" in op.failureReason
     assert endpoint.calls == ["eth_chainId", "eth_getBlockByNumber", "eth_getCode"]
 

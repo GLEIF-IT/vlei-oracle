@@ -22,14 +22,14 @@ def service():
 
 def test_status_and_health_read_durable_association_work(service):
     baser, client = service
-    op = baser.start_operation(
+    op = baser.start_verification(
         association_said="association",
         grant_said="grant",
         grant_sender="issuer",
         association_schema=ASSOCIATION_SCHEMA,
     )
-    assert client.simulate_get("/presentations/association").json == op.to_json()
-    assert client.simulate_get("/health").json["operations"] == {"verifying": 1}
+    assert client.simulate_get("/presentations/association").json == baser.presentation_status(op.associationSaid)
+    assert client.simulate_get("/health").json["verification"] == {"verifying": 1}
     assert client.simulate_get("/presentations/missing").status_code == 404
 
 
@@ -41,3 +41,19 @@ def test_signature_attachment_route_is_absent(service):
         ).status_code
         == 404
     )
+
+
+def test_management_does_not_overwrite_verification_status(service):
+    baser, client = service
+    work = baser.start_verification(association_said="association", grant_said="grant",
+                                    grant_sender="issuer", association_schema=ASSOCIATION_SCHEMA)
+    baser.complete_verification(work, {"wallet": "test"})
+    member = baser.get_managed("association")
+    member.state = "withdrawn"
+    baser.pin_managed(member)
+    status = client.simulate_get("/presentations/association").json
+    assert status["verificationState"] == "verified"
+    assert status["state"] == "withdrawn" and status["managed"]
+    assert client.simulate_get("/health").json == {
+        "ok": True, "verification": {"verified": 1}, "management": {"withdrawn": 1},
+    }

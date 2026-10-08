@@ -146,11 +146,11 @@ def qualify_transfers(*, comply, rpc_url, artifacts, runtime, trusted_geda,
     started = monotonic()
     workflow.extend([posting])
     children.append(posting)
-    while any(runtime.baser.get_operation(said).state != "endorsed" for said in target_saids):
+    while any(runtime.baser.get_managed(said).state != "endorsed" for said in target_saids):
         assert monotonic() - started < 60, "initial posting exceeded local 60s watchdog"
         yield 0.01
     print(f"Local initial posting completed in {monotonic() - started:.3f}s (watchdog 60s)", flush=True)
-    assert runtime.baser.get_operation(target_saids[0]).verified["observation"]["code"] == (
+    assert runtime.baser.get_managed(target_saids[0]).verified["observation"]["code"] == (
         "0xef0100" + token.address[2:].lower()
     )
     _, endorsement = yield from fixture_effects.observe(account.address)
@@ -160,7 +160,7 @@ def qualify_transfers(*, comply, rpc_url, artifacts, runtime, trusted_geda,
     print("Real endorsements permit transfer without global wallet admission", flush=True)
     # A stale identity hint, even for the same entity and an admin
     # wallet, must never substitute for that wallet's endorsement.
-    entity = runtime.baser.get_operation(target_saids[0]).verified["identityRef"]
+    entity = runtime.baser.get_managed(target_saids[0]).verified["identityRef"]
     yield from send(fixture_effects, fixture_effects.contracts["identity"],
                     "registerIdentity", [entity, poster_address, b""], DEPLOYER_KEY)
     yield from send(fixture_effects, wrapper, "transfer", [poster_address, 1000000], sender_key)

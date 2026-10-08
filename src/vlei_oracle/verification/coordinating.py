@@ -10,7 +10,7 @@ from vlei_oracle.basing import (
     STATE_FAILED,
     STATE_VERIFIED,
     STATE_VERIFYING,
-    OperationRecord,
+    VerificationWork,
     OracleBaser,
 )
 from vlei_oracle.verification.credentials import grant_candidate, verify_association
@@ -71,13 +71,13 @@ class PresentationVerifierDoer(doing.DoDoer):
             if said != self.pending:
                 continue
             self.pending = None
-            op = self.baser.get_operation(said)
+            op = self.baser.get_verification(said)
             if op is None or op.state != STATE_VERIFYING:
                 continue
             if cue["kin"] == "retry":
                 op.failureReason = cue["error"]
                 op.retryCount += 1
-                self.baser.pin_operation(op)
+                self.baser.pin_verification(op)
                 self.retry_at[said] = self.tyme + self.retry_delay
             elif cue["kin"] == "failed":
                 self.baser.mark_failed(op, cue["error"])
@@ -95,16 +95,13 @@ class PresentationVerifierDoer(doing.DoDoer):
                 except VerificationError as exc:
                     self.baser.mark_failed(op, str(exc))
                 else:
-                    op.verified = cue["verified"]
-                    op.state = STATE_VERIFIED
-                    op.failureReason = ""
-                    self.baser.pin_operation(op)
+                    self.baser.complete_verification(op, cue["verified"])
 
     def process_ready(self) -> None:
         """Retry operations ready for verification or waiting for KERI artifacts."""
 
         for op in list(
-            self.baser.operations_by_state(STATE_VERIFYING, STATE_AWAITING_ARTIFACTS)
+            self.baser.verification_by_state(STATE_VERIFYING, STATE_AWAITING_ARTIFACTS)
         ):
             if self.pending is not None:
                 break
@@ -112,7 +109,7 @@ class PresentationVerifierDoer(doing.DoDoer):
                 continue
             self.verify_operation(op)
 
-    def verify_operation(self, op: OperationRecord) -> OperationRecord:
+    def verify_operation(self, op: VerificationWork) -> VerificationWork:
         """Verify the selected credential profile before any posting transition."""
 
         try:
@@ -131,7 +128,7 @@ class PresentationVerifierDoer(doing.DoDoer):
             # current dispatch, so restart recovers work without queue persistence.
             self.retry_at.pop(op.associationSaid, None)
             op.state = STATE_VERIFYING
-            self.baser.pin_operation(op)
+            self.baser.pin_verification(op)
             self.pending = op.associationSaid
             self.eoa_verifier.msgs.append(association.sad)
             return op
