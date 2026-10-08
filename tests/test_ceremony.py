@@ -13,8 +13,8 @@ from eth_account import Account
 from eth_account.messages import encode_typed_data
 
 from vlei_oracle.cli import main
-from vlei_oracle.eoa import build_challenge, verify_eoa_proof
-from vlei_oracle.schema_cache import association_schemer
+from vlei_oracle.verification.eoa import build_challenge, verify_eoa_proof
+from vlei_oracle.verification.schema_cache import association_schemer
 
 ROOT = Path(__file__).resolve().parents[1]
 ASSOCIATION = json.loads(

@@ -55,15 +55,15 @@ from keri.db import basing, dbing
 from keri.help import helping
 from keri.vdr import credentialing
 
-from vlei_oracle.association_verifier import verify_association
-from vlei_oracle.constants import LE_SCHEMA, QVI_SCHEMA
-from vlei_oracle.contracting import ContractEffects
-from vlei_oracle.eoa import (
+from vlei_oracle.verification.credentials import verify_association
+from vlei_oracle.verification.constants import LE_SCHEMA, QVI_SCHEMA
+from vlei_oracle.endorsement.effects import ContractEffects
+from vlei_oracle.verification.eoa import (
     build_challenge,
     normalize_ext_id,
 )
-from vlei_oracle.errors import MissingCredentialArtifactsError, VerificationError
-from vlei_oracle.posting_worker import EndorsementDoer
+from vlei_oracle.verification.errors import MissingCredentialArtifactsError, VerificationError
+from vlei_oracle.endorsement.reconciling import EndorsementDoer
 from vlei_oracle.serving import ServiceConfig, setup_service
 
 ROOT = Path(__file__).resolve().parents[2]

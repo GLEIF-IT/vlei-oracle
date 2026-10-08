@@ -8,7 +8,7 @@ from typing import Any
 import falcon
 from keri.app import indirecting
 
-from .basing import OracleBaser
+from vlei_oracle.basing import OracleBaser
 
 
 def load_ends(app: falcon.App, *, baser: OracleBaser, rxbs: bytearray, mbx) -> None:

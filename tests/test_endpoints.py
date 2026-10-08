@@ -5,8 +5,8 @@ import pytest
 from falcon import testing
 
 from vlei_oracle.basing import OracleBaser
-from vlei_oracle.constants import ASSOCIATION_SCHEMA
-from vlei_oracle.endpoints import load_ends
+from vlei_oracle.verification.constants import ASSOCIATION_SCHEMA
+from vlei_oracle.receiving.endpoints import load_ends
 
 
 @pytest.fixture

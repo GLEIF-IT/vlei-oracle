@@ -17,8 +17,8 @@ from issuance_helpers import (
     receive, replay, rules,
 )
 from transport_fixture import PresentationDoer
-from vlei_oracle.constants import LE_SCHEMA, QVI_SCHEMA
-from vlei_oracle.eoa import build_challenge, normalize_ext_id
+from vlei_oracle.verification.constants import LE_SCHEMA, QVI_SCHEMA
+from vlei_oracle.verification.eoa import build_challenge, normalize_ext_id
 
 KEY = "0x" + "0" * 63 + "1"
 

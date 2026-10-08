@@ -1,6 +1,6 @@
 import pytest
 
-from vlei_oracle.posting import ZERO_IDENTITY, next_action
+from vlei_oracle.endorsement.decisions import ZERO_IDENTITY, next_action
 
 WALLET = "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf"
 IDENTITY = "0x" + "12" * 32

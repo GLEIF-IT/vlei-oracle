@@ -5,8 +5,8 @@ from keri.core import coring, eventing, serdering
 from keri.db import dbing
 from keri.vdr import credentialing
 
-from .constants import LE_SCHEMA, QVI_SCHEMA
-from .errors import MissingCredentialArtifactsError, VerificationError
+from vlei_oracle.verification.constants import LE_SCHEMA, QVI_SCHEMA
+from vlei_oracle.verification.errors import MissingCredentialArtifactsError, VerificationError
 
 
 def verify_association(

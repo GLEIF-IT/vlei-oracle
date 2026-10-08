@@ -6,7 +6,7 @@ from pathlib import Path
 from eth_account import Account
 from eth_account.messages import encode_typed_data
 
-from vlei_oracle.eoa import build_challenge
+from vlei_oracle.verification.eoa import build_challenge
 
 
 def add_parser(subparsers):

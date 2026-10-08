@@ -7,7 +7,7 @@ from hio.base import doing
 from hio.core import http
 import pytest
 
-from vlei_oracle.contracting import ContractEffects
+from vlei_oracle.endorsement.effects import ContractEffects
 
 
 @pytest.mark.parametrize("field,value", [("transactionHash", "0x" + "34" * 32), ("status", "0x2")])

@@ -6,8 +6,8 @@ from hio.base import doing
 from keri.app import habbing
 from keri.db import basing
 
-from vlei_oracle.constants import ASSOCIATION_SCHEMA
-from vlei_oracle.schema_cache import association_schemer, pin_accepted_schemas
+from vlei_oracle.verification.constants import ASSOCIATION_SCHEMA
+from vlei_oracle.verification.schema_cache import association_schemer, pin_accepted_schemas
 from vlei_oracle.serving import ServiceConfig, setup_service
 
 

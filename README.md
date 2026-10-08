@@ -17,6 +17,24 @@ and [real issuance exercise](scripts/protocol/README.md) for scope and setup.
 The [operations runbook](docs/association-operations.md) covers clean qualification,
 replacement, revocation, recovery, and compromise.
 
+## Code organization
+
+- `receiving/` owns HTTP routes, native KERI parsing/escrow scheduling, and
+  accepted Grant ingestion. It creates durable work without deciding validity.
+- `verification/` owns credential evidence, EOA proof/account checks, and the
+  coordinator that retries work and persists verification results. Its worker
+  uses HIO for Ethereum observations; schema resources live here too.
+- `endorsement/` owns action selection, contract effects, and durable transaction
+  reconciliation. It reuses verification checks before effects and owns ABI resources.
+- `basing.py` owns application persistence; `rpc.py` provides the shared yielding
+  request helper. Neither imports the workflows that use it.
+- `serving.py` composes the native stores, clients, and doers. `commands/` contains
+  CLI adapters, including the local deployment-log parser.
+
+Endorsement may call verification; verification does not call endorsement.
+Receiving and verification coordinate through durable operations. Service
+composition connects the packages, while each doer keeps its resource ownership.
+
 ## Install
 
 Use a fresh Python 3.12.6+ environment: GLEIF packages own the `keri` and `hio`
