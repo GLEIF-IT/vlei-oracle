@@ -25,6 +25,7 @@ from uuid import uuid4
 from ceremony import association_from_challenge, write_credential
 from transport_fixture import PresentationDoer
 from relationship_fixture import qualify_relationships
+from replacement_fixture import qualify_replacement
 from process_fixture import (
     authorize_writer, qualify_after_submission, qualify_before_submission,
     qualify_verification,
@@ -592,6 +593,14 @@ def exercise(schema_dir: Path, *, keep: bool = False, comply: Path | None = None
                     target_saids=target_saids, workflow=workflow,
                 )
                 doers.extend(children)
+                associations["beneficiary"], propagation["supersessionSeconds"] = yield from qualify_replacement(
+                    le=le, rgy=le_rgy, registry=registries["le"], issuer=issuers["le"],
+                    le_said=le_credential.said, previous=associations["beneficiary"],
+                    key="0x" + "0" * 63 + "2", runtime=runtime, port=oracle_port,
+                    effects=fixture_effects, workflow=workflow, artifacts=artifacts,
+                    ledger=Path(le_rgy.reger.path) / "association-nonces.sqlite3",
+                )
+                target_saids[1] = associations["beneficiary"].said
 
                 old = associations["valid"]
                 while runtime.baser.get_operation(old.said).state != "withdrawn":
@@ -789,6 +798,22 @@ def exercise(schema_dir: Path, *, keep: bool = False, comply: Path | None = None
             # 12. Revoke LE through Registrar, then present a previously withheld child.
             yield from revoke_credential(issuers["qvi"], registries["qvi"], le_credential)
             revocation_started = monotonic()
+            source_stream = replay(qvi, qvi_rgy, registries["qvi"], le_credential)
+            revocation_targets = []
+            if comply is not None and process_check:
+                revocation_targets.extend([
+                    (process_config.http_port, process_aid, process_creder.said),
+                    (broadcast_config.http_port, broadcast_aid, broadcast_creder.said),
+                ])
+            if two_chain_check:
+                revocation_targets.append((second_oracle_port, second_runtime.hab.pre,
+                                           associations["wrong_chain"].said))
+            # Every receiver owns its HTTP doer; deliver observed revocation
+            # concurrently rather than making later receivers wait for earlier ones.
+            revocation_checks = [PresentationDoer(port=port, recipient=aid,
+                                                 stream=source_stream, said=said, expected="withdrawn")
+                                 for port, aid, said in revocation_targets]
+            workflow.extend(revocation_checks)
             withheld = associations["withheld"]
             check = PresentationDoer(
                 port=oracle_port,
@@ -803,6 +828,10 @@ def exercise(schema_dir: Path, *, keep: bool = False, comply: Path | None = None
             while not check.done:
                 yield 0.01
             workflow.remove([check])
+            while any(not delivery.done for delivery in revocation_checks):
+                assert monotonic() - revocation_started < 30, "source fanout exceeded local 30s bound"
+                yield 0.01
+            workflow.remove(revocation_checks)
             assert not check.result["verified"] and not check.result["txHashes"], (
                 check.result
             )
@@ -823,6 +852,11 @@ def exercise(schema_dir: Path, *, keep: bool = False, comply: Path | None = None
                 while any(runtime.baser.get_operation(said).state != "withdrawn" for said in target_saids):
                     assert monotonic() - revocation_started < 30, "source withdrawal exceeded local 30s bound"
                     yield 0.01
+                # All independent receivers and the local service have now
+                # confirmed withdrawal. Later balance/query checks do not add
+                # propagation latency; they independently validate the effects.
+                propagation["sourceRevocationSeconds"] = round(monotonic() - revocation_started, 3)
+                assert propagation["sourceRevocationSeconds"] < 30, propagation
                 for wallet in (account.address, beneficiary.address):
                     _, endorsement = yield from fixture_effects.observe(wallet)
                     assert endorsement == ("0x" + "00" * 32, "")
@@ -831,46 +865,14 @@ def exercise(schema_dir: Path, *, keep: bool = False, comply: Path | None = None
                 assert (yield from read(fixture_effects, token, "balanceOf", [beneficiary.address])) == (1000000,)
                 print("Observed source revocation withdraws endorsements and rejects transfer", flush=True)
                 if process_check:
-                    check = PresentationDoer(
-                        port=process_config.http_port, recipient=process_aid,
-                        stream=replay(qvi, qvi_rgy, registries["qvi"], le_credential),
-                        said=process_creder.said, expected="withdrawn",
-                    )
-                    workflow.extend([check])
-                    while not check.done:
-                        yield 0.01
-                    workflow.remove([check])
-                    _, endorsement = yield from fixture_effects.observe(posted_result["verified"]["wallet"])
-                    assert endorsement == ("0x" + "00" * 32, "")
-                    check = PresentationDoer(
-                        port=broadcast_config.http_port, recipient=broadcast_aid,
-                        stream=replay(qvi, qvi_rgy, registries["qvi"], le_credential),
-                        said=broadcast_creder.said, expected="withdrawn",
-                    )
-                    workflow.extend([check])
-                    while not check.done:
-                        yield 0.01
-                    workflow.remove([check])
-                    _, endorsement = yield from fixture_effects.observe(broadcast_result["verified"]["wallet"])
-                    assert endorsement == ("0x" + "00" * 32, "")
+                    for result in (posted_result, broadcast_result):
+                        _, endorsement = yield from fixture_effects.observe(result["verified"]["wallet"])
+                        assert endorsement == ("0x" + "00" * 32, "")
                     print("Independent posting process propagates observed source revocation", flush=True)
-
             if two_chain_check:
-                check = PresentationDoer(
-                    port=second_oracle_port, recipient=second_runtime.hab.pre,
-                    stream=replay(qvi, qvi_rgy, registries["qvi"], le_credential),
-                    said=associations["wrong_chain"].said, expected="withdrawn",
-                )
-                workflow.extend([check])
-                while not check.done:
-                    yield 0.01
-                workflow.remove([check])
                 assert (yield from second_effects.observe(account.address))[1] == ("0x" + "00" * 32, "")
                 print("Both chains propagate observed source revocation independently", flush=True)
 
-            if comply is not None:
-                propagation["sourceRevocationSeconds"] = round(monotonic() - revocation_started, 3)
-                assert propagation["sourceRevocationSeconds"] < 30, propagation
             # Commit success only after all assertions; a later timeout must fail.
             final_operations.extend([{"associationSaid": op.associationSaid, "state": op.state,
                                       "txHashes": op.txHashes, "failureReason": op.failureReason}
@@ -880,7 +882,7 @@ def exercise(schema_dir: Path, *, keep: bool = False, comply: Path | None = None
             return True
 
         workflow = doing.DoDoer(doers=[*doers, doing.doify(run)])
-        doing.Doist(real=True, tock=0.01, limit=240.0 if comply else 120.0).do(doers=[workflow])
+        doing.Doist(real=True, tock=0.01, limit=360.0 if comply else 120.0).do(doers=[workflow])
         assert outcome, "Issuance/HTTP exercise exceeded its time limit"
         print(
             json.dumps(
