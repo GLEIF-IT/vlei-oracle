@@ -75,6 +75,21 @@ def association_from_challenge(challenge, signature, registry):
     )
 
 
+def consume_nonce(nonce_store, *, issuer, nonce, association_said):
+    """Commit exact issuer-scoped consumption before credential publication."""
+    with sqlite3.connect(nonce_store, timeout=0.0) as ledger:
+        ledger.execute(
+            "CREATE TABLE IF NOT EXISTS consumed (issuer TEXT, nonce TEXT, association TEXT, PRIMARY KEY (issuer, nonce))"
+        )
+        try:
+            ledger.execute(
+                "INSERT INTO consumed VALUES (?, ?, ?)",
+                (issuer, nonce, association_said),
+            )
+        except sqlite3.IntegrityError as exc:
+            raise ValueError("nonce already consumed by this issuer") from exc
+
+
 def write_credential(*, challenge, signature, registry, nonce_store, output):
     """Verify the proof, consume the issuer's exact nonce, then expose the ACDC.
 
@@ -89,17 +104,8 @@ def write_credential(*, challenge, signature, registry, nonce_store, output):
     # Exclusive creation avoids overwriting an operator's existing artifact.
     with output.open("xb") as stream:
         try:
-            with sqlite3.connect(nonce_store, timeout=0.0) as ledger:
-                ledger.execute(
-                    "CREATE TABLE IF NOT EXISTS consumed (issuer TEXT, nonce TEXT, association TEXT, PRIMARY KEY (issuer, nonce))"
-                )
-                try:
-                    ledger.execute(
-                        "INSERT INTO consumed VALUES (?, ?, ?)",
-                        (creder.issuer, creder.sad["u"], creder.said),
-                    )
-                except sqlite3.IntegrityError as exc:
-                    raise ValueError("nonce already consumed by this issuer") from exc
+            consume_nonce(nonce_store, issuer=creder.issuer,
+                          nonce=creder.sad["u"], association_said=creder.said)
             # Consumption is committed before another process can read usable bytes.
             stream.write(creder.raw)
             stream.flush()
