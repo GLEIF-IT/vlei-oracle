@@ -64,13 +64,43 @@ def send(effects, target, function, args, key):
     price = yield from effects.request("eth_gasPrice", [])
     gas = yield from effects.request("eth_estimateGas", [tx])
     tx.update(nonce=int(nonce, 16), gasPrice=int(price, 16),
-              gas=int(gas, 16) + 10000, chainId=31337)
+              gas=int(gas, 16) + 10000, chainId=effects.chain_id)
     signed = account.sign_transaction(tx)
     tx_hash = Web3.to_hex(signed.hash)
     yield from effects.submit(Web3.to_hex(signed.raw_transaction), tx_hash)
     while (receipt := (yield from effects.receipt(tx_hash))) is None:
         yield 0.01
     assert receipt["status"] == "0x1", receipt
+    return receipt
+
+
+def delegate_account(effects, *, authority_key, target):
+    """Execute a real EIP-7702 authorization transaction on the local chain."""
+    authority, payer = Account.from_key(authority_key), Account.from_key(DEPLOYER_KEY)
+    authority_nonce = yield from effects.request("eth_getTransactionCount", [authority.address, "latest"])
+    payer_nonce = yield from effects.request("eth_getTransactionCount", [payer.address, "pending"])
+    price = int((yield from effects.request("eth_gasPrice", [])), 16)
+    # Different payer: authorization uses the authority's current nonce, not +1.
+    authorization = authority.sign_authorization({
+        "chainId": effects.chain_id, "address": target.address,
+        "nonce": int(authority_nonce, 16),
+    })
+    signed = payer.sign_transaction({
+        "type": 4, "chainId": effects.chain_id, "nonce": int(payer_nonce, 16),
+        "to": payer.address, "value": 0, "gas": 100000,
+        "maxFeePerGas": max(2000000000, price * 2), "maxPriorityFeePerGas": 1000000000,
+        "authorizationList": [authorization],
+    })
+    tx_hash = Web3.to_hex(signed.hash)
+    yield from effects.submit(Web3.to_hex(signed.raw_transaction), tx_hash)
+    while (receipt := (yield from effects.receipt(tx_hash))) is None:
+        yield 0.01
+    assert receipt["status"] == "0x1", receipt
+    transaction = yield from effects.request("eth_getTransactionByHash", [tx_hash])
+    assert transaction["type"] == "0x4"
+    code = yield from effects.request("eth_getCode", [authority.address, "latest"])
+    assert code == "0xef0100" + target.address[2:].lower(), code
+    print(f"Actual signed EIP-7702 authorization installed delegation: {tx_hash}", flush=True)
     return receipt
 
 
@@ -101,6 +131,7 @@ def qualify_transfers(*, comply, rpc_url, artifacts, runtime, trusted_geda,
     role = fixture_effects.web3.keccak(text="COMPLIANCE_ADMIN_ROLE")
     yield from send(fixture_effects, admin, "grantRole", [role, poster_address], DEPLOYER_KEY)
     yield from send(fixture_effects, token, "mint", [account.address, 100000000], DEPLOYER_KEY)
+    yield from delegate_account(fixture_effects, authority_key=sender_key, target=token)
     yield from send(fixture_effects, token, "approve", [wrapper.address, 100000000], sender_key)
     assert (yield from read(fixture_effects, wrapper, "transfer", [recipient, 1000000], sender=account.address)) == (False,)
     yield from send(fixture_effects, wrapper, "transfer", [recipient, 1000000], sender_key)
@@ -115,6 +146,9 @@ def qualify_transfers(*, comply, rpc_url, artifacts, runtime, trusted_geda,
     children.append(posting)
     while any(runtime.baser.get_operation(said).state != "endorsed" for said in target_saids):
         yield 0.01
+    assert runtime.baser.get_operation(target_saids[0]).verified["observation"]["code"] == (
+        "0xef0100" + token.address[2:].lower()
+    )
     _, endorsement = yield from fixture_effects.observe(account.address)
     assert endorsement[1] == target_saids[0]
     yield from send(fixture_effects, wrapper, "transfer", [recipient, 1000000], sender_key)
