@@ -26,8 +26,11 @@ class PresentationDoer(doing.DoDoer):
     def run(self, tymth, tock=0.0, **opts):
         """Send all messages, consume their responses, then poll with fresh headers."""
         yield tock
-        count = httping.streamCESRRequests(
-            self.client, bytearray(self.stream), self.recipient
+        # Native streamCESRRequests requires at least one frame. Restart checks
+        # intentionally poll existing work without presenting another Grant.
+        count = (
+            httping.streamCESRRequests(self.client, bytearray(self.stream), self.recipient)
+            if self.stream else 0
         )
         for _ in range(count):
             while not self.client.responses:

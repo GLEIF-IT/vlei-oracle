@@ -84,9 +84,15 @@ outcomes; a successful receipt alone does not establish policy acceptance.
 No global wallet admission is used. Fixture token/admin calls run in test-side
 helpers; all service network waits remain native HIO requests.
 
+Add `--process-check` to crash/restart actual oracle CLI processes while source
+evidence is missing and while an RPC check is interrupted. The same native
+stores and AID recover verification without another Grant. Each run prints its
+fresh persistent process-test namespace before starting; those test stores are
+retained for inspection, including when an assertion fails.
+
 The contract tests also exercise saved-hash recovery, explicit same-nonce
 cancellation, reorg reconciliation with the same signed identity, and wrong-chain
-refusal. These are distinct from independent-process restart and two-chain
+refusal. These are distinct from posting-process restart and two-chain
 qualification, which remain additional gates. `anvil_setCode` account cases still
 classify code; they do not claim a signed EIP-7702 authorization transaction.
 
