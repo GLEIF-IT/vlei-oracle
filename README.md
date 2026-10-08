@@ -14,6 +14,8 @@ This prototype verifies associations and maintains their contract endorsements.
 An on-chain consumer trusts the oracle's
 result; it does not perform vLEI verification. See the [protocol](protocol/external-association-v1/README.md)
 and [real issuance exercise](scripts/protocol/README.md) for scope and setup.
+The [operations runbook](docs/association-operations.md) covers clean qualification,
+replacement, revocation, recovery, and compromise.
 
 ## Install
 

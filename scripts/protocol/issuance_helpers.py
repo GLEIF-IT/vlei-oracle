@@ -50,6 +50,14 @@ def issue_credential(issuer, registry, creder):
         yield 0.01
 
 
+def revoke_credential(issuer, registry, creder):
+    """Anchor native revocation and wait for witnessed Registrar completion."""
+    revocation = registry.revoke(said=creder.said)
+    issuer.registrar.revoke(creder, revocation, anchor(registry.hab, revocation))
+    while not issuer.registrar.complete(creder.said, sn=revocation.sn):
+        yield 0.01
+
+
 def receive(hby, rgy, stream) -> None:
     """Give an issuer supporting KERI evidence through the standard parser.
 

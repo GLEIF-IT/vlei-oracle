@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+from time import monotonic
 
 from eth_account import Account
 from web3 import Web3
@@ -142,10 +143,13 @@ def qualify_transfers(*, comply, rpc_url, artifacts, runtime, trusted_geda,
         association_schema=schema_said, effects=effects, private_key=POSTER_KEY,
         interval=0.05,
     )
+    started = monotonic()
     workflow.extend([posting])
     children.append(posting)
     while any(runtime.baser.get_operation(said).state != "endorsed" for said in target_saids):
+        assert monotonic() - started < 30, "replacement/initial posting exceeded local 30s bound"
         yield 0.01
+    print(f"Local replacement/initial posting completed in {monotonic() - started:.3f}s (bound 30s)", flush=True)
     assert runtime.baser.get_operation(target_saids[0]).verified["observation"]["code"] == (
         "0xef0100" + token.address[2:].lower()
     )
