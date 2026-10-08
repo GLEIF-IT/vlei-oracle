@@ -10,8 +10,8 @@ untargeted association. The association holds the exact nonce in `u`, follows
 its LE credential edge for entity identity, and embeds the external proof under
 its SAID. There is no OOR approval or intrinsic expiry.
 
-This prototype currently exposes verification. Contract endorsement and durable
-posting are separate responsibilities. An on-chain consumer trusts the oracle's
+This prototype verifies associations and maintains their contract endorsements.
+An on-chain consumer trusts the oracle's
 result; it does not perform vLEI verification. See the [protocol](protocol/external-association-v1/README.md)
 and [real issuance exercise](scripts/protocol/README.md) for scope and setup.
 
