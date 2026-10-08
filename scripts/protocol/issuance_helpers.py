@@ -82,14 +82,15 @@ def rules(schema) -> dict:
 
 
 def grant(
-    hab, rgy, creder, recipient, *, include_issuance=True, include_anchor=True
+    hab, rgy, creder, recipient, *, include_issuance=True, include_anchor=True,
+    acdc=None,
 ) -> bytes:
     """Create the ACDC, issuance, and anchor embeds used by ``kli ipex grant``.
 
     Source credentials travel separately, allowing a complete Grant to arrive
     before the evidence needed to verify its LE edge.
     """
-    acdc = signing.serialize(*rgy.reger.cloneCred(creder.said))
+    acdc = signing.serialize(*rgy.reger.cloneCred(creder.said)) if acdc is None else acdc
     iss = rgy.reger.cloneTvtAt(creder.said)
     issuance = serdering.SerderKERI(raw=iss)
     sealing_event = hab.db.fetchLastSealingEventByEventSeal(

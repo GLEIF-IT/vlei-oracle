@@ -23,6 +23,7 @@ from uuid import uuid4
 
 from ceremony import association_from_challenge, write_credential
 from transport_fixture import PresentationDoer
+from relationship_fixture import qualify_relationships
 from process_fixture import (
     authorize_writer, qualify_after_submission, qualify_before_submission,
     qualify_verification,
@@ -541,6 +542,12 @@ def exercise(schema_dir: Path, *, keep: bool = False, comply: Path | None = None
                 if expected == "failed":
                     assert not check.result["verified"], check.result
             print("Signer, chain, contract, and EIP-7702 cases passed", flush=True)
+            yield from qualify_relationships(
+                actors=actors, issuers=issuers, registries=registries, credentials=credentials,
+                schemas=by_said, streams=streams, runtime=runtime,
+                oracle_port=oracle_port, workflow=workflow, stack=stack,
+                base=base, temp=temp, witness=witness, witness_url=witness_url,
+            )
             if process_check:
                 process_creder = associations["process"]
                 process_config = ServiceConfig(
