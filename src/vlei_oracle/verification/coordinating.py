@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from hio.base import doing
 from keri import kering
-from keri.core import serdering
-from keri.peer import exchanging
 
 from vlei_oracle.basing import (
     STATE_AWAITING_ARTIFACTS,
@@ -15,7 +13,7 @@ from vlei_oracle.basing import (
     OperationRecord,
     OracleBaser,
 )
-from vlei_oracle.verification.credentials import verify_association
+from vlei_oracle.verification.credentials import grant_candidate, verify_association
 from vlei_oracle.verification.errors import MissingCredentialArtifactsError, VerificationError
 
 
@@ -121,14 +119,7 @@ class PresentationVerifierDoer(doing.DoDoer):
             # KERIpy may discard an invalid child before logging its bytes.
             # The accepted Grant already owns the immutable candidate; use
             # it for rejection, never as a substitute for KERI acceptance.
-            exn = None
-            if op.grantSaid:
-                exn, _ = exchanging.cloneMessage(self.rgy.hby, said=op.grantSaid)
-            candidate = (
-                serdering.SerderACDC(sad=exn.ked["e"]["acdc"])
-                if exn is not None
-                else None
-            )
+            candidate = grant_candidate(self.rgy, op.grantSaid)
             association = verify_association(
                 rgy=self.rgy,
                 said=op.associationSaid,
