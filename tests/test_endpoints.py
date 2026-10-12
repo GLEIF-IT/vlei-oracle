@@ -4,7 +4,7 @@ import falcon
 import pytest
 from falcon import testing
 
-from vlei_oracle.basing import OracleBaser
+from vlei_oracle.basing import OracleBaser, VerificationWork
 from vlei_oracle.verification.constants import ASSOCIATION_SCHEMA
 from vlei_oracle.receiving.endpoints import load_ends
 
@@ -24,10 +24,7 @@ def test_status_and_health_read_durable_association_work(service):
     baser, client = service
     op = baser.start_verification(
         association_said="association",
-        grant_said="grant",
-        grant_sender="issuer",
-        association_schema=ASSOCIATION_SCHEMA,
-    )
+        grant_said="grant")
     assert client.simulate_get("/presentations/association").json == baser.presentation_status(op.associationSaid)
     assert client.simulate_get("/health").json["verification"] == {"verifying": 1}
     assert client.simulate_get("/presentations/missing").status_code == 404
@@ -45,9 +42,8 @@ def test_signature_attachment_route_is_absent(service):
 
 def test_management_does_not_overwrite_verification_status(service):
     baser, client = service
-    work = baser.start_verification(association_said="association", grant_said="grant",
-                                    grant_sender="issuer", association_schema=ASSOCIATION_SCHEMA)
-    baser.complete_verification(work, {"wallet": "test"})
+    work = baser.start_verification(association_said="association", grant_said="grant")
+    baser.complete_verification(work)
     member = baser.get_managed("association")
     member.state = "withdrawn"
     baser.pin_managed(member)
@@ -55,5 +51,5 @@ def test_management_does_not_overwrite_verification_status(service):
     assert status["verificationState"] == "verified"
     assert status["state"] == "withdrawn" and status["managed"]
     assert client.simulate_get("/health").json == {
-        "ok": True, "verification": {"verified": 1}, "management": {"withdrawn": 1},
+        "ok": True, "verification": {}, "management": {"withdrawn": 1},
     }

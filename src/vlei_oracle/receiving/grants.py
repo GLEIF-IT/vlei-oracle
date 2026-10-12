@@ -68,7 +68,7 @@ class GrantNotificationDoer(doing.Doer):
             else:
                 self.notifier.noter.notes.rem(keys=keys)
 
-    def process_grant_notice(self, attrs: dict[str, Any]) -> VerificationWork:
+    def process_grant_notice(self, attrs: dict[str, Any]) -> VerificationWork | None:
         """Parse one IPEX Grant notice and create or fail its operation.
 
         Embedded ``anc``, ``iss``, and ``acdc`` artifacts are replayed into the
@@ -107,8 +107,6 @@ class GrantNotificationDoer(doing.Doer):
             op = self.baser.start_verification(
                 association_said=association_said,
                 grant_said=grant_said,
-                grant_sender=exn.ked["i"],
-                association_schema=association_schema,
             )
             return self.baser.mark_failed(
                 op,
@@ -118,7 +116,5 @@ class GrantNotificationDoer(doing.Doer):
         op = self.baser.start_verification(
             association_said=association_said,
             grant_said=grant_said,
-            grant_sender=exn.ked["i"],
-            association_schema=association_schema,
         )
         return op

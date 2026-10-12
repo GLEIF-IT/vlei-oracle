@@ -136,8 +136,6 @@ class EndorsementDoer(doing.DoDoer):
                 return False, "superseded by newer verified association"
             if cue["verified"]["observation"]["chainId"] != self.effects.chain_id:
                 raise MissingCredentialArtifactsError("profile observation is on another chain")
-            op.verified = cue["verified"]
-            self.baser.pin_managed(op)
             return True, ""
         except (VerificationError, kering.ValidationError) as exc:
             return False, str(exc)

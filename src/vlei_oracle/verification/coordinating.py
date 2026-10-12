@@ -76,7 +76,6 @@ class PresentationVerifierDoer(doing.DoDoer):
                 continue
             if cue["kin"] == "retry":
                 op.failureReason = cue["error"]
-                op.retryCount += 1
                 self.baser.pin_verification(op)
                 self.retry_at[said] = self.tyme + self.retry_delay
             elif cue["kin"] == "failed":
@@ -95,7 +94,7 @@ class PresentationVerifierDoer(doing.DoDoer):
                 except VerificationError as exc:
                     self.baser.mark_failed(op, str(exc))
                 else:
-                    self.baser.complete_verification(op, cue["verified"])
+                    self.baser.complete_verification(op)
 
     def process_ready(self) -> None:
         """Retry operations ready for verification or waiting for KERI artifacts."""

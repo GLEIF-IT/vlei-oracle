@@ -126,8 +126,7 @@ def qualify_verification(*, config, stack, artifacts, workflow, partial,
     while not interrupted.done:
         yield 0.01
     workflow.remove([interrupted])
-    assert interrupted.result["createdAt"] == first.result["createdAt"]
-    assert not interrupted.result["verified"]
+    assert not interrupted.result["managed"]
     yield from crash(process)
     config = replace(config, rpc_url=working_rpc)
     process, reopened_aid = yield from start(config, stack=stack, artifacts=artifacts, workflow=workflow)
@@ -140,8 +139,7 @@ def qualify_verification(*, config, stack, artifacts, workflow, partial,
     while not recovered.done:
         yield 0.01
     workflow.remove([recovered])
-    assert recovered.result["createdAt"] == first.result["createdAt"]
-    assert recovered.result["verified"]["associationSaid"] == association_said
+    assert recovered.result["associationSaid"] == association_said and recovered.result["managed"]
     yield from crash(process)
     print("Independent oracle processes recover missing evidence and interrupted RPC without a new Grant", flush=True)
     return config, aid, recovered.result

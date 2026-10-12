@@ -65,7 +65,13 @@ registry's compliance-admin role. Keep this writer's nonce stream exclusive.
 
 Poll `/presentations/<SAID>`. `verificationState` records off-chain verification. Successful verification atomically
 creates explicit managed membership; `state` then reports continuing reconciliation.
-Verification-only mode stops with managed state `verified`;
+Verification-only mode stops with managed state `verified`; successful
+verification removes its unfinished work record. Status includes no saved wallet
+binding, account observation, copied Grant metadata, retry counts, or timestamps.
+Native credentials supply identity even after revocation. Current KERI/TEL and
+canonical-block account checks are reconstructed for every posting decision;
+RPC failure stays pending. Status reads only local work and management state;
+it does not make network requests to reconstruct evidence.
 `endorsed` requires canonical confirmed contract effects. The default is two
 confirmations and a one-second posting interval. Missing evidence or RPC failure
 stays pending. Inspect verification and management failure reasons and the durable signed transaction

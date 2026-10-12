@@ -2,12 +2,12 @@
 
 import pytest
 
-from vlei_oracle.basing import OracleBaser
+from vlei_oracle.basing import OracleBaser, VerificationWork
 from vlei_oracle.verification.constants import ASSOCIATION_SCHEMA
 
 
 @pytest.mark.parametrize(
-    "state", ["verifying", "awaiting_artifacts", "verified", "failed"]
+    "state", ["verifying", "awaiting_artifacts", "failed"]
 )
 def test_duplicate_grant_preserves_durable_progress(state, tmp_path):
     baser = OracleBaser(
@@ -16,19 +16,13 @@ def test_duplicate_grant_preserves_durable_progress(state, tmp_path):
     try:
         op = baser.start_verification(
             association_said="association",
-            grant_said="first",
-            grant_sender="issuer",
-            association_schema=ASSOCIATION_SCHEMA,
-        )
+            grant_said="first")
         op.state = state
         op.failureReason = "existing evidence"
         baser.pin_verification(op)
         duplicate = baser.start_verification(
             association_said="association",
-            grant_said="duplicate",
-            grant_sender="issuer",
-            association_schema=ASSOCIATION_SCHEMA,
-        )
+            grant_said="duplicate")
         assert duplicate.state == state
         assert duplicate.grantSaid == "first"
         assert duplicate.failureReason == "existing evidence"
@@ -86,18 +80,17 @@ def test_verification_handoff_survives_process_crash(tmp_path, interruption):
     import sys
 
     store = OracleBaser(name="handoff", headDirPath=str(tmp_path))
-    store.start_verification(association_said="association", grant_said="grant",
-                             grant_sender="issuer", association_schema=ASSOCIATION_SCHEMA)
+    store.start_verification(association_said="association", grant_said="grant")
     store.close()
     script = """
 import os, sys
 from vlei_oracle.basing import OracleBaser
 store = OracleBaser(name="handoff", headDirPath=sys.argv[1])
 if sys.argv[2] == "during_commit":
-    # Crash after verification is written inside the native transaction,
+    # Crash after verification is removed inside the native transaction,
     # before membership serialization. No committed half-handoff is allowed.
     store.managed.serializer = lambda value: os._exit(17)
-store.complete_verification(store.get_verification("association"), {"wallet": "test"})
+store.complete_verification(store.get_verification("association"))
 os._exit(17)
 """
     result = subprocess.run([sys.executable, "-c", script, str(tmp_path), interruption])
@@ -108,17 +101,16 @@ os._exit(17)
         if interruption == "during_commit":
             assert work.state == "verifying"
             assert store.get_managed("association") is None
-            store.complete_verification(work, {"wallet": "test"})
+            store.complete_verification(work)
         else:
-            assert work.state == "verified"
-            assert store.get_managed("association").verified == {"wallet": "test"}
+            assert work is None
+            assert store.get_managed("association") is not None
         member = store.get_managed("association")
         member.state = "withdrawn"
         store.pin_managed(member)
         # Repeated completion and reordered Grants cannot revive withdrawn work.
-        store.complete_verification(store.get_verification("association"), {"wallet": "other"})
-        store.start_verification(association_said="association", grant_said="reordered",
-                                 grant_sender="issuer", association_schema=ASSOCIATION_SCHEMA)
+        store.complete_verification(work if work is not None else VerificationWork(associationSaid="association"))
+        store.start_verification(association_said="association", grant_said="reordered")
         assert store.get_managed("association") == member
     finally:
         store.close(clear=True)
@@ -127,11 +119,10 @@ os._exit(17)
 def test_failed_verification_cannot_enroll(tmp_path):
     store = OracleBaser(name="rejected", headDirPath=str(tmp_path))
     try:
-        work = store.start_verification(association_said="association", grant_said="grant",
-                                        grant_sender="issuer", association_schema=ASSOCIATION_SCHEMA)
+        work = store.start_verification(association_said="association", grant_said="grant")
         store.mark_failed(work, "invalid proof")
         with pytest.raises(ValueError, match="unfinished verification"):
-            store.complete_verification(work, {"wallet": "test"})
+            store.complete_verification(work)
         assert store.get_managed("association") is None
     finally:
         store.close(clear=True)
