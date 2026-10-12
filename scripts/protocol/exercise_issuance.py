@@ -603,7 +603,7 @@ def exercise(schema_dir: Path, *, keep: bool = False, comply: Path | None = None
                 target_saids[1] = associations["beneficiary"].said
 
                 old = associations["valid"]
-                while runtime.baser.get_operation(old.said).state != "withdrawn":
+                while runtime.baser.get_managed(old.said).state != "withdrawn":
                     yield 0.01
                 check = PresentationDoer(
                     port=oracle_port, recipient=runtime.hab.pre,
@@ -623,11 +623,11 @@ def exercise(schema_dir: Path, *, keep: bool = False, comply: Path | None = None
                 # the already published later association older than this one.
                 posting = children[-1]
                 current_said = endorsement[1]
-                current_op = runtime.baser.get_operation(current_said)
+                current_op = runtime.baser.get_managed(current_said)
                 current_creder = runtime.rgy.reger.creds.get(keys=(current_said,))
-                runtime.baser.ops.rem(keys=(current_said,))
+                runtime.baser.managed.rem(keys=(current_said,))
                 try:
-                    old_op = runtime.baser.get_operation(old.said)
+                    old_op = runtime.baser.get_managed(old.said)
                     assert posting.desired(old_op)
                     assert posting.chain_order(old_op, endorsement)[0] is False
                     runtime.rgy.reger.creds.rem(keys=(current_said,))
@@ -641,7 +641,7 @@ def exercise(schema_dir: Path, *, keep: bool = False, comply: Path | None = None
                     finally:
                         runtime.rgy.reger.creds.pin(keys=(current_said,), val=current_creder)
                 finally:
-                    runtime.baser.pin_operation(current_op)
+                    runtime.baser.pin_managed(current_op)
                 # Controlled worker-result boundary over the real native stores:
                 # newer work arriving during RPC must invalidate the old dispatch.
                 checker = EndorsementDoer(
@@ -654,12 +654,12 @@ def exercise(schema_dir: Path, *, keep: bool = False, comply: Path | None = None
                         identity=fixture_effects.contracts["identity"].address,
                     ),
                 )
-                runtime.baser.ops.rem(keys=(current_said,))
+                runtime.baser.managed.rem(keys=(current_said,))
                 pending = checker.evidence(old_op)
                 try:
                     next(pending)
                     assert checker.eoa.msgs
-                    runtime.baser.pin_operation(current_op)
+                    runtime.baser.pin_managed(current_op)
                     checker.eoa.cues.append({
                         "said": old.said, "kin": "verified", "verified": old_op.verified,
                     })
@@ -671,7 +671,7 @@ def exercise(schema_dir: Path, *, keep: bool = False, comply: Path | None = None
                         raise AssertionError("Superseded dispatch survived its RPC boundary")
                 finally:
                     pending.close()
-                    runtime.baser.pin_operation(current_op)
+                    runtime.baser.pin_managed(current_op)
                 print("On-chain issuance evidence blocks stale updates without local history", flush=True)
                 print("Unendorsed same-entity wallet and reordered old Grant cannot bypass policy", flush=True)
                 if process_check:
@@ -856,7 +856,7 @@ def exercise(schema_dir: Path, *, keep: bool = False, comply: Path | None = None
                                       trusted_geda_aid=geda.pre).outcome == "invalid"
             print("Revoked LE blocks new acceptance and fresh verification", flush=True)
             if comply is not None:
-                while any(runtime.baser.get_operation(said).state != "withdrawn" for said in target_saids):
+                while any(runtime.baser.get_managed(said).state != "withdrawn" for said in target_saids):
                     assert monotonic() - revocation_started < 30, "source withdrawal exceeded local 30s bound"
                     yield 0.01
                 # All independent receivers and the local service have now
@@ -883,7 +883,7 @@ def exercise(schema_dir: Path, *, keep: bool = False, comply: Path | None = None
             # Commit success only after all assertions; a later timeout must fail.
             final_operations.extend([{"associationSaid": op.associationSaid, "state": op.state,
                                       "txHashes": op.txHashes, "failureReason": op.failureReason}
-                                     for _, op in runtime.baser.ops.getItemIter()])
+                                     for _, op in runtime.baser.managed.getItemIter()])
             outcome.update(verified)
             workflow.remove(doers)
             return True

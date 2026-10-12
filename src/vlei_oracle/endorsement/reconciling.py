@@ -52,7 +52,7 @@ class EndorsementDoer(doing.DoDoer):
     def binding(self, op):
         return reconstruct_binding(
             rgy=self.rgy, said=op.associationSaid,
-            schema_said=self.association_schema, grant_said=op.grantSaid,
+            schema_said=self.association_schema, grant_said="",
         )
 
     def desired(self, op):
@@ -63,8 +63,8 @@ class EndorsementDoer(doing.DoDoer):
         lexical SAID order is not an authorization rule.
         """
         positions = []
-        for _, candidate in self.baser.ops.getItemIter():
-            if candidate.verified and self.binding(candidate)["wallet"] == self.binding(op)["wallet"]:
+        for _, candidate in self.baser.managed.getItemIter():
+            if self.binding(candidate)["wallet"] == self.binding(op)["wallet"]:
                 issuer, sn = issuance_position(self.rgy, candidate.associationSaid)
                 positions.append((issuer, sn, candidate.associationSaid))
         if len({issuer for issuer, _, _ in positions}) != 1:
@@ -137,7 +137,7 @@ class EndorsementDoer(doing.DoDoer):
             if cue["verified"]["observation"]["chainId"] != self.effects.chain_id:
                 raise MissingCredentialArtifactsError("profile observation is on another chain")
             op.verified = cue["verified"]
-            self.baser.pin_operation(op)
+            self.baser.pin_managed(op)
             return True, ""
         except (VerificationError, kering.ValidationError) as exc:
             return False, str(exc)
@@ -150,7 +150,7 @@ class EndorsementDoer(doing.DoDoer):
     def reconcile(self, intent):
         """Recover submission/receipt progress without allocating another nonce."""
         kin, tx_hash, receipt = yield from self.effects.reconcile(intent)
-        op = self.baser.get_operation(intent.associationSaid)
+        op = self.baser.get_managed(intent.associationSaid)
         if kin == "receipt":
             intent.receiptHash = receipt["blockHash"]
             intent.receiptNumber = int(receipt["blockNumber"], 16)
@@ -159,7 +159,7 @@ class EndorsementDoer(doing.DoDoer):
                 intent.failureReason = "" if int(receipt["status"], 16) else "transaction reverted"
                 if tx_hash not in op.txHashes:
                     op.txHashes.append(tx_hash)
-                    self.baser.pin_operation(op)
+                    self.baser.pin_managed(op)
             self.baser.pin_transaction(intent)
             return
         if intent.receiptHash:
@@ -169,7 +169,7 @@ class EndorsementDoer(doing.DoDoer):
             intent.failureReason = "writer nonce consumed without this transaction; operator reconciliation required"
             self.baser.pin_transaction(intent)
             op.failureReason = intent.failureReason
-            self.baser.pin_operation(op)
+            self.baser.pin_managed(op)
             return
         if intent.cancelHash:
             if kin == "absent":
@@ -213,7 +213,7 @@ class EndorsementDoer(doing.DoDoer):
             state = STATE_ENDORSED if valid else STATE_WITHDRAWN
             if op.state != state or op.failureReason != reason:
                 op.state, op.failureReason = state, reason
-                self.baser.pin_operation(op)
+                self.baser.pin_managed(op)
             return
         transaction = yield from self.effects.prepare(action)
         # Transaction preparation yields. Evidence must still hold afterwards.
@@ -240,7 +240,7 @@ class EndorsementDoer(doing.DoDoer):
                 if intent is not None:
                     yield from self.reconcile(intent)
                 else:
-                    candidates = [op for _, op in self.baser.ops.getItemIter() if op.verified]
+                    candidates = [op for _, op in self.baser.managed.getItemIter()]
                     if candidates:
                         op = candidates[self.cursor % len(candidates)]
                         self.cursor += 1
@@ -250,13 +250,13 @@ class EndorsementDoer(doing.DoDoer):
                 if intent is not None:
                     intent.failureReason = str(exc)
                     self.baser.pin_transaction(intent)
-                    failed = self.baser.get_operation(intent.associationSaid)
+                    failed = self.baser.get_managed(intent.associationSaid)
                     if failed.failureReason != str(exc):
                         failed.failureReason = str(exc)
-                        self.baser.pin_operation(failed)
+                        self.baser.pin_managed(failed)
                 elif op is not None and op.failureReason != str(exc):
                     op.failureReason = str(exc)
-                    self.baser.pin_operation(op)
+                    self.baser.pin_managed(op)
             deadline = self.tyme + self.interval
             while self.tyme < deadline:
                 yield self.tock

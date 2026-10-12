@@ -32,7 +32,7 @@ def qualify_replacement(*, le, rgy, registry, issuer, le_said, previous,
         said=replacement.said, expected="endorsed",
     )
     workflow.extend([check])
-    while not check.done or runtime.baser.get_operation(previous.said).state != "withdrawn":
+    while not check.done or runtime.baser.get_managed(previous.said).state != "withdrawn":
         assert monotonic() - started < 30, "live replacement exceeded local 30s bound"
         yield 0.01
     workflow.remove([check])
@@ -51,6 +51,6 @@ def qualify_replacement(*, le, rgy, registry, issuer, le_said, previous,
     workflow.remove([check])
     assert runtime.rgy.reger.tevers[registry.regk].vcState(previous.said).et == "rev"
     assert (yield from effects.observe(wallet))[1][1] == replacement.said
-    assert runtime.baser.get_operation(replacement.said).state == "endorsed"
+    assert runtime.baser.get_managed(replacement.said).state == "endorsed"
     print(f"Live replacement took {elapsed:.3f}s; late old revocation preserves new endorsement", flush=True)
     return replacement, elapsed

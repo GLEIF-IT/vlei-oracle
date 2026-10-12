@@ -32,12 +32,12 @@ class PresentationStatusEnd:
         """Return the current durable status for one wallet presentation."""
 
         _ = req
-        op = self.baser.get_operation(association_said)
+        op = self.baser.presentation_status(association_said)
         if op is None:
             raise falcon.HTTPNotFound(
                 description=f"presentation {association_said} not found"
             )
-        _json(rep, op.to_json())
+        _json(rep, op)
 
 
 class HealthEnd:
@@ -51,9 +51,12 @@ class HealthEnd:
 
         _ = req
         counts: dict[str, int] = {}
-        for _, op in self.baser.ops.getItemIter():
+        for _, op in self.baser.verifications.getItemIter():
             counts[op.state] = counts.get(op.state, 0) + 1
-        _json(rep, {"ok": True, "operations": counts})
+        managed = {}
+        for _, member in self.baser.managed.getItemIter():
+            managed[member.state] = managed.get(member.state, 0) + 1
+        _json(rep, {"ok": True, "verification": counts, "management": managed})
 
 
 def _json(

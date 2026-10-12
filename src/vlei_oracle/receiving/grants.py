@@ -10,7 +10,7 @@ from keri import kering
 from keri.core import serdering
 from keri.peer import exchanging
 
-from vlei_oracle.basing import OperationRecord, OracleBaser
+from vlei_oracle.basing import VerificationWork, OracleBaser
 
 
 class GrantNotReadyError(Exception):
@@ -68,7 +68,7 @@ class GrantNotificationDoer(doing.Doer):
             else:
                 self.notifier.noter.notes.rem(keys=keys)
 
-    def process_grant_notice(self, attrs: dict[str, Any]) -> OperationRecord:
+    def process_grant_notice(self, attrs: dict[str, Any]) -> VerificationWork:
         """Parse one IPEX Grant notice and create or fail its operation.
 
         Embedded ``anc``, ``iss``, and ``acdc`` artifacts are replayed into the
@@ -104,7 +104,7 @@ class GrantNotificationDoer(doing.Doer):
         association_said = acdc["d"]
         association_schema = acdc.get("s", "")
         if association_schema != self.expected_association_schema:
-            op = self.baser.start_operation(
+            op = self.baser.start_verification(
                 association_said=association_said,
                 grant_said=grant_said,
                 grant_sender=exn.ked["i"],
@@ -115,7 +115,7 @@ class GrantNotificationDoer(doing.Doer):
                 f"association schema {association_schema} does not match expected {self.expected_association_schema}",
             )
 
-        op = self.baser.start_operation(
+        op = self.baser.start_verification(
             association_said=association_said,
             grant_said=grant_said,
             grant_sender=exn.ked["i"],

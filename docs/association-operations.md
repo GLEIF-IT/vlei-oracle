@@ -63,10 +63,12 @@ registry's compliance-admin role. Keep this writer's nonce stream exclusive.
   --endorsement-registry "$ORACLE_REGISTRY" --identity-registry "$IDENTITY_REGISTRY"
 ```
 
-Poll `/presentations/<SAID>`. `verified` records off-chain verification;
+Poll `/presentations/<SAID>`. `verificationState` records off-chain verification. Successful verification atomically
+creates explicit managed membership; `state` then reports continuing reconciliation.
+Verification-only mode stops with managed state `verified`;
 `endorsed` requires canonical confirmed contract effects. The default is two
 confirmations and a one-second posting interval. Missing evidence or RPC failure
-stays pending. Inspect operation failure reasons and the durable signed transaction
+stays pending. Inspect verification and management failure reasons and the durable signed transaction
 journal for ambiguous submissions; never discard the store to allocate a new
 nonce. An unknown consumed nonce requires resolving the writer's actual chain
 history. Restart the same service/store/deployment to reconcile saved identities.
