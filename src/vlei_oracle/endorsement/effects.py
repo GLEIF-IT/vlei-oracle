@@ -116,12 +116,12 @@ class ContractEffects(doing.DoDoer):
         if transaction is not None:
             if (transaction["hash"].lower() != tx_hash or
                 transaction["from"].lower() != self.writer.lower() or
-                int(transaction["nonce"], 16) != intent.transaction["nonce"]):
+                int(transaction["nonce"], 16) != intent.nonce):
                 raise ValueError("RPC returned another transaction")
             if transaction["blockHash"] is None:
                 return "pending", tx_hash, None
         nonce = yield from self.request("eth_getTransactionCount", [self.writer, "latest"])
-        if int(nonce, 16) > intent.transaction["nonce"]:
+        if int(nonce, 16) > intent.nonce:
             return "conflict", tx_hash, None
         return "absent", tx_hash, None
 
@@ -136,5 +136,5 @@ class ContractEffects(doing.DoDoer):
         yield from self.check_chain()
         price = yield from self.request("eth_gasPrice", [])
         return {"from": self.writer, "to": self.writer, "value": 0, "gas": 21000,
-                "nonce": intent.transaction["nonce"], "chainId": self.chain_id,
-                "gasPrice": max(int(price, 16) * 2, intent.transaction["gasPrice"] * 2)}
+                "nonce": intent.nonce, "chainId": self.chain_id,
+                "gasPrice": max(int(price, 16) * 2, intent.gasPrice * 2)}

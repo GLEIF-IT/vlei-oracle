@@ -229,7 +229,7 @@ def test_pending_work_survives_coordinator_restart(rpc, operation, interruption)
     assert recovered.failureReason == ""
     assert baser.get_verification(association["d"]) is None
     saved = json.loads(bytes(baser.getVal(baser.managed.sdb, association["d"].encode())))
-    assert set(saved) == {"associationSaid", "state", "failureReason", "txHashes"}
+    assert set(saved) == {"associationSaid", "state", "failureReason"}
 
     assert endpoint.calls == [
         "eth_chainId",
