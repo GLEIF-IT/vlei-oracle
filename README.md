@@ -3,7 +3,7 @@
 The oracle receives a finished Legal Entity External Association ACDC through
 IPEX and verifies its GLEIF-rooted KERI/TEL chain, embedded EIP-712 proof, and
 Ethereum EOA account type. Verification uses accepted KERIpy stores; RPC waits
-run as HIO tasks. Durable operations recover read-only work after restart.
+run as HIO tasks. Durable verification work recovers read-only checks after restart.
 
 A Legal Entity controller builds and signs the challenge before issuing the
 untargeted association. The association holds the exact nonce in `u`, follows
@@ -22,7 +22,7 @@ replacement, revocation, recovery, and compromise.
 - `receiving/` owns HTTP routes, native KERI parsing/escrow scheduling, and
   accepted Grant ingestion. It creates durable work without deciding validity.
 - `verification/` owns credential evidence, EOA proof/account checks, and the
-  coordinator that retries work and persists verification results. Its worker
+  coordinator that retries work and atomically enrolls successful associations. Its worker
   uses HIO for Ethereum observations; schema resources live here too.
 - `endorsement/` owns action selection, contract effects, and durable transaction
   reconciliation. It reuses verification checks before effects and owns ABI resources.
@@ -32,7 +32,7 @@ replacement, revocation, recovery, and compromise.
   CLI adapters, including the local deployment-log parser.
 
 Endorsement may call verification; verification does not call endorsement.
-Receiving and verification coordinate through durable operations. Service
+Receiving and verification coordinate through durable verification work. Service
 composition connects the packages, while each doer keeps its resource ownership.
 
 ## Install
@@ -120,15 +120,15 @@ before each effect; observed revocation causes exact-association withdrawal and
 `withdrawn`. The store binds the chain, deployments, and writer, and persists
 signed transaction identities before broadcast. Restart reconciles receipts,
 nonces, and current registry state. Unknown consumed nonces require operator
-reconciliation and appear in the operation's failure reason.
+reconciliation and appear in the transaction journal's current failure reason.
 Replacing an existing assertion requires its native issuance evidence; an
 unknown on-chain association stays pending. Within one entity, immutable KEL
 issuance order prevents an older association from overwriting a newer one.
 Changing entities requires explicit withdrawal and resolution of conflicting
-verified bindings.
+managed bindings.
 
 RPC or missing-evidence outages leave current endorsements in place. Polling
-latency includes the operation count, RPC waits, and confirmations; there is no
+latency includes the managed association and journal counts, RPC waits, and confirmations; there is no
 unconditional finite stale-authority bound. Emergency pause and authorized exact
 withdrawal are independent operational controls. EOA key transfer remains
 unobservable; an endorsement does not establish continuous wallet control.
@@ -136,3 +136,17 @@ unobservable; an endorsement does not establish continuous wallet control.
 Use fresh stores for this prototype; old operation stores are not upgraded.
 The issuance exercise isolates its test stores and local Anvil. It does not
 modify existing operator credentials or deploy to another network.
+
+
+## Data ownership
+
+Application state holds unfinished verification (association and native Grant
+references, progress, current blockage), explicit managed membership (association,
+reconciliation state, current blockage), and signed-effect recovery (exact original
+and cancellation identities, association/action, nonce/fee, completion outcome).
+One deployment/writer scope guards recovery; the issuer ledger holds only consumed
+issuer/nonce pairs. Withdrawn membership remains to prevent older associations
+regaining authority. Native KERI stores own credential identity and issuance order;
+current validity, account code, registry state, receipts, and proposed actions are
+reconstructed for each decision. Queues and read-only retry timing stay in memory.
+Use fresh stores for this roll-forward schema; preserve existing operator stores.

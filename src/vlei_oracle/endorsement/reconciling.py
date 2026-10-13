@@ -27,7 +27,7 @@ def issuance_position(rgy, said):
 class EndorsementDoer(doing.DoDoer):
     """Keep one outstanding writer nonce and reconstruct all work from LMDB.
 
-    Only verified operations enter this workflow. Recheck KERI/TEL and the EOA
+    Only explicitly managed associations enter this workflow. Recheck KERI/TEL and the EOA
     before publishing; incomplete observations retain current state. Reconcile
     saved transaction identities before same-identity rebroadcast or explicit
     same-nonce cancellation. No in-memory cue authorizes a second nonce.
@@ -52,7 +52,7 @@ class EndorsementDoer(doing.DoDoer):
     def binding(self, op):
         return reconstruct_binding(
             rgy=self.rgy, said=op.associationSaid,
-            schema_said=self.association_schema, grant_said="",
+            schema_said=self.association_schema,
         )
 
     def desired(self, op):

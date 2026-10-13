@@ -129,3 +129,28 @@ def test_environment_creation_through_symlinked_python_launcher(tmp_path: Path) 
         ],
         check=True,
     )
+
+
+
+def test_oracle_build_inputs_exclude_removed_modules_and_cached_metadata(tmp_path):
+    source, destination = tmp_path / "source", tmp_path / "build"
+    package = source / "src/vlei_oracle"
+    package.mkdir(parents=True)
+    destination.mkdir()
+    for filename in ("pyproject.toml", "README.md"):
+        (source / filename).write_text("current inputs")
+    (package / "current.py").write_text("current = True")
+    cache = package / "__pycache__"
+    cache.mkdir()
+    (cache / "old.pyc").write_bytes(b"stale")
+    metadata = source / "src/vlei_oracle.egg-info"
+    metadata.mkdir()
+    (metadata / "SOURCES.txt").write_text("old.py")
+    stale_build = source / "build/lib/vlei_oracle"
+    stale_build.mkdir(parents=True)
+    (stale_build / "old.py").write_text("obsolete = True")
+    prepare_demo.copy_oracle_source(source, destination)
+    assert sorted(str(file.relative_to(destination)) for file in destination.rglob("*") if file.is_file()) == [
+        "README.md", "pyproject.toml", "src/vlei_oracle/current.py",
+    ]
+    assert (stale_build / "old.py").is_file()

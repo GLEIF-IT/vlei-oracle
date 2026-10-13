@@ -59,3 +59,13 @@ def test_native_doers_own_all_service_store_lifecycles():
     assert all(store.env is None and not store.opened for store in stores)
     assert all(not path.exists() for path in paths)
     assert not runtime.hby.db.opened and not runtime.hby.ks.opened
+
+
+def test_package_does_not_ship_retired_workflow_modules():
+    from importlib.util import find_spec
+    from importlib.resources import files
+
+    for name in ("association_verifier", "constants", "contracts", "endpoints",
+                 "eoa", "eoa_worker", "errors", "handling", "schema_cache"):
+        assert find_spec("vlei_oracle." + name) is None
+    assert not files("vlei_oracle").joinpath("schema_data").is_dir()

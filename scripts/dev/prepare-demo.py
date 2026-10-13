@@ -11,9 +11,11 @@ from __future__ import annotations
 import argparse
 import json
 import shlex
+import shutil
 import subprocess
 import sys
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 ORACLE_ROOT = Path(__file__).resolve().parents[2]
 DEPENDENCY_MANIFEST = Path(__file__).with_name("demo-dependencies.json")
@@ -108,6 +110,14 @@ def prepare_python_environment(directory: Path) -> Path:
     return python
 
 
+def copy_oracle_source(source: Path, destination: Path) -> None:
+    """Build only current package inputs, excluding stale local build products."""
+    for filename in ("pyproject.toml", "README.md"):
+        shutil.copy2(source / filename, destination / filename)
+    shutil.copytree(source / "src", destination / "src",
+                    ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "*.egg-info"))
+
+
 def main() -> None:
     """Prepare the selected dependency checkouts and, for a full demo, its environment."""
     parser = argparse.ArgumentParser(description=__doc__)
@@ -153,18 +163,15 @@ def main() -> None:
     environment = directory / "venv"
     python = prepare_python_environment(environment)
     vlei = dependencies["vLEI"]
-    subprocess.run(
-        [
-            str(python),
-            "-m",
-            "pip",
-            "install",
-            str(ORACLE_ROOT) + "[dev]",
-            "-r",
-            str(Path(__file__).with_name("demo-requirements.txt")),
-        ],
-        check=True,
-    )
+    # setuptools can retain removed modules in a reused build/lib directory.
+    # Copy current inputs into a fresh build root without deleting local artifacts.
+    with TemporaryDirectory(prefix="vlei-oracle-build-") as build_root:
+        copy_oracle_source(ORACLE_ROOT, Path(build_root))
+        subprocess.run(
+            [str(python), "-m", "pip", "install", build_root + "[dev]",
+             "-r", str(Path(__file__).with_name("demo-requirements.txt"))],
+            check=True,
+        )
     # vLEI's metadata still names upstream keri/hio. Install its schema tools
     # without resolving those names; demo-requirements supplies the dependencies.
     subprocess.run(

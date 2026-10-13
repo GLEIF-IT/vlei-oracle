@@ -76,7 +76,7 @@ def association_from_challenge(challenge, signature, registry):
     )
 
 
-def consume_nonce(nonce_store, *, issuer, nonce, association_said):
+def consume_nonce(nonce_store, *, issuer, nonce):
     """Commit exact issuer-scoped consumption before credential publication."""
     with closing(sqlite3.connect(nonce_store, timeout=0.0)) as ledger, ledger:
         # Acquire the writer reservation before any schema/read lock. With a
@@ -84,12 +84,12 @@ def consume_nonce(nonce_store, *, issuer, nonce, association_said):
         # lock upgrade and both fail. Contenders still fail without waiting.
         ledger.execute("BEGIN IMMEDIATE")
         ledger.execute(
-            "CREATE TABLE IF NOT EXISTS consumed (issuer TEXT, nonce TEXT, association TEXT, PRIMARY KEY (issuer, nonce))"
+            "CREATE TABLE IF NOT EXISTS consumed (issuer TEXT, nonce TEXT, PRIMARY KEY (issuer, nonce))"
         )
         try:
             ledger.execute(
-                "INSERT INTO consumed VALUES (?, ?, ?)",
-                (issuer, nonce, association_said),
+                "INSERT INTO consumed VALUES (?, ?)",
+                (issuer, nonce),
             )
         except sqlite3.IntegrityError as exc:
             raise ValueError("nonce already consumed by this issuer") from exc
@@ -110,7 +110,7 @@ def write_credential(*, challenge, signature, registry, nonce_store, output):
     with output.open("xb") as stream:
         try:
             consume_nonce(nonce_store, issuer=creder.issuer,
-                          nonce=creder.sad["u"], association_said=creder.said)
+                          nonce=creder.sad["u"])
             # Consumption is committed before another process can read usable bytes.
             stream.write(creder.raw)
             stream.flush()
