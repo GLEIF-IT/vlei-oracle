@@ -1,5 +1,10 @@
 # vLEI association oracle
 
+The new [trusted status receiver](docs/status-inbox.md), `server receive`, accepts
+authenticated EOA Verifier events into a durable inbox and returns signed ACKs.
+It performs no Ethereum posting or independent association verification. The
+combined `server start` workflow described below remains available unchanged.
+
 The oracle receives a finished Legal Entity External Association ACDC through
 IPEX and verifies its GLEIF-rooted KERI/TEL chain, embedded EIP-712 proof, and
 Ethereum EOA account type. Verification uses accepted KERIpy stores; RPC waits
