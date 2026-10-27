@@ -12,6 +12,8 @@ from typing import Any
 
 from keri.db import dbing, koming
 
+from vlei_oracle.statusing import AssociationStatus, StatusEvent
+
 STATE_AWAITING_ARTIFACTS = "awaiting_artifacts"
 STATE_VERIFYING = "verifying"
 STATE_VERIFIED = "verified"
@@ -65,6 +67,21 @@ class ManagedAssociation:
     failureReason: str = ""
 
 
+@dataclass
+class MessageReceipt:
+    """Authenticated transport nonce lifetime, independent of event deduplication."""
+
+    expires: int
+
+
+@dataclass
+class InboxScope:
+    """One trusted producer and chain for the durable status history."""
+
+    verifierAid: str
+    chainId: int
+
+
 class OracleBaser(dbing.LMDBer):
     """Minimal local work, management membership, and signed-effect recovery."""
 
@@ -84,7 +101,49 @@ class OracleBaser(dbing.LMDBer):
         self.managed = koming.Komer(db=self, subkey="managed.", schema=ManagedAssociation)
         self.transactions = koming.Komer(db=self, subkey="txns.", schema=TransactionRecord)
         self.scope = koming.Komer(db=self, subkey="scope.", schema=PostingScope)
+        self.inbox = koming.Komer(db=self, subkey="inbox.", schema=StatusEvent)
+        self.statuses = koming.Komer(db=self, subkey="statuses.", schema=AssociationStatus)
+        self.messages = koming.Komer(db=self, subkey="messages.", schema=MessageReceipt)
+        self.inbox_scope = koming.Komer(db=self, subkey="inbox-scope.", schema=InboxScope)
         return self.env
+
+    def bind_inbox_scope(self, scope):
+        """Refuse to reinterpret stored status under another verifier or chain."""
+        existing = self.inbox_scope.get(keys=("receiver",))
+        if existing is not None and existing != scope:
+            raise ValueError("inbox belongs to another verifier or chain")
+        self.inbox_scope.put(keys=("receiver",), val=scope)
+
+    def claim_message(self, peer, nonce, expires):
+        """Claim an authenticated attempt once; persistent receipts reject replay."""
+        return self.messages.put(keys=(peer, nonce), val=MessageReceipt(expires))
+
+    def receive_status(self, event, status):
+        """Commit immutable event receipt and monotonic status together before ACK.
+
+        Exact redelivery and older revisions are acknowledged without changing
+        current status. Conflicting bytes/revisions or issuance facts are rejected.
+        Revocation is terminal for this SAID; another SAID may later replace it.
+        No ownership selection or contract effect occurs in this transaction.
+        """
+        event_key, status_key = event.eventId.encode(), status.associationSaid.encode()
+        with self.env.begin(write=True) as txn:
+            prior = self.inbox.deserializer(txn.get(event_key, db=self.inbox.sdb))
+            if prior is not None:
+                if prior != event:
+                    raise ValueError("conflicting event revision")
+                return
+            current = self.statuses.deserializer(txn.get(status_key, db=self.statuses.sdb))
+            if current is not None:
+                if current.association != status.association:
+                    raise ValueError("association facts cannot change")
+                if current.status == "revoked" and status.status != "revoked" and status.revision > current.revision:
+                    raise ValueError("revoked association cannot be reaccepted")
+                if current.status == "accepted" and status.status == "revoked" and status.revision < current.revision:
+                    raise ValueError("revocation revision precedes acceptance")
+            txn.put(event_key, self.inbox.serializer(event), db=self.inbox.sdb)
+            if current is None or status.revision > current.revision:
+                txn.put(status_key, self.statuses.serializer(status), db=self.statuses.sdb)
 
     def bind_posting_scope(self, scope: PostingScope):
         """Refuse to reconcile an old intent against a different deployment."""

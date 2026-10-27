@@ -41,6 +41,31 @@ def add_parser(subparsers) -> None:
     )
     start.set_defaults(handler=start_handler)
 
+    receive = sub.add_parser("receive", help="Receive trusted verifier status; no Ethereum posting")
+    receive.add_argument("--verifier-aid", required=True)
+    receive.add_argument("--chain-id", required=True, type=int)
+    receive.add_argument("--webhook-url", required=True, help="Exact public /v1/status-events URL")
+    receive.add_argument("--verifier-kel", default="", help="Native CESR key-event stream for verifier bootstrap/rotation")
+    receive.add_argument("--name", default="vlei-oracle-inbox")
+    receive.add_argument("--base", default="")
+    receive.add_argument("--alias", default="oracle")
+    receive.add_argument("--passcode")
+    receive.add_argument("--incept-file")
+    receive.add_argument("--head-dir")
+    receive.add_argument("--host", default="0.0.0.0")
+    receive.add_argument("--http-port", type=int, default=9723)
+    receive.set_defaults(handler=receive_handler)
+
+
+def receive_handler(args):
+    """Start only the durable webhook receiver with explicit peer and chain trust."""
+    from vlei_oracle.receiving.service import ReceiverConfig, run_receiver
+
+    run_receiver(ReceiverConfig(**{name: getattr(args, name) for name in (
+        "verifier_aid", "chain_id", "webhook_url", "verifier_kel", "name", "base",
+        "alias", "passcode", "incept_file", "head_dir", "host", "http_port",
+    )}))
+
 
 def start_handler(args) -> None:
     """Translate CLI flags into service configuration and run the HIO loop."""
