@@ -7,7 +7,7 @@ from hio.base import doing
 from hio.core import http
 from web3 import Web3
 
-from vlei_oracle.rpc import request_rpc
+from vlei_oracle.rpc import RpcClientDoer, request_rpc
 
 
 class ContractEffects(doing.DoDoer):
@@ -37,7 +37,7 @@ class ContractEffects(doing.DoDoer):
     def request(self, method, params):
         """Own one isolated connection while its bounded response wait yields."""
         client = http.Client(path=self.rpc_url, reconnectable=True)
-        doer = http.ClientDoer(client=client)
+        doer = RpcClientDoer(client=client)
         self.extend([doer])
         try:
             return (yield from request_rpc(
