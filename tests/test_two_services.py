@@ -16,6 +16,7 @@ from keri.core import coring, scheming
 from keri.db import basing
 from keri.help import helping
 
+from contract_fixture import contract, read, send
 from ceremony import association_from_challenge
 from issuance_helpers import (
     IssuerEscrows,
@@ -44,7 +45,7 @@ from vlei_oracle.verification.eoa import build_challenge
 
 
 def test_two_installed_services_publish_replace_and_retire(tmp_path, deployment):
-    """Qualify native trust across separate processes, lost ACK, restart and exact retirement.
+    """Qualify native trust, two-wallet USDC transfer, lost ACK, restart and exact retirement.
 
     Issuers/witness use native fixture stores; both applications own independent
     persistent stores. Only CESR HTTP, signed webhooks, public status and contract
@@ -66,6 +67,14 @@ def test_two_installed_services_publish_replace_and_retire(tmp_path, deployment)
     effects = effects_for(deployment)
     wallet_key = "0x" + "0" * 63 + "1"
     wallet = Account.from_key(wallet_key).address
+    recipient_key = "0x" + "0" * 63 + "2"
+    recipient = Account.from_key(recipient_key).address
+    posting_key = "0x" + "0" * 63 + "3"
+    posting_wallet = Account.from_key(posting_key).address
+    comply = Path(os.environ["VLEI_COMPLY_DIR"])
+    admin = contract(comply, "AdminControls", addresses["adminControls"])
+    token = contract(comply, "USDC", addresses["usdcToken"])
+    wrapper = contract(comply, "wUSDC", addresses["wrapper"])
     finished = []
 
     with ExitStack() as stack:
@@ -157,7 +166,7 @@ def test_two_installed_services_publish_replace_and_retire(tmp_path, deployment)
         ]
         environment = {
             **os.environ,
-            "VLEI_ORACLE_POSTING_KEY": KEY,
+            "VLEI_ORACLE_POSTING_KEY": posting_key,
             "PYTHONUNBUFFERED": "1",
         }
         verifier_log, oracle_log = tmp_path / "verifier.log", tmp_path / "oracle.log"
@@ -193,26 +202,26 @@ def test_two_installed_services_publish_replace_and_retire(tmp_path, deployment)
                 )
                 yield 0.05
 
-        def mapping(said):
+        def mapping(said, address=wallet):
             """Require actual registry state, not an HTTP ACK or submitted transaction hash."""
             deadline = workflow.tyme + 15
             while True:
-                _, current = yield from effects.observe(wallet)
+                _, current = yield from effects.observe(address)
                 if current[1] == said:
                     return current
                 assert workflow.tyme < deadline, (current, oracle_log.read_text())
                 yield 0.05
 
-        def association():
+        def association(key=wallet_key):
             """Issue a real wallet-signed association at a new witnessed LE KEL event."""
             challenge = build_challenge(
                 issuer_aid=le.pre,
                 le_vlei_said=credentials["qvi"].said,
-                ext_id=f"eip155:31337:{wallet.lower()}",
+                ext_id=f"eip155:31337:{Account.from_key(key).address.lower()}",
                 nonce=str(uuid4()),
             )
             sig = Account.sign_message(
-                encode_typed_data(full_message=challenge), wallet_key
+                encode_typed_data(full_message=challenge), key
             ).signature
             creder = association_from_challenge(
                 challenge, "0x" + sig.hex(), registries["le"].regk
@@ -230,6 +239,29 @@ def test_two_installed_services_publish_replace_and_retire(tmp_path, deployment)
             yield from ready(verifier, verifier_port, verifier_log, workflow)
             yield from ready(oracle, oracle_port, oracle_log, workflow)
             yield from deliver(oracle_kel)
+            # Admin setup and oracle posting use different nonce streams.
+            for address in (wallet, posting_wallet):
+                yield from effects.request(
+                    "anvil_setBalance", [address, "0x56bc75e2d63100000"]
+                )
+            role = effects.web3.keccak(text="COMPLIANCE_ADMIN_ROLE")
+            yield from send(effects, admin, "grantRole", [role, posting_wallet], KEY)
+            assert (
+                yield from read(effects, admin, "hasRole", [role, posting_wallet])
+            ) == (True,)
+            yield from send(effects, token, "mint", [wallet, 100000000], KEY)
+            yield from send(
+                effects, token, "approve", [wrapper.address, 100000000], wallet_key
+            )
+            assert (
+                yield from read(
+                    effects, wrapper, "transfer", [recipient, 1000000], sender=wallet
+                )
+            ) == (False,)
+            yield from send(
+                effects, wrapper, "transfer", [recipient, 1000000], wallet_key
+            )
+            assert (yield from read(effects, token, "balanceOf", [recipient])) == (0,)
             for hby, _, _ in actors.values():
                 while hby.db.roobi.get(keys=(oobi,)) is None:
                     yield 0.01
@@ -242,7 +274,7 @@ def test_two_installed_services_publish_replace_and_retire(tmp_path, deployment)
                     yield 0.01
                 registries[name] = registry
             # Establish the actual GEDA -> QVI -> LE chain before presenting the association.
-            for name, recipient, schema in (
+            for name, holder, schema in (
                 ("geda", qvi, QVI_SCHEMA),
                 ("qvi", le, LE_SCHEMA),
             ):
@@ -258,7 +290,7 @@ def test_two_installed_services_publish_replace_and_retire(tmp_path, deployment)
                 )
                 creder = issuers[name].create(
                     regname=name,
-                    recp=recipient.pre,
+                    recp=holder.pre,
                     schema=schema,
                     source=source,
                     rules=rules(by_said[schema]),
@@ -282,6 +314,20 @@ def test_two_installed_services_publish_replace_and_retire(tmp_path, deployment)
             assert accepted["facts"]["issuerAid"] == le.pre
             assert accepted["observation"]["chainId"] == 31337
             yield from mapping(first.said)
+            beneficiary, beneficiary_stream = yield from association(recipient_key)
+            yield from deliver(beneficiary_stream)
+            yield from status(beneficiary.said, "accepted")
+            yield from mapping(beneficiary.said, recipient)
+            # Both exact wallets must be endorsed; a mined receipt alone proves no transfer.
+            yield from send(
+                effects, wrapper, "transfer", [recipient, 1000000], wallet_key
+            )
+            assert (yield from read(effects, token, "balanceOf", [recipient])) == (
+                1000000,
+            )
+            assert (yield from read(effects, token, "balanceOf", [wallet])) == (
+                99000000,
+            )
             assert proxy.dropped and accepted["delivery"]["attempts"] >= 2
             initial = [
                 body
@@ -327,6 +373,21 @@ def test_two_installed_services_publish_replace_and_retire(tmp_path, deployment)
             retired = yield from status(second.said, "revoked")
             assert retired["delivery"]["eventId"] == f"{second.said}:2"
             yield from mapping("")
+            yield from mapping(beneficiary.said, recipient)
+            assert (
+                yield from read(
+                    effects, wrapper, "transfer", [recipient, 1000000], sender=wallet
+                )
+            ) == (False,)
+            yield from send(
+                effects, wrapper, "transfer", [recipient, 1000000], wallet_key
+            )
+            assert (yield from read(effects, token, "balanceOf", [recipient])) == (
+                1000000,
+            )
+            assert (yield from read(effects, token, "balanceOf", [wallet])) == (
+                99000000,
+            )
             finished.append(True)
             workflow.remove(list(workflow.doers[:-1]))
 

@@ -12,12 +12,17 @@ The test follows these boundaries:
 2. Observe verifier acceptance, signed webhook receipt and actual contract mapping.
    Drop one successful ACK after the receiver commits; verify retry keeps identical
    event bytes and eventually obtains an authenticated ACK.
-3. Restart both applications from their own stores without another Grant. Keep the
+3. Issue a second real association for the beneficiary wallet. With both wallet
+   mappings confirmed, transfer USDC and check both token balances. The oracle
+   uses a separately funded, explicitly authorized writer key.
+4. Restart both applications from their own stores without another Grant. Keep the
    verifier offline while checking the oracle's mapping; reopen the verifier and
    verify its stored account observation is unchanged.
-4. Present a higher-issuance same-LE replacement. Deliver the predecessor's native
+5. Present a higher-issuance same-LE replacement. Deliver the predecessor's native
    revocation and confirm the successor remains mapped. Revoke the successor and
    require both its acknowledged retirement event and actual contract withdrawal.
+   Submit another token transfer and confirm that both balances remain unchanged,
+   even though the policy-failure transaction itself has a successful receipt.
 
 A Grant alone is not a revocation proof: the test supplies the native revocation
 TEL and witnessed KEL anchor. Receipt ACK, application status and contract state
@@ -42,5 +47,5 @@ inputs into a Linux container with no host bind mounts and run there.
 
 The producer is pinned in `tests/requirements.txt` as a test dependency, not an
 oracle runtime import. Existing status-posting tests establish old-observation
-acceptance and failure handling without the verifier. Token transfers and local
-operator launch configuration are qualified by the paired comply workflow.
+acceptance and failure handling without the verifier. The paired comply launcher invokes this same scenario; it does not copy the
+native issuance or process-ownership code.
