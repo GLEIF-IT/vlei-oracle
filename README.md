@@ -1,46 +1,29 @@
 # vLEI association oracle
 
-The new [trusted status receiver](docs/status-inbox.md), `server receive`, accepts
-authenticated EOA Verifier events, persists ownership selection and returns signed ACKs.
-It performs no Ethereum posting or independent association verification. The
-combined `server start` workflow described below remains available unchanged.
+The [trusted-status service](docs/status-inbox.md), `server start`, accepts
+EOA Verifier's authenticated status, persists ownership selection, signs receipt
+ACKs and publishes or withdraws the selected mapping on Ethereum. `server receive`
+runs the same inbox without contract posting. Initial credential, wallet and
+account verification belongs to EOA Verifier; the oracle does not repeat it.
 
-The oracle receives a finished Legal Entity External Association ACDC through
-IPEX and verifies its GLEIF-rooted KERI/TEL chain, embedded EIP-712 proof, and
-Ethereum EOA account type. Verification uses accepted KERIpy stores; RPC waits
-run as HIO tasks. Durable verification work recovers read-only checks after restart.
-
-A Legal Entity controller builds and signs the challenge before issuing the
-untargeted association. The association holds the exact nonce in `u`, follows
-its LE credential edge for entity identity, and embeds the external proof under
-its SAID. There is no OOR approval or intrinsic expiry.
-
-This prototype verifies associations and maintains their contract endorsements.
-An on-chain consumer trusts the oracle's
-result; it does not perform vLEI verification. See the [protocol](protocol/external-association-v1/README.md)
-and [real issuance exercise](scripts/protocol/README.md) for scope and setup.
-The [operations runbook](docs/association-operations.md) covers clean qualification,
-replacement, revocation, recovery, and compromise.
+Accepted associations remain valid until their association credential is revoked
+or a newer same-LE issuance supersedes them. Revocation withdraws only the matching
+association SAID. Receipt ACKs do not mean an on-chain transaction has succeeded.
 
 ## Code organization
 
-- `receiving/` owns HTTP routes, native KERI parsing/escrow scheduling, and
-  accepted Grant ingestion. It creates durable work without deciding validity.
-- `verification/` owns credential evidence, EOA proof/account checks, and the
-  coordinator that retries work and atomically enrolls successful associations. Its worker
-  uses HIO for Ethereum observations; schema resources live here too.
-- `endorsement/` owns action selection, contract effects, and durable transaction
-  reconciliation. It reuses verification checks before effects and owns ABI resources.
-- `selecting.py` chooses ownership from trusted issuer/issuance facts for the
-  receive-only service; it performs no verification or network work.
-- `basing.py` owns application persistence; `rpc.py` provides the shared yielding
-  request helper. Neither imports the workflows that use it.
-- `serving.py` composes the native stores, clients, and doers. `commands/` contains
-  CLI adapters, including the local deployment-log parser.
+- `receiving/service.py` composes trusted HTTP receipt and optional posting under HIO.
+- `receiving/status.py` authenticates events and ACKs durable receipt.
+- `selecting.py` chooses ownership using stored issuer/issuance facts.
+- `endorsement/posting.py` serializes contract actions and records receipt outcomes;
+  `effects.py` owns HIO RPC clients and ABI operations.
+- `basing.py` owns persistence; `rpc.py` provides a caller-owned-client request helper.
 
-Endorsement may call verification; verification does not call endorsement.
-Receiving and verification coordinate through durable verification work. Service
-composition connects the packages, while each doer keeps its resource ownership.
+The older combined verifier/oracle remains under `server legacy-start` for existing
+fixtures. Its `serving.py`, `verification/` and `endorsement/reconciling.py` are not
+installed in the trusted-status runtime. Use independent stores and writer keys;
+do not run both compositions against the same deployment. Legacy protocol tools
+and the [operations runbook](docs/association-operations.md) describe that older path.
 
 ## Install
 
@@ -97,10 +80,13 @@ Present the finished ACDC and required supporting KEL/TEL evidence with `kli ipe
 grant` or native KERI CESR HTTP delivery. Addressed transport does not make the
 association a targeted credential.
 
-## Service
+## Legacy combined service
+
+The following commands and lifecycle apply only to `server legacy-start`.
+Use [trusted status and contract posting](docs/status-inbox.md) for `server start`.
 
 ```sh
-.venv/bin/vlei-oracle server start --name oracle --alias oracle \
+.venv/bin/vlei-oracle server legacy-start --name oracle --alias oracle \
   --trusted-geda-aid "$GEDA_AID" --schema-dir .demo/checkouts/vLEI/schema/acdc \
   --rpc-url http://127.0.0.1:8545 --no-post
 ```
@@ -145,7 +131,7 @@ The issuance exercise isolates its test stores and local Anvil. It does not
 modify existing operator credentials or deploy to another network.
 
 
-## Data ownership
+## Legacy data ownership
 
 Application state holds unfinished verification (association and native Grant
 references, progress, current blockage), explicit managed membership (association,

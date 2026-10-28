@@ -49,7 +49,7 @@ class SubmissionBarrier:
 
 def start(config, *, stack, artifacts, workflow):
     """Start the CLI, wait through HIO for health, and read its actual AID."""
-    command = [sys.executable, "-m", "vlei_oracle.cli", "server", "start"]
+    command = [sys.executable, "-m", "vlei_oracle.cli", "server", "legacy-start"]
     for flag, value in (
         ("--name", config.name), ("--base", config.base), ("--alias", config.alias),
         ("--host", "127.0.0.1"), ("--http-port", config.http_port),

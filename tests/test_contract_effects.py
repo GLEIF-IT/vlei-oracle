@@ -6,6 +6,7 @@ from pathlib import Path
 import shutil
 import socket
 import subprocess
+import time
 
 from eth_account import Account
 from hio.base import doing
@@ -23,10 +24,11 @@ IDENTITY = "0x" + "12" * 32
 
 @pytest.fixture(scope="module")
 def deployment():
+    """Deploy the pinned comply contracts on a test-owned Anvil process."""
     comply = Path(os.getenv("VLEI_COMPLY_DIR", Path(__file__).resolve().parents[2] / "vlei-comply"))
     forge, anvil = shutil.which("forge"), shutil.which("anvil")
     if not forge or not anvil or not (comply / "script/DeployAll.s.sol").is_file():
-        pytest.skip("local contract tests require Foundry and VLEI_COMPLY_DIR")
+        pytest.fail("contract tests require Foundry and VLEI_COMPLY_DIR")
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
         port = sock.getsockname()[1]
@@ -36,6 +38,15 @@ def deployment():
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
     )
     try:
+        deadline = time.monotonic() + 10
+        while True:
+            try:
+                with socket.create_connection(("127.0.0.1", port), timeout=0.1):
+                    break
+            except OSError:
+                if process.poll() is not None or time.monotonic() >= deadline:
+                    pytest.fail("Anvil did not open its RPC listener")
+                time.sleep(0.02)
         readiness = ContractEffects(
             rpc_url=rpc, chain_id=31337, writer=Account.from_key(KEY).address,
             endorsement=WALLET, identity=WALLET,
