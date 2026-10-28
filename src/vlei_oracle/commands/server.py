@@ -4,17 +4,15 @@ from __future__ import annotations
 
 import os
 
-from vlei_oracle.serving import ServiceConfig, run_service
-
 
 def add_parser(subparsers) -> None:
     """Register the always-on service command group."""
 
     parser = subparsers.add_parser(
-        "server", help="Run the always-on verifier/oracle service"
+        "server", help="Run the trusted-status oracle service"
     )
     sub = parser.add_subparsers(dest="server_command", required=True)
-    start = sub.add_parser("start", help="Start the HIO/Falcon vLEI Oracle service")
+    start = sub.add_parser("legacy-start", help="Legacy combined verifier/oracle (independent stores only)")
     start.add_argument("--name", default="vlei-oracle")
     start.add_argument("--base", default="")
     start.add_argument("--alias", default="oracle")
@@ -42,6 +40,21 @@ def add_parser(subparsers) -> None:
     start.set_defaults(handler=start_handler)
 
     receive = sub.add_parser("receive", help="Receive trusted verifier status; no Ethereum posting")
+    _receiver_arguments(receive)
+    receive.set_defaults(handler=receive_handler)
+    start = sub.add_parser("start", help="Receive trusted status and publish/withdraw on Ethereum")
+    _receiver_arguments(start)
+    start.add_argument("--rpc-url", required=True)
+    start.add_argument("--endorsement-registry", required=True)
+    start.add_argument("--identity-registry", required=True)
+    start.add_argument("--posting-key-env", default="VLEI_ORACLE_POSTING_KEY")
+    start.add_argument("--confirmations", type=int, default=2)
+    start.add_argument("--posting-interval", type=float, default=1.0)
+    start.set_defaults(handler=receive_handler)
+
+
+def _receiver_arguments(receive):
+    """Share the identity and inbox options for receive-only and posting modes."""
     receive.add_argument("--verifier-aid", required=True)
     receive.add_argument("--chain-id", required=True, type=int)
     receive.add_argument("--webhook-url", required=True, help="Exact public /v1/status-events URL")
@@ -54,14 +67,19 @@ def add_parser(subparsers) -> None:
     receive.add_argument("--head-dir")
     receive.add_argument("--host", default="0.0.0.0")
     receive.add_argument("--http-port", type=int, default=9723)
-    receive.set_defaults(handler=receive_handler)
 
 
 def receive_handler(args):
-    """Start only the durable webhook receiver with explicit peer and chain trust."""
+    """Compose trusted receipt with optional posting, without credential verification."""
     from vlei_oracle.receiving.service import ReceiverConfig, run_receiver
 
-    run_receiver(ReceiverConfig(**{name: getattr(args, name) for name in (
+    posting = {}
+    if args.server_command == "start":
+        posting = {name: getattr(args, name) for name in (
+            "rpc_url", "endorsement_registry", "identity_registry", "confirmations", "posting_interval",
+        )}
+        posting["posting_key"] = os.getenv(args.posting_key_env, "")
+    run_receiver(ReceiverConfig(**posting, **{name: getattr(args, name) for name in (
         "verifier_aid", "chain_id", "webhook_url", "verifier_kel", "name", "base",
         "alias", "passcode", "incept_file", "head_dir", "host", "http_port",
     )}))
@@ -69,6 +87,8 @@ def receive_handler(args):
 
 def start_handler(args) -> None:
     """Translate CLI flags into service configuration and run the HIO loop."""
+
+    from vlei_oracle.serving import ServiceConfig, run_service
 
     run_service(
         ServiceConfig(

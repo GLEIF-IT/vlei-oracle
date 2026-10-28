@@ -1,8 +1,9 @@
-# Trusted verifier status inbox
+# Trusted verifier status and contract posting
 
 `vlei-oracle server receive` accepts EOA Verifier webhooks and signs ACKs after
 committing receipt, verifier status and ownership selection to LMDB. It does not start the legacy credential-verification or
-Ethereum-posting workers. `server start` retains the older combined workflow.
+Ethereum-posting workers. `server start` adds trusted-status contract posting;
+`server legacy-start` retains the older combined workflow on independent stores.
 
 ## Start
 
@@ -86,20 +87,56 @@ to trusted facts. One canonical `extId` (chain/address) has one current associat
 and highest known issuance sequence per issuer for that chain/address.
 `OracleBaser.selected_association(ext_id)` reads the selected stored facts without
 RPC or credential checks. The legacy management/transaction tables are unchanged.
-No background selection worker or contract submission is introduced. Same-anchor
+No background selection worker is needed. Same-anchor
 multiple-association detection remains deferred as described in the ADR appendix.
+
+## Contract posting
+
+```sh
+export VLEI_ORACLE_POSTING_KEY=<dedicated-Ethereum-writer-key>
+vlei-oracle server start \
+  --verifier-aid "$VERIFIER_AID" --verifier-kel verifier.cesr \
+  --chain-id 31337 --webhook-url http://localhost:9723/v1/status-events \
+  --rpc-url http://localhost:8545 \
+  --endorsement-registry "$ORACLE_REGISTRY" --identity-registry "$IDENTITY_REGISTRY"
+```
+
+The writer needs the deployed registries' permissions. One worker serializes
+contract actions using the existing identity registration and endorsement
+operations. A selected accepted association publishes its mapping; a retired
+association withdraws only its own SAID. Stored selection is checked again after
+RPC preparation. A transaction already broadcast may still land after replacement
+or revocation; after its receipt, the next cycle applies current stored status.
+No cancellation is attempted.
+
+`--confirmations` defaults to 2 and `--posting-interval` to one second. The existing
+transaction journal records signed transaction identity before submission, then
+`pending`, `confirmed` or `reverted` receipt outcomes. A receipt is not a claim that
+the mapping still exists: the worker reads actual contract state before choosing
+another action. Duplicates do not require another send when the mapping agrees.
+The worker never calls EOA Verifier, checks observation age or repeats account or
+credential verification. RPC errors are logged; pre-submission errors retry on
+later cycles. Reverts are recorded and current desired actions can retry.
+
+An uncertain broadcast keeps its hash and failure reason pending across restart.
+The worker polls receipts and does not allocate another nonce until it resolves.
+A permanently dropped transaction therefore needs operator investigation; automatic
+rebroadcast, cancellation, nonce reconciliation and reorg recovery are outside this
+runtime. Never share its writer with another process. Do not reuse a legacy
+workflow store or migrate a live legacy journal; demonstrate with independent
+stores. Changing chain, writer or contract addresses requires another store.
 
 ## Checks
 
-Install the test-only sender with `pip install -r tests/requirements.txt` and run
-`pytest -q tests/test_status_inbox.py tests/test_selection.py`. Tests exercise native peer identities, real
-HIO HTTP, automatic retry across both ACK loss windows, ordering/conflicts and rotation.
-Selection tests cover replacement, transfer, delayed revocation, durable history
-and receipt/selection rollback before ACK.
-Fixture facts begin after initial verification; end-to-end native credential and
-contract qualification remains a later increment. CI tests installed wheels and
-the existing non-contract regression suite. Local `test_contract_effects.py`
-requires Foundry and `VLEI_COMPLY_DIR`; it is explicitly outside this CI job.
+Install the test-only sender with `pip install -r tests/requirements.txt`. CI tests
+installed wheels against Foundry 1.5.1 and comply revision
+`6220cd78411b8b721838ee67f11293ff5504c05c`. For local contract tests, set
+`VLEI_COMPLY_DIR` to that checkout with its submodules and put `forge`/`anvil` on PATH.
+Missing prerequisites fail the contract suite. `test_status_posting.py` covers
+accepted-to-published, replacement, exact withdrawal, duplicate receipt, pending
+and uncertain sends, restart and a replacement during RPC preparation. Its facts
+start after upstream initial verification; the two-process native credential
+qualification is separate.
 
 The signature adapter matches the merged verifier's profile without importing
 that application at runtime. Interoperability tests guard this intentional small

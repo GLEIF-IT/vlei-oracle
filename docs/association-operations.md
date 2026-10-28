@@ -1,5 +1,8 @@
 # Local association operations
 
+This runbook describes the legacy combined workflow. For the independent EOA
+Verifier/oracle deployment, use [trusted status](status-inbox.md).
+
 Use fresh state and the pinned dependency pair. This runbook qualifies an
 unpublished local prototype; deployments beyond Anvil need separate authorization.
 Keep existing operator credentials and stores.
@@ -57,7 +60,7 @@ writer key in the configured environment variable; grant its address the
 registry's compliance-admin role. Keep this writer's nonce stream exclusive.
 
 ```sh
-"$VLEI_ORACLE" server start --name oracle --alias oracle --base "$ORACLE_BASE" \
+"$VLEI_ORACLE" server legacy-start --name oracle --alias oracle --base "$ORACLE_BASE" \
   --trusted-geda-aid "$GEDA_AID" --schema-dir "$VLEI_SCHEMA_TOOLS_DIR/schema/acdc" \
   --rpc-url "$RPC_URL" --chain-id "$CHAIN_ID" \
   --endorsement-registry "$ORACLE_REGISTRY" --identity-registry "$IDENTITY_REGISTRY"
