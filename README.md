@@ -8,7 +8,9 @@ account verification belongs to EOA Verifier; the oracle does not repeat it.
 
 Accepted associations remain valid until their association credential is revoked
 or a newer same-LE issuance supersedes them. Revocation withdraws only the matching
-association SAID. Receipt ACKs do not mean an on-chain transaction has succeeded.
+association SAID. Receipt ACKs do not mean an on-chain transaction has succeeded. The
+[two-service qualification](docs/two-service-qualification.md) exercises the installed
+applications with native witnessed evidence, signed HTTP and Anvil.
 
 ## Code organization
 

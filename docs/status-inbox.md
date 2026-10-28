@@ -135,8 +135,8 @@ installed wheels against Foundry 1.5.1 and comply revision
 Missing prerequisites fail the contract suite. `test_status_posting.py` covers
 accepted-to-published, replacement, exact withdrawal, duplicate receipt, pending
 and uncertain sends, restart and a replacement during RPC preparation. Its facts
-start after upstream initial verification; the two-process native credential
-qualification is separate.
+start after upstream initial verification. The [two-service qualification](two-service-qualification.md)
+additionally runs witnessed native issuance through two installed CLI processes.
 
 The signature adapter matches the merged verifier's profile without importing
 that application at runtime. Interoperability tests guard this intentional small
