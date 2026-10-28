@@ -2,6 +2,20 @@
 
 import json
 
+from hio.core import http
+
+
+class RpcClientDoer(http.ClientDoer):
+    """Deliver expected socket failures to the waiting RPC; native exit closes sockets."""
+
+    def recur(self, tyme):
+        """Keep a failed connection from unwinding unrelated service tasks."""
+        try:
+            return super().recur(tyme)
+        except OSError as error:
+            self.client.responses.append({"errored": True, "error": str(error)})
+            return True
+
 
 def request_rpc(client, *, request_id, method, params, tymth, timeout, tock):
     """Bound the wait and reject mismatched, failed, or unusable responses."""
@@ -15,6 +29,8 @@ def request_rpc(client, *, request_id, method, params, tymth, timeout, tock):
             raise TimeoutError(f"{method} timed out")
         yield tock
     response = client.responses.popleft()
+    if response.get("errored"):
+        raise OSError(f"{method} transport failed: {response['error']}")
     if response["status"] != 200:
         raise ValueError(f"{method} HTTP status {response['status']}")
     payload = json.loads(response["body"])

@@ -150,3 +150,65 @@ def test_lost_broadcast_response_is_pending_until_confirmed(peers, deployment):
         return True
 
     drive(poster.effects, workflow)
+
+
+def test_rpc_tls_failure_keeps_signed_receipt_available(peers, caplog):
+    """After a real RPC TLS failure, the composed service still ACKs an HTTP duplicate."""
+    import json
+    import socket
+    from hio.base import doing
+    from hio.core import http, tcp
+
+    class PlaintextPeer(tcp.ServerDoer):
+        """Trigger a terminal native TLS error by answering ClientHello in plaintext."""
+
+        def recur(self, tyme):
+            super().recur(tyme)
+            for peer in self.server.ixes.values():
+                if peer.rxbs:
+                    peer.rxbs.clear()
+                    peer.tx(b"HTTP/1.1 400 Bad Request\r\n\r\n")
+
+    with socket.socket() as port_probe:
+        port_probe.bind(("127.0.0.1", 0))
+        port = port_probe.getsockname()[1]
+    server = tcp.Server(host="127.0.0.1", port=port)
+    server_doer = PlaintextPeer(server=server)
+    config = replace(
+        peers.config, rpc_url=f"https://127.0.0.1:{server.ha[1]}", posting_key=KEY,
+        endorsement_registry="0x" + "22" * 20,
+        identity_registry="0x" + "33" * 20,
+    )
+    receiver = StatusReceiver(config, hby=peers.oracle, baser=peers.inbox)
+    body = event_body(peers, "tls-retry", 50)
+    assert post(peers, body).status_code == 200  # Give the poster durable selected work.
+    client = http.Client(path=config.webhook_url)
+    client_doer = http.ClientDoer(client=client)
+    responses = []
+
+    def probe(tymth, tock=0.0, **opts):
+        """Wait for the posting error, then exercise receipt over a real signed connection."""
+        yield tock
+        while not any("transport failed" in record.getMessage() for record in caplog.records):
+            yield 0.01
+        headers, sent = peers.auth.sign(
+            method="POST", target=config.webhook_url, action="status", body=body,
+        )
+        client.request(method="POST", headers=headers, body=body)
+        while not client.responses:
+            yield 0.01
+        response = client.responses.popleft()
+        peers.auth.verify(
+            method="POST", target=config.webhook_url, action="ack",
+            body=response["body"], headers=response["headers"],
+            request=sent.reference, status=response["status"],
+        )
+        responses.append(response)
+        parent.remove([receiver, server_doer, client_doer])
+
+    parent = doing.DoDoer(doers=[receiver, server_doer, client_doer, doing.doify(probe)])
+    doing.Doist(real=True, tock=0.01, limit=3).do(doers=[parent])
+    assert parent.done and responses[0]["status"] == 200
+    assert json.loads(responses[0]["body"])["accepted"] is True
+    assert peers.inbox.selected_association("eip155:31337:0x" + "11" * 20) is not None
+    assert peers.inbox.transactions.cntAll() == 0  # No fabricated submission on failure.
