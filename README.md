@@ -1,7 +1,7 @@
 # vLEI association oracle
 
 The new [trusted status receiver](docs/status-inbox.md), `server receive`, accepts
-authenticated EOA Verifier events into a durable inbox and returns signed ACKs.
+authenticated EOA Verifier events, persists ownership selection and returns signed ACKs.
 It performs no Ethereum posting or independent association verification. The
 combined `server start` workflow described below remains available unchanged.
 
@@ -31,6 +31,8 @@ replacement, revocation, recovery, and compromise.
   uses HIO for Ethereum observations; schema resources live here too.
 - `endorsement/` owns action selection, contract effects, and durable transaction
   reconciliation. It reuses verification checks before effects and owns ABI resources.
+- `selecting.py` chooses ownership from trusted issuer/issuance facts for the
+  receive-only service; it performs no verification or network work.
 - `basing.py` owns application persistence; `rpc.py` provides the shared yielding
   request helper. Neither imports the workflows that use it.
 - `serving.py` composes the native stores, clients, and doers. `commands/` contains

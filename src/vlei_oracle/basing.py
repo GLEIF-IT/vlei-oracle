@@ -1,8 +1,10 @@
-"""Native LMDB ownership for verification, managed associations, and effects.
+"""Native LMDB records for the legacy workflow and trusted status receiver.
 
 Verification owns acceptance progress; management owns continuing reconciliation.
 Their handoff commits atomically. Queues and cues remain transient scheduling
 hints, while the transaction journal owns recovery of uncertain external effects.
+The receive-only service instead commits authenticated status and ownership
+selection together; it does not use the legacy verification/effect workflow.
 """
 
 from __future__ import annotations
@@ -13,6 +15,7 @@ from typing import Any
 from keri.db import dbing, koming
 
 from vlei_oracle.statusing import AssociationStatus, StatusEvent
+from vlei_oracle.selecting import WalletClaim, update_selection
 
 STATE_AWAITING_ARTIFACTS = "awaiting_artifacts"
 STATE_VERIFYING = "verifying"
@@ -83,7 +86,7 @@ class InboxScope:
 
 
 class OracleBaser(dbing.LMDBer):
-    """Minimal local work, management membership, and signed-effect recovery."""
+    """Own legacy workflow records and the independent trusted receipt/selection records."""
 
     TailDirPath = "vlei-oracle/db"
     AltTailDirPath = ".vlei-oracle/db"
@@ -104,14 +107,17 @@ class OracleBaser(dbing.LMDBer):
         self.inbox = koming.Komer(db=self, subkey="inbox.", schema=StatusEvent)
         self.statuses = koming.Komer(db=self, subkey="statuses.", schema=AssociationStatus)
         self.messages = koming.Komer(db=self, subkey="messages.", schema=MessageReceipt)
+        self.claims = koming.Komer(db=self, subkey="claims.", schema=WalletClaim)
         self.inbox_scope = koming.Komer(db=self, subkey="inbox-scope.", schema=InboxScope)
         return self.env
 
     def bind_inbox_scope(self, scope):
-        """Refuse to reinterpret stored status under another verifier or chain."""
+        """Refuse a changed trust scope or a populated inbox with no selection history."""
         existing = self.inbox_scope.get(keys=("receiver",))
         if existing is not None and existing != scope:
             raise ValueError("inbox belongs to another verifier or chain")
+        if self.statuses.cntAll() and not self.claims.cntAll():
+            raise ValueError("inbox predates ownership selection; use a fresh receiver store")
         self.inbox_scope.put(keys=("receiver",), val=scope)
 
     def claim_message(self, peer, nonce, expires):
@@ -119,12 +125,12 @@ class OracleBaser(dbing.LMDBer):
         return self.messages.put(keys=(peer, nonce), val=MessageReceipt(expires))
 
     def receive_status(self, event, status):
-        """Commit immutable event receipt and monotonic status together before ACK.
+        """Commit event receipt, monotonic status and ownership selection before ACK.
 
         Exact redelivery and older revisions are acknowledged without changing
         current status. Conflicting bytes/revisions or issuance facts are rejected.
         Revocation is terminal for this SAID; another SAID may later replace it.
-        No ownership selection or contract effect occurs in this transaction.
+        Selection uses trusted issuance history only; no contract effect occurs.
         """
         event_key, status_key = event.eventId.encode(), status.associationSaid.encode()
         with self.env.begin(write=True) as txn:
@@ -143,7 +149,33 @@ class OracleBaser(dbing.LMDBer):
                     raise ValueError("revocation revision precedes acceptance")
             txn.put(event_key, self.inbox.serializer(event), db=self.inbox.sdb)
             if current is None or status.revision > current.revision:
-                txn.put(status_key, self.statuses.serializer(status), db=self.statuses.sdb)
+                if current is not None:
+                    status.selection = current.selection
+                self._apply_status(txn, status)
+
+    def _apply_status(self, txn, status):
+        """Apply selection and persist all changed records inside the receipt transaction."""
+        key = status.association["extId"].encode()
+        claim = self.claims.deserializer(txn.get(key, db=self.claims.sdb)) or WalletClaim()
+        current = (
+            self.statuses.deserializer(txn.get(claim.currentSaid.encode(), db=self.statuses.sdb))
+            if claim.currentSaid else None
+        )
+        update_selection(status, current=current, claim=claim)
+        if current is not None and current.associationSaid != status.associationSaid:
+            txn.put(
+                current.associationSaid.encode(), self.statuses.serializer(current), db=self.statuses.sdb
+            )
+        txn.put(status.associationSaid.encode(), self.statuses.serializer(status), db=self.statuses.sdb)
+        txn.put(key, self.claims.serializer(claim), db=self.claims.sdb)
+
+    def selected_association(self, ext_id):
+        """Read the current selected status for a canonical chain/address, without RPC."""
+        with self.env.begin() as txn:
+            claim = self.claims.deserializer(txn.get(ext_id.encode(), db=self.claims.sdb))
+            if claim is None or not claim.currentSaid:
+                return None
+            return self.statuses.deserializer(txn.get(claim.currentSaid.encode(), db=self.statuses.sdb))
 
     def bind_posting_scope(self, scope: PostingScope):
         """Refuse to reconcile an old intent against a different deployment."""
