@@ -23,8 +23,9 @@ class StatusEnd:
 
         req supplies exact body bytes and native KERI Signature/Signature-Input
         headers. HTTP 200 returns signed {eventId, accepted: true}, bound to this
-        request attempt, only after the inbox/status transaction commits. Duplicate
-        events get a new ACK without repeated effects. Return 401 for authentication
+        request attempt, only after inbox, status and selection commit together. Duplicate
+        events get a new ACK without repeated effects. ACK is receipt, not ownership
+        approval or an on-chain endorsement. Return 401 for authentication
         or replay failure, 400 for malformed events, and 409 for revision conflicts;
         errors never carry a success ACK. No credential or Ethereum RPC work occurs.
         """

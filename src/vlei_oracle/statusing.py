@@ -20,7 +20,7 @@ class StatusEvent:
 
 @dataclass
 class AssociationStatus:
-    """Latest verifier status and issuance facts; not an ownership or posting decision."""
+    """Latest verifier status and immutable facts, with a separate local selection decision."""
 
     associationSaid: str
     revision: int
@@ -28,6 +28,7 @@ class AssociationStatus:
     association: dict
     wallet: str
     identityRef: str
+    selection: str = "unselected"  # selected, superseded, rejected or revoked after selection.
 
 
 def read_status(body: bytes, *, chain_id: int):

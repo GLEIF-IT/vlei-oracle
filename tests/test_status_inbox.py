@@ -167,7 +167,7 @@ def test_authentication_replay_and_bad_event_leave_no_new_status(peers):
 
 @pytest.mark.parametrize("gap", ["none", "before-ack", "before-sender-completion"])
 def test_real_sender_recovers_commit_ack_gaps(peers, monkeypatch, gap):
-    """Actual signed HTTP completes once, including explicit redelivery after either commit gap."""
+    """Actual signed HTTP completes once, including automatic redelivery after either commit gap."""
     sender = WebhookSender(baser=peers.outbox, hab=peers.hab, timeout=1)
 
     def fail(*args, **kwargs):
@@ -177,12 +177,15 @@ def test_real_sender_recovers_commit_ack_gaps(peers, monkeypatch, gap):
     def drive(worker, *, expect_failure=False):
         """Run native HTTP and sender until one attempt settles, then close both sockets."""
 
+        starting_attempts = peers.outbox.outbox.get(keys=(peers.event.eventId,)).attempts
+
         def stop_when_settled(tymth, tock=0.0, **kwa):
             yield tock
             while True:
                 event = peers.outbox.outbox.get(keys=(peers.event.eventId,))
                 if event.delivered or (
-                    event.error
+                    event.attempts > starting_attempts
+                    and event.error
                     and event.error != "attempt started; authenticated ACK not recorded"
                 ):
                     parent.remove([worker, peers.receiver])
@@ -222,11 +225,12 @@ def test_real_sender_recovers_commit_ack_gaps(peers, monkeypatch, gap):
             peers.config, hby=peers.oracle, baser=peers.inbox
         )
         sender = WebhookSender(baser=peers.outbox, hab=peers.hab, timeout=1)
-        sender.request(peers.event.eventId)
         drive(sender)
     delivered = peers.outbox.outbox.get(keys=(peers.event.eventId,))
     assert delivered.delivered
     assert delivered.attempts == (1 if gap == "none" else 2)
+    ext_id = json.loads(peers.event.body)["association"]["extId"]
+    assert peers.inbox.selected_association(ext_id).associationSaid == peers.event.associationSaid
     assert len(list(peers.inbox.inbox.getItemIter())) == 1
     status = peers.inbox.statuses.get(keys=(peers.event.associationSaid,))
     assert (
