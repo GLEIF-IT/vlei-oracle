@@ -80,7 +80,10 @@ Present the finished ACDC and required supporting KEL/TEL evidence with `kli ipe
 grant` or native KERI CESR HTTP delivery. Addressed transport does not make the
 association a targeted credential.
 
-## Service
+## Legacy combined service
+
+The following commands and lifecycle apply only to `server legacy-start`.
+Use [trusted status and contract posting](docs/status-inbox.md) for `server start`.
 
 ```sh
 .venv/bin/vlei-oracle server legacy-start --name oracle --alias oracle \
@@ -128,7 +131,7 @@ The issuance exercise isolates its test stores and local Anvil. It does not
 modify existing operator credentials or deploy to another network.
 
 
-## Data ownership
+## Legacy data ownership
 
 Application state holds unfinished verification (association and native Grant
 references, progress, current blockage), explicit managed membership (association,
