@@ -20,6 +20,8 @@ jobs:
           repository: GLEIF-IT/vlei-comply
           ref: 6220cd78411b8b721838ee67f11293ff5504c05c
           path: comply
+          ssh-key: ${{ secrets.VLEI_COMPLY_READ_KEY }}
+          persist-credentials: false
           submodules: recursive
       - name: Install Foundry and build contracts
         run: |
