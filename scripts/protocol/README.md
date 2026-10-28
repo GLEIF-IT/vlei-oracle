@@ -1,4 +1,8 @@
-# Association issuance and verification
+# Legacy combined-service issuance exercise
+
+The current independent-service qualification is documented in
+[the two-service guide](../../docs/two-service-qualification.md). These helpers
+remain available for ceremony tooling and the legacy combined-service tests.
 
 - [exercise_issuance.py](exercise_issuance.py): Real delegated credential issuance and IPEX/HTTP verification, including rejection cases.
 - [ceremony.py](ceremony.py): Verify the pre-issuance proof, consume the issuer nonce durably, and write a full ACDC for KLI.
@@ -19,13 +23,13 @@ uv pip install --python .venv/bin/python -e '.[dev]' -r scripts/protocol/require
 ```
 
 The preparer checks out the pinned public vLEI schemas. Python uses PyPI's
-`gleif_keri==1.2.15rc1`. The exercise starts its own Anvil and HIO/Falcon server on local
+`gleif_keri==1.2.17`. The exercise starts its own Anvil and HIO/Falcon server on local
 ephemeral ports, starts one native KERI witness, and closes its temporary KERI
 stores and processes on exit.
 
 Use a fresh virtual environment when switching from upstream `keri`/`hio`:
-the GLEIF packages own those same import paths. The RC requires
-`gleif_hio==0.6.20rc3` and `lmdb<3`.
+the GLEIF packages own those same import paths. The pinned release requires
+`gleif_hio==0.6.21` and its declared LMDB constraints.
 
 The test GEDA delegates the QVI identifier and issues its QVI credential. The
 QVI issues the chained LE credential. The LE signs and issues an untargeted

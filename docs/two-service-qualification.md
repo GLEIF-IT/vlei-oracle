@@ -33,7 +33,7 @@ focused policy/transport tests; this is not a second fault-matrix suite.
 
 Install the oracle wheel and `tests/requirements.txt` in a fresh Python 3.12
 environment. Put Foundry 1.5.1 on PATH and set `VLEI_COMPLY_DIR` to comply revision
-`6220cd78411b8b721838ee67f11293ff5504c05c` with submodules and built contracts.
+`f61846512bbc75255b82c25b1c4ac71bc2127c57` with submodules and built contracts.
 From a directory containing the copied `tests`, `scripts` and `protocol` trees:
 
 ```sh

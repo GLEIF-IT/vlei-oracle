@@ -34,10 +34,40 @@ import paths and must not share an environment with upstream distributions.
 
 ```sh
 uv venv --python 3.12 .venv
-uv pip install --python .venv/bin/python -e '.[dev]' -r scripts/protocol/requirements.txt
+uv pip install --python .venv/bin/python -e '.[dev]' -r tests/requirements.txt -r scripts/protocol/requirements.txt
 .venv/bin/python scripts/dev/prepare-demo.py --schemas-only
+# For the full suite, first prepare Foundry/comply as described below.
 .venv/bin/python -m pytest -q
 ```
+
+For standalone installation, build a wheel with `python -m pip wheel --no-deps
+--wheel-dir dist .` and install it into a fresh environment. The oracle wheel does
+not depend on or import EOA Verifier. See the [operator guide](docs/status-inbox.md)
+for explicit trust, chain, contract and writer settings.
+
+For both applications and the local launcher, prepare one isolated demo directory:
+
+```sh
+python3.12 scripts/dev/prepare-demo.py --directory .demo-paired
+source .demo-paired/demo.env
+```
+
+This installs the invoking oracle source, the merged verifier pinned in
+`tests/requirements.txt`, and the native/runtime versions declared by the package.
+The manifest pins KERI demo assets, vLEI schemas and the comply launcher/contracts.
+It exports both executables and checkout paths; it starts no services and creates
+no identities. Existing mismatched/dirty dependency checkouts are never reset;
+choose a new directory when changing pins. Install Foundry 1.5.1 separately, then
+follow the prepared comply checkout's `docs/gl1-vlei-local-infra-setup.md` for
+service configuration. Run its `scripts/dev/init-local-vlei-fixture.sh` with these
+exports for the native two-wallet test; keep this prepared environment rather than
+reinstalling the guide's earlier qualification snapshot.
+
+The schema-server tool `vlei` still declares upstream `keri`/`hio` distribution
+names. The preparer installs it with `--no-deps` into the GLEIF demo environment;
+`pip check` therefore reports those two metadata requirements as missing. Do not
+install the overlapping upstream packages to silence them. This exception belongs
+to demo schema tooling, not either application wheel.
 
 ## Ceremony
 
