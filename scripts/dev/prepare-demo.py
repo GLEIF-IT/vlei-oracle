@@ -1,6 +1,6 @@
 """Prepare pinned demo dependencies in an isolated directory; start no services.
 
-Only the invoking oracle checkout is installed from source. External Python
+The invoking oracle checkout and pinned verifier are installed independently. Other
 packages come from PyPI or an exact upstream Git commit. Dependency checkouts
 provide demo configuration, schema data, and Solidity sources, never ambient
 editable imports from a developer's workspace.
@@ -169,7 +169,8 @@ def main() -> None:
         copy_oracle_source(ORACLE_ROOT, Path(build_root))
         subprocess.run(
             [str(python), "-m", "pip", "install", build_root + "[dev]",
-             "-r", str(Path(__file__).with_name("demo-requirements.txt"))],
+             "-r", str(Path(__file__).with_name("demo-requirements.txt")),
+             "-r", str(ORACLE_ROOT / "tests/requirements.txt")],
             check=True,
         )
     # vLEI's metadata still names upstream keri/hio. Install its schema tools
@@ -198,6 +199,7 @@ def main() -> None:
             "KLI": str(bin_dir / "kli"),
             "VLEI_SERVER": str(bin_dir / "vLEI-server"),
             "VLEI_ORACLE": str(bin_dir / "vlei-oracle"),
+            "EOA_VERIFIER": str(bin_dir / "eoa-verifier"),
         },
     )
     print(f"Dependencies prepared. Load exports with: source {shlex.quote(str(path))}")

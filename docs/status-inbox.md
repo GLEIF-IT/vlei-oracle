@@ -35,7 +35,7 @@ data is preserved. Production migration is separate work.
 ## Receipt and ACK
 
 POST the verifier's ordinary v1 JSON object to `/v1/status-events`. The
-[producer's API note](https://github.com/GLEIF-IT/eoa-verifier/blob/7cf78be7bcb9fe98eab7919ae8ffbd2bb6ad5529/adrs/0002-verifier-result-object.md)
+[producer's API note](https://github.com/GLEIF-IT/eoa-verifier/blob/a805190b651613eeff7fa7011deaad0707dde564/adrs/0002-verifier-result-object.md)
 defines acceptance and retirement. The receiver supports these two states:
 
 - `outcome: "valid"`: initially verified and accepted association.
@@ -68,7 +68,7 @@ delivery. Authentication expiry does not expire association validity.
 
 ## Ownership selection
 
-`selecting.py` applies [ADR 0001](https://github.com/GLEIF-IT/eoa-verifier/blob/7cf78be7bcb9fe98eab7919ae8ffbd2bb6ad5529/adrs/0001-eoa-association-ownership-and-replacement.md)
+`selecting.py` applies [ADR 0001](https://github.com/GLEIF-IT/eoa-verifier/blob/a805190b651613eeff7fa7011deaad0707dde564/adrs/0001-eoa-association-ownership-and-replacement.md)
 to trusted facts. One canonical `extId` (chain/address) has one current association:
 
 - Same LE holder AID: a strictly higher issuer-KEL issuance sequence supersedes
@@ -130,7 +130,7 @@ stores. Changing chain, writer or contract addresses requires another store.
 
 Install the test-only sender with `pip install -r tests/requirements.txt`. CI tests
 installed wheels against Foundry 1.5.1 and comply revision
-`6220cd78411b8b721838ee67f11293ff5504c05c`. For local contract tests, set
+`f61846512bbc75255b82c25b1c4ac71bc2127c57`. For local contract tests, set
 `VLEI_COMPLY_DIR` to that checkout with its submodules and put `forge`/`anvil` on PATH.
 Missing prerequisites fail the contract suite. `test_status_posting.py` covers
 accepted-to-published, replacement, exact withdrawal, duplicate receipt, pending
@@ -141,4 +141,5 @@ additionally runs witnessed native issuance through two installed CLI processes.
 The signature adapter matches the merged verifier's profile without importing
 that application at runtime. Interoperability tests guard this intentional small
 cross-application duplication. KERI 1.2.17 and HIO 0.6.21 match that producer's pins;
-this is a compatibility baseline, not a claim that HIO 0.6.21 is the latest release.
+KERI 1.2.17 requires HIO 0.6.21 exactly. PyPI HIO 0.6.22 is newer, but adopting it
+requires a compatible KERI release; do not override the resolver.
