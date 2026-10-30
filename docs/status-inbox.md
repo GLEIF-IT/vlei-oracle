@@ -35,7 +35,7 @@ data is preserved. Production migration is separate work.
 ## Receipt and ACK
 
 POST the verifier's ordinary v1 JSON object to `/v1/status-events`. The
-[producer's API note](https://github.com/GLEIF-IT/eoa-verifier/blob/e459e9b28acc297d079fdc798748232aad3e1237/adrs/0002-verifier-result-object.md)
+[producer's API note](https://github.com/GLEIF-IT/eoa-verifier/blob/f649452391e3cd3660a936205d55d51e38388db1/adrs/0002-verifier-result-object.md)
 defines acceptance and retirement. The receiver supports these two states:
 
 - `outcome: "valid"`: initially verified and accepted association.
@@ -68,7 +68,7 @@ delivery. Authentication expiry does not expire association validity.
 
 ## Ownership selection
 
-`selecting.py` applies [ADR 0001](https://github.com/GLEIF-IT/eoa-verifier/blob/e459e9b28acc297d079fdc798748232aad3e1237/adrs/0001-eoa-association-ownership-and-replacement.md)
+`selecting.py` applies [ADR 0001](https://github.com/GLEIF-IT/eoa-verifier/blob/f649452391e3cd3660a936205d55d51e38388db1/adrs/0001-eoa-association-ownership-and-replacement.md)
 to trusted facts. One canonical `extId` (chain/address) has one current association:
 
 - Same LE holder AID: a strictly higher issuer-KEL issuance sequence supersedes
@@ -140,6 +140,5 @@ additionally runs witnessed native issuance through two installed CLI processes.
 
 The signature adapter matches the merged verifier's profile without importing
 that application at runtime. Interoperability tests guard this intentional small
-cross-application duplication. KERI 1.2.17 and HIO 0.6.21 match that producer's pins;
-KERI 1.2.17 requires HIO 0.6.21 exactly. PyPI HIO 0.6.22 is newer, but adopting it
-requires a compatible KERI release; do not override the resolver.
+cross-application duplication. KERI 1.2.18 and HIO 0.6.22 match that producer's pins;
+KERI 1.2.18 requires HIO 0.6.22 exactly; do not override the resolver.
