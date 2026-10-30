@@ -140,5 +140,5 @@ additionally runs witnessed native issuance through two installed CLI processes.
 
 The signature adapter matches the merged verifier's profile without importing
 that application at runtime. Interoperability tests guard this intentional small
-cross-application duplication. KERI 1.2.18 and HIO 0.6.22 match that producer's pins;
-KERI 1.2.18 requires HIO 0.6.22 exactly; do not override the resolver.
+cross-application duplication. KERI 1.2.19 and HIO 0.6.22 match that producer's pins;
+KERI 1.2.19 requires HIO 0.6.22 exactly; do not override the resolver.
