@@ -23,13 +23,13 @@ uv pip install --python .venv/bin/python -e '.[dev]' -r scripts/protocol/require
 ```
 
 The preparer checks out the pinned public vLEI schemas. Python uses PyPI's
-`gleif_keri==1.2.17`. The exercise starts its own Anvil and HIO/Falcon server on local
+`gleif_keri==1.2.18`. The exercise starts its own Anvil and HIO/Falcon server on local
 ephemeral ports, starts one native KERI witness, and closes its temporary KERI
 stores and processes on exit.
 
 Use a fresh virtual environment when switching from upstream `keri`/`hio`:
 the GLEIF packages own those same import paths. The pinned release requires
-`gleif_hio==0.6.21` and its declared LMDB constraints.
+`gleif_hio==0.6.22` and its declared LMDB constraints.
 
 The test GEDA delegates the QVI identifier and issues its QVI credential. The
 QVI issues the chained LE credential. The LE signs and issues an untargeted

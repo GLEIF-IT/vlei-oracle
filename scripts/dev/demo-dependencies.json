@@ -1,8 +1,8 @@
 {
   "keripy": {
     "url": "https://github.com/GLEIF-IT/keripy.git",
-    "commit": "b8626e1d58770a4a480ea72a01acc5580278a9f2",
-    "release": "1.2.17"
+    "commit": "6dcec2085aa37a64c9cb5f290857d13416eaf5de",
+    "release": "1.2.18"
   },
   "vLEI": {
     "url": "https://github.com/WebOfTrust/vLEI.git",
