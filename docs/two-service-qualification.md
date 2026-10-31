@@ -46,7 +46,7 @@ only its own subprocesses. On macOS hosts with LMDB vnode exhaustion, copy the
 inputs into a Linux container with no host bind mounts and run there.
 
 The producer is pinned to merged verifier revision
-`0a19c0b19608088af6c23e6cdf3ef1481a8cd5e2` in `tests/requirements.txt`, not as an
+`486fb42f92b6c3269d7968934448f21121ef08aa` in `tests/requirements.txt`, not as an
 oracle runtime import. Existing status-posting tests establish old-observation
 acceptance and failure handling without the verifier. The paired comply launcher invokes this same scenario; it does not copy the
 KERIpy issuance or process-ownership code.
@@ -75,7 +75,5 @@ PYTHONPATH=scripts/protocol VLEI_COMPLY_DIR=/path/to/pinned/comply \
 
 The paired test verifies the installed CLIs and wire/resource compatibility.
 `test_status_inbox.py` additionally exercises Python imports from the installed
-producer. Its fixture supports both the merged producer's flat imports and the
-candidate's `delivery`/`persistence` components. Only absence of the new delivery
-package selects the old paths; unrelated dependency failures still surface.
-The committed producer pin stays unchanged until a merged revision is selected.
+producer through its `delivery`/`persistence` components. These imports require
+the reorganized producer revision pinned in `tests/requirements.txt`.

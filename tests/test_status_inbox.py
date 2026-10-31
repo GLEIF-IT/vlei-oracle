@@ -16,19 +16,10 @@ from keri.app import habbing
 from keri.core import coring
 from keri.db import dbing
 
-# Keep the merged producer pin usable while qualifying its component reorganization.
-try:
-    from eoa_verifier.delivery.authing import ServiceAuthenticator as SenderAuthenticator
-except ModuleNotFoundError as error:
-    if error.name != "eoa_verifier.delivery":
-        raise
-    from eoa_verifier.authing import ServiceAuthenticator as SenderAuthenticator
-    from eoa_verifier.basing import PendingVerification, VerificationResult, VerifierBaser
-    from eoa_verifier.delivering import WebhookSender
-else:
-    from eoa_verifier.delivery.delivering import WebhookSender
-    from eoa_verifier.persistence.basing import VerifierBaser
-    from eoa_verifier.persistence.records import PendingVerification, VerificationResult
+from eoa_verifier.delivery.authing import ServiceAuthenticator as SenderAuthenticator
+from eoa_verifier.delivery.delivering import WebhookSender
+from eoa_verifier.persistence.basing import VerifierBaser
+from eoa_verifier.persistence.records import PendingVerification, VerificationResult
 from vlei_oracle.basing import OracleBaser
 from vlei_oracle.receiving.service import ReceiverConfig, StatusReceiver, run_receiver
 
