@@ -35,7 +35,7 @@ data is preserved. Production migration is separate work.
 ## Status delivery and acknowledgment
 
 POST the verifier's ordinary v1 JSON object to `/v1/status-events`. The
-[producer's API note](https://github.com/GLEIF-IT/eoa-verifier/blob/0a19c0b19608088af6c23e6cdf3ef1481a8cd5e2/adrs/0002-verifier-result-object.md)
+[producer's API note](https://github.com/GLEIF-IT/eoa-verifier/blob/486fb42f92b6c3269d7968934448f21121ef08aa/adrs/0002-verifier-result-object.md)
 defines acceptance and retirement. The receiver supports these two states:
 
 - `status: "accepted"`: initially verified and accepted association.
@@ -75,7 +75,7 @@ a transport parameter and does not expire associations.
 
 ## Ownership selection
 
-`selecting.py` applies [ADR 0001](https://github.com/GLEIF-IT/eoa-verifier/blob/0a19c0b19608088af6c23e6cdf3ef1481a8cd5e2/adrs/0001-eoa-association-ownership-and-replacement.md)
+`selecting.py` applies [ADR 0001](https://github.com/GLEIF-IT/eoa-verifier/blob/486fb42f92b6c3269d7968934448f21121ef08aa/adrs/0001-eoa-association-ownership-and-replacement.md)
 to trusted facts. One canonical `extId` (chain/address) has one current association:
 
 - Same LE holder AID: a strictly higher issuer-KEL issuance sequence supersedes
@@ -157,4 +157,4 @@ KERI 1.2.19 requires HIO 0.6.22 exactly; do not override the resolver.
 The separately identified KERIpy receipt-couple shortage parser limitation remains
 unresolved in the producer dependency. This naming rollout does not establish
 intake liveness for that malformed stream; see the pinned verifier's
-[operations note](https://github.com/GLEIF-IT/eoa-verifier/blob/0a19c0b19608088af6c23e6cdf3ef1481a8cd5e2/docs/operations.md).
+[operations note](https://github.com/GLEIF-IT/eoa-verifier/blob/486fb42f92b6c3269d7968934448f21121ef08aa/docs/operations.md).

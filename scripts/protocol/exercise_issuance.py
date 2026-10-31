@@ -23,6 +23,7 @@ from tempfile import TemporaryDirectory
 from uuid import uuid4
 
 from ceremony import association_from_challenge, write_credential
+from vlei_oracle.noncing import NonceLedger
 from transport_fixture import PresentationDoer
 from relationship_fixture import qualify_relationships
 from replacement_fixture import qualify_replacement
@@ -131,6 +132,9 @@ def exercise(schema_dir: Path, *, keep: bool = False, comply: Path | None = None
         _geda_hby, geda, _geda_rgy = actors["geda"]
         _qvi_hby, qvi, qvi_rgy = actors["qvi"]
         le_hby, le, le_rgy = actors["le"]
+        nonce_ledger = stack.enter_context(
+            NonceLedger(Path(le_rgy.reger.path) / "association-nonces")
+        )
 
         # 4. Start an isolated chain and oracle; their clients share the HIO clock.
         rpc_port, oracle_port = free_port(), free_port()
@@ -315,8 +319,7 @@ def exercise(schema_dir: Path, *, keep: bool = False, comply: Path | None = None
                         challenge=challenge,
                         signature="0x" + signature.hex(),
                         registry=registries["le"].regk,
-                        nonce_store=Path(le_rgy.reger.path)
-                        / "association-nonces.sqlite3",
+                        nonce_ledger=nonce_ledger,
                         output=artifacts / f"{label}.json",
                     )
                 issuer = issuers["le"]
@@ -336,7 +339,7 @@ def exercise(schema_dir: Path, *, keep: bool = False, comply: Path | None = None
                 creder = write_credential(
                     challenge=challenge, signature="0x" + signature.hex(),
                     registry=registries["le"].regk,
-                    nonce_store=Path(le_rgy.reger.path) / "association-nonces.sqlite3",
+                    nonce_ledger=nonce_ledger,
                     output=cli_file,
                 )
                 # Give one writer exclusive control; the witness and other
@@ -598,7 +601,7 @@ def exercise(schema_dir: Path, *, keep: bool = False, comply: Path | None = None
                     le_said=le_credential.said, previous=associations["beneficiary"],
                     key="0x" + "0" * 63 + "2", runtime=runtime, port=oracle_port,
                     effects=fixture_effects, workflow=workflow, artifacts=artifacts,
-                    ledger=Path(le_rgy.reger.path) / "association-nonces.sqlite3",
+                    ledger=nonce_ledger,
                 )
                 target_saids[1] = associations["beneficiary"].said
 

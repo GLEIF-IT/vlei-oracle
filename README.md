@@ -87,12 +87,12 @@ local test-key helper:
   --private-key "$TEST_WALLET_KEY" --out signature.txt
 .venv/bin/python scripts/protocol/ceremony.py --challenge challenge.json \
   --signature signature.txt --registry "$LE_REGISTRY_SAID" \
-  --nonce-store issuer-nonces.sqlite3 --out association.json
+  --nonce-dir issuer-nonces --out association.json
 ```
 
 The ceremony validates the signature and canonical profile, then consumes the
 nonce durably for that issuer before exposing credential bytes. Reuse the same
-issuer nonce ledger across ceremonies. A duplicate nonce fails, including after
+issuer-owned LMDB nonce directory across ceremonies. A duplicate nonce fails, including after
 restart or concurrent finalization. Consumption is irreversible: a crash after
 consumption may burn the nonce. Generate a fresh challenge if no finished artifact
 survived. After an issuance interruption, inspect the existing KLI state and resume its
