@@ -1,7 +1,7 @@
 """Root command line entrypoint for vlei-oracle.
 
 Command implementations live under ``vlei_oracle.commands`` so the CLI stays
-easy to scan as service, client, challenge, and local e2e helpers grow.
+easy to scan as service and deployment helpers grow.
 """
 
 from __future__ import annotations

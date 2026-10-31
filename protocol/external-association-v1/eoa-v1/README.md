@@ -28,7 +28,7 @@ is embedded in the association ACDC so a relying party can verify that agreement
 | `issuerAid` | Associate the account with **this entity's AID**. | Rebuilt from `i`; checked against the LE credential's holder. Its hash supplies the endorsement's `identityRef`. |
 | `leVleiSaid` | Refer to **this particular LE credential**. | Rebuilt from `e.le.n`; followed to establish the LEI, trust chain, and credential status. Signing it prevents substituting another credential while retaining the wallet signature. |
 | `extId` | Associate **this account on this chain**. | Rebuilt from `a.extId`; the address must match the recovered signer and supplies the endorsement's `wallet`. The chain scopes signing and registry posting. |
-| `nonce` | Authorize **this individual ceremony**. | Rebuilt from `u`; a new nonce requires a new signature. The issuer reserves and consumes it to prevent reuse across ceremonies. |
+| `nonce` | Authorize **this individual ceremony**. | Rebuilt from `u`; a new nonce requires a new signature. EOA Verifier consumes the exact issuer/nonce on application acceptance; another SAID cannot reuse it. |
 
 These fields are the association protocol's signed commitments; EIP-712 supplies
 the typed-data format and signing rules. Binding the exact LE credential means
@@ -67,21 +67,20 @@ The proof uses `alg` of `EIP-712/ES256K` and tag
 For secp256k1 order `n`, require `1 <= r < n`, `1 <= s <= n/2`, and
 `v` of 27 or 28. The recovered signer must match the bound account.
 
-## Construction API
-
-[`eoa.py`](../../../src/vlei_oracle/eoa.py) provides identifier normalization,
-challenge construction, and proof verification. The
-[issuance exercise](../../../scripts/protocol/README.md) signs and issues real
-credentials and presents them to the running oracle.
-
 ## Verification and endorsement
 
-A verifier checks the association's credential chain, status, and embedded wallet
-signature. [endorsement.json](endorsement.json) illustrates the resulting
-wallet/entity/association mapping for registry consumption. Verification yields `verified`. When configured for posting, the service
-maintains the minimal exact-wallet endorsement and progresses to `endorsed`;
-observed revocation causes exact withdrawal. The contract trusts that oracle
-result. See the root README for dedicated-writer and recovery settings.
+EOA Verifier owns challenge reconstruction and proof verification in
+`eoa_verifier.verification.eoa`. Issuers deliver native KERI credentials and
+supporting evidence to that service, which checks credential trust, wallet proof
+and initial account state before application acceptance. Its accepted-nonce
+policy is independent of optional webhook delivery and never releases a nonce
+on revocation. This is a fresh acceptance-store baseline, not global uniqueness
+across independent verifier stores.
+
+The oracle receives authenticated accepted/revoked status and selects the current
+wallet association before posting or withdrawing the exact endorsement. It has
+no credential issuance, proof verification or association nonce persistence API.
+See the root README and the maintained paired qualification.
 
 ## Reproducing the examples
 
@@ -89,7 +88,7 @@ Requires Python 3.12.6+ and `uv`. From the repository root:
 
 ```sh
 uv venv --python 3.12 .venv
-uv pip install --python .venv/bin/python -e '.[dev]' -r scripts/protocol/requirements.txt
+uv pip install --python .venv/bin/python -e '.[dev]' -r scripts/protocol/requirements.txt -r tests/requirements.txt
 .venv/bin/python -m pytest -q
 ```
 
@@ -101,7 +100,7 @@ known hashes and signatures and reject tampering. To regenerate the supporting v
 ```
 
 The generator reads `association.json` (or `--association <path>`) and preserves
-its bytes. It calls `vlei_oracle.eoa` and eth-account to derive the challenge,
+its bytes. It calls `eoa_verifier.verification.eoa` and eth-account to derive the challenge,
 signature, hashes, and endorsement fields; it does not construct credentials or
 change schemas. The live exercise uses KERIpy directly for credential issuance.
 

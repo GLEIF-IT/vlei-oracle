@@ -84,6 +84,7 @@ def peers(tmp_path):
         accepted = outbox.accept(
             association,
             association=facts,
+            nonce="inbox-fixture",
             destination=config.webhook_url,
             peer_aid=receiver.hab.pre,
         )

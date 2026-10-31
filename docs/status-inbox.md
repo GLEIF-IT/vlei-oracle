@@ -34,7 +34,7 @@ separately. There are no storage migrations or previous-format readers.
 ## Status delivery and acknowledgment
 
 POST the verifier's ordinary v1 JSON object to `/v1/status-events`. The
-[producer's API note](https://github.com/GLEIF-IT/eoa-verifier/blob/486fb42f92b6c3269d7968934448f21121ef08aa/adrs/0002-verifier-result-object.md)
+[producer's API note](https://github.com/GLEIF-IT/eoa-verifier/blob/2a81727e81be19d4ebcef007e7c373881313bc27/adrs/0002-verifier-result-object.md)
 defines acceptance and retirement. The receiver supports these two states:
 
 - `status: "accepted"`: initially verified and accepted association.
@@ -72,9 +72,16 @@ aliases or migrations; preserve existing stores separately. The replay table
 uses `replay_claims` records with `expiresAt`. HTTP signature `expires` remains
 a transport parameter and does not expire associations.
 
+EOA Verifier owns association-nonce acceptance policy. It permanently binds each
+exact issuer/nonce to one accepted SAID and rejects a different SAID reusing that
+pair, including after revocation. The nonce is not added to this status wire
+contract. The oracle has no issuance nonce ledger or credential finalization API;
+its webhook replay claims and signed Ethereum transaction nonces remain separate.
+Use a deliberate fresh verifier policy baseline; no issuer-ledger migration exists.
+
 ## Ownership selection
 
-`selecting.py` applies [ADR 0001](https://github.com/GLEIF-IT/eoa-verifier/blob/486fb42f92b6c3269d7968934448f21121ef08aa/adrs/0001-eoa-association-ownership-and-replacement.md)
+`selecting.py` applies [ADR 0001](https://github.com/GLEIF-IT/eoa-verifier/blob/2a81727e81be19d4ebcef007e7c373881313bc27/adrs/0001-eoa-association-ownership-and-replacement.md)
 to trusted facts. One canonical `extId` (chain/address) has one current association:
 
 - Same LE holder AID: a strictly higher issuer-KEL issuance sequence supersedes
@@ -155,4 +162,4 @@ KERI 1.2.19 requires HIO 0.6.22 exactly; do not override the resolver.
 The separately identified KERIpy receipt-couple shortage parser limitation remains
 unresolved in the producer dependency. This naming rollout does not establish
 intake liveness for that malformed stream; see the pinned verifier's
-[operations note](https://github.com/GLEIF-IT/eoa-verifier/blob/486fb42f92b6c3269d7968934448f21121ef08aa/docs/operations.md).
+[operations note](https://github.com/GLEIF-IT/eoa-verifier/blob/2a81727e81be19d4ebcef007e7c373881313bc27/docs/operations.md).

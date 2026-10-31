@@ -15,9 +15,8 @@ from eth_account.messages import encode_typed_data
 from eth_utils import keccak
 from keri.core import serdering
 
-from vlei_oracle.association.eoa import (
+from eoa_verifier.verification.eoa import (
     build_challenge,
-    challenge_hashes,
 )
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -52,7 +51,12 @@ def generate_fixtures(association_raw: bytes) -> dict[str, bytes]:
         )
     if association["a"]["extId"].split(":")[2] != account.address.lower():
         raise ValueError("association must identify the public test account")
-    hashes = challenge_hashes(challenge)
+    signable = encode_typed_data(full_message=challenge)
+    hashes = {
+        "domainSeparator": "0x" + signable.header.hex(),
+        "messageHash": "0x" + signable.body.hex(),
+        "signingDigest": "0x" + keccak(b"\x19" + signable.version + signable.header + signable.body).hex(),
+    }
     endorsement = {
         "wallet": account.address.lower(),
         "identityRef": "0x" + keccak(text=issuer).hex(),

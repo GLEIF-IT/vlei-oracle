@@ -36,7 +36,6 @@ vlei-oracle = "vlei_oracle.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-"vlei_oracle.association" = ["schema_data/acdc/*.json"]
 "vlei_oracle.endorsement" = ["contract_data/*.json"]
 
 [tool.pytest.ini_options]

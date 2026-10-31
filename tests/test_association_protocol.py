@@ -17,11 +17,9 @@ from eth_utils import keccak
 from jsonschema import Draft7Validator, ValidationError
 from keri.core import coring, scheming, serdering, signing
 
-from vlei_oracle.association.eoa import (
+from eoa_verifier.verification.eoa import (
     build_challenge,
-    challenge_hashes,
     ext_id_chain,
-    normalize_ext_id,
     verify_eoa_proof,
 )
 
@@ -168,16 +166,6 @@ def test_association_schema_and_payloads_have_no_intrinsic_expiry() -> None:
         assert "expiresAt" not in json.dumps(load(name))
 
 
-def test_normalize_only_after_checksum_validation() -> None:
-    address = load("test-vector.json")["signer"]
-    expected = "eip155:1:" + address.lower()
-    assert normalize_ext_id(1, address) == expected
-    assert normalize_ext_id(1, address.lower()) == expected
-    assert normalize_ext_id(1, "0x" + address[2:].upper()) == expected
-    with pytest.raises(ValueError, match="checksum"):
-        normalize_ext_id(1, address.replace("F", "f", 1))
-
-
 @pytest.mark.parametrize(
     "ext_id",
     [
@@ -256,10 +244,10 @@ def test_challenge_matches_known_signature_and_hashes() -> None:
     )
     assert challenge == load("challenge.json")
     vector = load("test-vector.json")
-    assert challenge_hashes(challenge) == {
-        name: vector[name]
-        for name in ["domainSeparator", "messageHash", "signingDigest"]
-    }
+    signable = encode_typed_data(full_message=challenge)
+    assert "0x" + signable.header.hex() == vector["domainSeparator"]
+    assert "0x" + signable.body.hex() == vector["messageHash"]
+    assert "0x" + keccak(b"\x19" + signable.version + signable.header + signable.body).hex() == vector["signingDigest"]
     assert (
         Account.recover_message(
             encode_typed_data(full_message=challenge), signature=vector["signature"]
@@ -340,7 +328,7 @@ def test_challenge_rejects_trailing_cesr_identifier_material(field: str) -> None
 def test_large_caip_reference_preserves_integer_precision() -> None:
     association = load("association.json")
     chain_id = 10**32 - 1
-    ext_id = normalize_ext_id(chain_id, load("test-vector.json")["signer"])
+    ext_id = f"eip155:{chain_id}:{load("test-vector.json")["signer"].lower()}"
     challenge = build_challenge(
         issuer_aid=association["i"],
         le_vlei_said=association["e"]["le"]["n"],
@@ -348,8 +336,6 @@ def test_large_caip_reference_preserves_integer_precision() -> None:
         nonce=association["u"],
     )
     assert challenge["domain"]["chainId"] == str(chain_id)
-    with pytest.raises(ValueError, match="CAIP-2"):
-        normalize_ext_id(10**32, load("test-vector.json")["signer"])
 
 
 def test_optional_acdc_timestamp_accepts_keripy_utc_form() -> None:
