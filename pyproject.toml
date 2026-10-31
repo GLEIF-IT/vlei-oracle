@@ -37,6 +37,7 @@ where = ["src"]
 [tool.setuptools.package-data]
 "vlei_oracle.verification" = ["schema_data/acdc/*.json"]
 "vlei_oracle.endorsement" = ["contract_data/*.json"]
+"vlei_oracle.receiving" = ["nginx.conf"]
 
 [tool.pytest.ini_options]
 pythonpath = ["scripts/protocol"]

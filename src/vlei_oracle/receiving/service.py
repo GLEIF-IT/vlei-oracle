@@ -1,6 +1,7 @@
 """Trusted-status HIO service with optional contract posting and signed ACKs."""
 
 from dataclasses import dataclass, field
+from ipaddress import ip_address
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -32,7 +33,7 @@ class ReceiverConfig:
     passcode: str | None = field(default=None, repr=False)
     incept_file: str | None = None
     head_dir: str | None = None
-    host: str = "0.0.0.0"
+    host: str = "127.0.0.1"
     http_port: int = 9723
     temp: bool = False
     rpc_url: str = ""
@@ -44,6 +45,8 @@ class ReceiverConfig:
 
     def __post_init__(self):
         """Reject invalid operational configuration before opening stores."""
+        if not ip_address(self.host).is_loopback:
+            raise ValueError("status receiver must bind a loopback IP behind bounded ingress")
         if self.rpc_url:
             from eth_account import Account
             from web3 import Web3

@@ -10,7 +10,7 @@ Ethereum-posting workers. `server start` adds trusted-status contract posting;
 ```sh
 vlei-oracle server receive \
   --verifier-aid "$VERIFIER_AID" --verifier-kel verifier.cesr \
-  --chain-id 31337 --webhook-url http://localhost:9723/v1/status-events
+  --chain-id 31337 --webhook-url http://localhost:9722/v1/status-events
 ```
 
 Use a dedicated persistent `--name` (default `vlei-oracle-inbox`). Optional
@@ -31,6 +31,34 @@ verifier or chain; use another store for a different trust scope. A populated
 inbox from before ownership selection has no selection history and is refused;
 use fresh independent demonstration stores and redeliver verified status. Existing
 data is preserved. Production migration is separate work.
+
+## Bounded public ingress
+
+The status backend accepts only loopback IP binds (default `127.0.0.1:9723`).
+Expose it through the supplied Nginx ingress on port 9722, on the same host/network
+namespace. Install Nginx separately and run it as the service account. Export the
+configuration shipped in the oracle wheel, then run it in a second terminal:
+
+```sh
+umask 077
+mkdir -p runs/ingress/client_body
+python -c 'from importlib.resources import files; print(files("vlei_oracle.receiving").joinpath("nginx.conf").read_text())' > runs/ingress/nginx.conf
+nginx -p "$PWD/runs/ingress/" -c "$PWD/runs/ingress/nginx.conf" -g 'daemon off;'
+```
+
+Use the public ingress URL as `--webhook-url` on both peers. If changing ports,
+update the ingress listener and loopback upstream together with that configuration.
+Use TLS at the deployment boundary, retaining this body limit before HIO. Do not
+expose the backend through another unbounded forwarding path.
+
+The supplied configuration caps bodies at **64 KiB**, including cumulative chunked
+input, and buffers the complete request before contacting HIO. Oversized requests
+return 413 without an ACK. This is an operational limit, not a cryptographic
+requirement. Keep `client_max_body_size 64k` and `proxy_request_buffering on` when
+adapting the configuration. The proxy preserves the original URI, body and signed
+headers; allowed bodies still require the normal KERI authentication and storage ACK.
+See Nginx's [request buffering](https://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_request_buffering)
+and [body limit](https://nginx.org/en/docs/http/ngx_http_core_module.html#client_max_body_size) contracts.
 
 ## Status delivery and acknowledgment
 
@@ -103,7 +131,7 @@ multiple-association detection remains deferred as described in the ADR appendix
 export VLEI_ORACLE_POSTING_KEY=<dedicated-Ethereum-writer-key>
 vlei-oracle server start \
   --verifier-aid "$VERIFIER_AID" --verifier-kel verifier.cesr \
-  --chain-id 31337 --webhook-url http://localhost:9723/v1/status-events \
+  --chain-id 31337 --webhook-url http://localhost:9722/v1/status-events \
   --rpc-url http://localhost:8545 \
   --endorsement-registry "$ORACLE_REGISTRY" --identity-registry "$IDENTITY_REGISTRY"
 ```
@@ -138,7 +166,8 @@ stores. Changing chain, writer or contract addresses requires another store.
 
 ## Checks
 
-Install the test-only sender with `pip install -r tests/requirements.txt`. CI tests
+Install the test-only sender with `pip install -r tests/requirements.txt` and Nginx
+for the ingress checks (missing prerequisites fail; they do not skip). CI tests
 installed wheels against Foundry 1.5.1 and comply revision
 `cdaa111041e50f56d2820b84cf15f18c96c45ac4`. For local contract tests, set
 `VLEI_COMPLY_DIR` to that checkout with its submodules and put `forge`/`anvil` on PATH.

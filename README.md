@@ -5,6 +5,7 @@ EOA Verifier's authenticated status, persists ownership selection, acknowledges 
 event storage and publishes or withdraws the selected association mapping as an endorsement on Ethereum. `server receive`
 runs the same inbox without contract posting. Initial credential, wallet and
 account verification belongs to EOA Verifier; the oracle does not repeat it.
+The status backend binds only to loopback; use the packaged [bounded ingress](docs/status-inbox.md#bounded-public-ingress) for public access.
 
 Accepted associations remain valid until their association credential is revoked
 or a newer same-LE issuance supersedes them. Revocation withdraws only the matching
@@ -41,7 +42,7 @@ import paths and must not share an environment with upstream distributions.
 uv venv --python 3.12 .venv
 uv pip install --python .venv/bin/python -e '.[dev]' -r tests/requirements.txt -r scripts/protocol/requirements.txt
 .venv/bin/python scripts/dev/prepare-demo.py --schemas-only
-# For the full suite, first prepare Foundry/comply as described below.
+# For the full suite, prepare Foundry/comply as described below and install Nginx.
 .venv/bin/python -m pytest -q
 ```
 

@@ -65,7 +65,7 @@ def _receiver_arguments(receive):
     receive.add_argument("--passcode")
     receive.add_argument("--incept-file")
     receive.add_argument("--head-dir")
-    receive.add_argument("--host", default="0.0.0.0")
+    receive.add_argument("--host", default="127.0.0.1", help="Loopback IP for the private backend")
     receive.add_argument("--http-port", type=int, default=9723)
 
 
