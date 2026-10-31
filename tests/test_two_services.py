@@ -45,7 +45,7 @@ from vlei_oracle.verification.eoa import build_challenge
 
 
 def test_two_installed_services_publish_replace_and_retire(tmp_path, deployment):
-    """Qualify KERIpy trust, two-wallet USDC transfer, lost ACK, restart and exact retirement.
+    """Qualify witnessed KERI trust, two-wallet USDC transfer, lost ACK, restart and exact retirement.
 
     Issuers/witness use KERIpy fixture stores; both applications own independent
     persistent stores. Only CESR HTTP, signed webhooks, public status and contract
@@ -357,7 +357,7 @@ def test_two_installed_services_publish_replace_and_retire(tmp_path, deployment)
             yield from deliver(second_stream)
             yield from status(second.said, "accepted")
             yield from mapping(second.said)
-            # A Grant still carries issuance. Retirement requires the KERIpy revocation TEL and its anchor.
+            # A Grant still carries issuance. Retirement requires verified revocation TEL and its anchor.
             yield from revoke_credential(issuers["le"], registries["le"], first)
             yield from deliver(
                 grant(le, le_rgy, first, verifier_aid)

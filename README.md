@@ -151,7 +151,7 @@ before each effect; observed revocation causes exact-association withdrawal and
 signed transaction identities before broadcast. Restart reconciles receipts,
 nonces, and current registry state. Unknown consumed nonces require operator
 reconciliation and appear in the transaction journal's current failure reason.
-Replacing an existing assertion requires its KERIpy issuance evidence; an
+Replacing an existing assertion requires its verified issuance evidence; an
 unknown on-chain association stays pending. Within one entity, immutable KEL
 issuance order prevents an older association from overwriting a newer one.
 Changing entities requires explicit withdrawal and resolution of conflicting
@@ -170,7 +170,7 @@ modify existing operator credentials or deploy to another network.
 
 ## Legacy data ownership
 
-Application state holds unfinished verification (association and KERIpy Grant
+Application state holds unfinished verification (association and IPEX Grant
 references, progress, current blockage), explicit managed membership (association,
 reconciliation state, current blockage), and signed-effect recovery (exact original
 and cancellation identities, association/action, nonce/fee, completion outcome).

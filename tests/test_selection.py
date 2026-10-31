@@ -66,7 +66,7 @@ def test_other_le_requires_release_and_a_new_claim(peers):
     owner = event_body(peers, "owner", 10)
     other = (
         peers.receiver.hab.pre
-    )  # A distinct KERIpy AID used only as a fixture LE label.
+    )  # A distinct KERI AID used only as a fixture LE label.
     competitor = event_body(peers, "competitor", 900, issuer=other)
     assert post(peers, owner).status_code == 200
     assert (

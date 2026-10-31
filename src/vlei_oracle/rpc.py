@@ -6,7 +6,7 @@ from hio.core import http
 
 
 class RpcClientDoer(http.ClientDoer):
-    """Deliver expected socket failures to the waiting RPC; KERIpy exit closes sockets."""
+    """Deliver expected socket failures to the waiting RPC; HIO exit closes sockets."""
 
     def recur(self, tyme):
         """Keep a failed connection from unwinding unrelated service tasks."""

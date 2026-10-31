@@ -43,7 +43,7 @@ def grant_candidate(rgy, grant_said):
 def reconstruct_association_mapping(*, rgy, said, schema_said, grant_said=""):
     """Read immutable identity even after revocation, without granting acceptance.
 
-    KERIpy credential bytes remain authoritative. The accepted Grant is a
+    KERIpy-stored credential bytes remain authoritative. The accepted Grant is a
     fallback for candidates not yet materialized by KERIpy credential processing.
     Neither source bypasses the independent validity assessment.
     """

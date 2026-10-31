@@ -87,7 +87,7 @@ import os, sys
 from vlei_oracle.basing import OracleBaser
 store = OracleBaser(name="handoff", headDirPath=sys.argv[1])
 if sys.argv[2] == "during_commit":
-    # Crash after verification is removed inside the KERIpy transaction,
+    # Crash after verification is removed inside the LMDB transaction,
     # before membership serialization. No committed half-handoff is allowed.
     store.managed.serializer = lambda value: os._exit(17)
 store.complete_verification(store.get_verification("association"))

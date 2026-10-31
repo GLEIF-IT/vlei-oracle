@@ -108,7 +108,7 @@ def delegate_account(effects, *, authority_key, target):
 
 def qualify_transfers(*, comply, rpc_url, artifacts, runtime, trusted_geda,
                       schema_said, sender_key, recipient, target_saids, workflow):
-    """Deploy and test rejected/allowed transfers beside the KERIpy oracle."""
+    """Deploy and test rejected/allowed transfers beside the legacy oracle."""
     account = Account.from_key(sender_key)
     addresses = yield from deploy(comply, rpc_url, artifacts)
     poster_address = Account.from_key(POSTER_KEY).address
