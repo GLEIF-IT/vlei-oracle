@@ -34,7 +34,7 @@ separately. There are no storage migrations or previous-format readers.
 ## Status delivery and acknowledgment
 
 POST the verifier's ordinary v1 JSON object to `/v1/status-events`. The
-[producer's API note](https://github.com/GLEIF-IT/eoa-verifier/blob/2a81727e81be19d4ebcef007e7c373881313bc27/adrs/0002-verifier-result-object.md)
+[producer's API note](https://github.com/GLEIF-IT/eoa-verifier/blob/ba1971f54fd26191eb147fec0e7a75ed179eda7f/adrs/0002-verifier-result-object.md)
 defines acceptance and retirement. The receiver supports these two states:
 
 - `status: "accepted"`: initially verified and accepted association.
@@ -77,11 +77,14 @@ exact issuer/nonce to one accepted SAID and rejects a different SAID reusing tha
 pair, including after revocation. The nonce is not added to this status wire
 contract. The oracle has no issuance nonce ledger or credential finalization API;
 its webhook replay claims and signed Ethereum transaction nonces remain separate.
-Use a deliberate fresh verifier policy baseline; no issuer-ledger migration exists.
+Association nonces contain 1–128 ASCII characters from `[A-Za-z0-9_-]`. The
+verifier stores ordinary `issuer.nonce` Komer keys under policy
+`issuer-nonce-ascii-v1`. Use fresh verifier stores; no issuer-ledger or digest-key
+migration exists.
 
 ## Ownership selection
 
-`selecting.py` applies [ADR 0001](https://github.com/GLEIF-IT/eoa-verifier/blob/2a81727e81be19d4ebcef007e7c373881313bc27/adrs/0001-eoa-association-ownership-and-replacement.md)
+`selecting.py` applies [ADR 0001](https://github.com/GLEIF-IT/eoa-verifier/blob/ba1971f54fd26191eb147fec0e7a75ed179eda7f/adrs/0001-eoa-association-ownership-and-replacement.md)
 to trusted facts. One canonical `extId` (chain/address) has one current association:
 
 - Same LE holder AID: a strictly higher issuer-KEL issuance sequence supersedes
@@ -145,7 +148,7 @@ stores. Changing chain, writer or contract addresses requires another store.
 
 Install the test-only sender with `pip install -r tests/requirements.txt`. CI tests
 installed wheels against Foundry 1.5.1 and comply revision
-`4c83e465b3d7937f02b95e805cca5b79f5015078`. For local contract tests, set
+`13c6ae3506f6c6f398b37f12d646da4f2c21577b`. For local contract tests, set
 `VLEI_COMPLY_DIR` to that checkout with its submodules and put `forge`/`anvil` on PATH.
 Missing prerequisites fail the contract suite. `test_status_posting.py` covers
 accepted-to-published, replacement, exact withdrawal, duplicate receipt, pending
@@ -162,4 +165,4 @@ KERI 1.2.19 requires HIO 0.6.22 exactly; do not override the resolver.
 The separately identified KERIpy receipt-couple shortage parser limitation remains
 unresolved in the producer dependency. This naming rollout does not establish
 intake liveness for that malformed stream; see the pinned verifier's
-[operations note](https://github.com/GLEIF-IT/eoa-verifier/blob/2a81727e81be19d4ebcef007e7c373881313bc27/docs/operations.md).
+[operations note](https://github.com/GLEIF-IT/eoa-verifier/blob/ba1971f54fd26191eb147fec0e7a75ed179eda7f/docs/operations.md).

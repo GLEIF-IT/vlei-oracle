@@ -191,7 +191,7 @@ def test_reject_noncanonical_chain_or_account(ext_id: str) -> None:
         "0123456789abcdef" * 4,
         "0AAAAQIDBAUGBwgJCgsMDQ4P",
         "x",
-        "\u00e9" * 256,
+        "N" * 128,
     ],
 )
 def test_nonce_encoding_is_preserved_in_challenge_and_credential(nonce: str) -> None:
@@ -218,7 +218,27 @@ def test_nonce_encoding_is_preserved_in_challenge_and_credential(nonce: str) -> 
     )
 
 
-@pytest.mark.parametrize("nonce", ["", "x" * 257, "\u00e9" * 257, None, 7])
+@pytest.mark.parametrize(
+    "nonce",
+    [
+        "",
+        "x" * 129,
+        "é",
+        "e\u0301",
+        "😀",
+        " nonce",
+        "nonce ",
+        "nonce.nonce",
+        "nonce\n",
+        "nonce\r",
+        "nonce\x00",
+        "nonce/",
+        "nonce+",
+        "nonce=",
+        None,
+        7,
+    ],
+)
 def test_nonce_type_and_length_match_schema_and_challenge(nonce: object) -> None:
     association = load("association.json")
     association["u"] = nonce
@@ -247,7 +267,11 @@ def test_challenge_matches_known_signature_and_hashes() -> None:
     signable = encode_typed_data(full_message=challenge)
     assert "0x" + signable.header.hex() == vector["domainSeparator"]
     assert "0x" + signable.body.hex() == vector["messageHash"]
-    assert "0x" + keccak(b"\x19" + signable.version + signable.header + signable.body).hex() == vector["signingDigest"]
+    assert (
+        "0x"
+        + keccak(b"\x19" + signable.version + signable.header + signable.body).hex()
+        == vector["signingDigest"]
+    )
     assert (
         Account.recover_message(
             encode_typed_data(full_message=challenge), signature=vector["signature"]

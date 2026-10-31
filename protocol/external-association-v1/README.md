@@ -13,6 +13,11 @@ external identifier. The external controller signs a challenge, and the Legal
 Entity embeds that signature in an ACDC it issues. A relying party can then
 verify both the entity's authority and the external controller's agreement.
 
+The association nonce `u` contains 1–128 ASCII characters from `[A-Za-z0-9_-]`.
+Whitespace, dots, other punctuation and non-ASCII text are rejected. Its exact
+case and bytes are signed unchanged. EOA Verifier consumes it per issuer at
+application acceptance; there are no old-schema readers or nonce-key migrations.
+
 The association has an issuer and no issuee. Its LE vLEI edge identifies the
 credential held by that issuer and supplies the authoritative LEI. The common
 schema leaves identifier and signature formats to profiles such as the
