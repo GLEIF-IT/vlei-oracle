@@ -626,3 +626,200 @@ qualification snapshots match those commits' runtime/schema/vector contents.
 The published verifier install matches all 30 qualified Python/JSON files. CI and
 demo contract pins agree with comply PR #12, and its publication fixture matches
 the qualified snapshot. No runtime source changed after installed-wheel testing.
+
+## Cohesive production and test organization wave
+
+Status: authorized 2026-10-31. All preceding nonce PRs are merged: verifier #20
+at `d2ba48f28f5268b35dd7b86a7d73f3e82f90613a`, oracle #51 at
+`4432a274ed78cf532d0fa1e316ccebeedd78858d`, comply #12 at
+`da8ea58084890806665fab648bb87e77189d0faa`. Their trees match the qualified nonce
+heads. No empty-policy implementation has started. Task 5 and the other behavioral
+cleanup remain separate; this wave changes organization only. Kent authorized
+inspection, implementation, qualification, commits, pushes and three focused PRs.
+Do not merge them.
+
+### Baseline inventory and constraints
+
+- Verifier: six established production components (`runtime`, `receiving`,
+  `verification`, `associations`, `delivery`, `persistence`), 134 collected cases,
+  flat tests and one mixed `keripy_helpers.py` support module.
+- Oracle: root-level transport/domain/persistence modules, `commands/`, one mixed
+  `receiving/service.py` configuration/composition module, and existing
+  `endorsement/`; 130 cases. Selection and posting tests import fixtures/helpers
+  from other test modules. Witnessed issuer/contract support is split between
+  tests and `scripts/protocol`.
+- Comply: topical admin/identity/wrappers, split policy/policies and attestation,
+  global interfaces, demo contracts in assets/policy; 28 cases in three flat
+  test files. Policy test doubles share a test file.
+
+Preserve all LMDB tables/fields, status and ACK bytes, transaction boundaries,
+resource ownership, contract selectors/events, authorization, transfer semantics,
+and the accepted noncustodial audit model. Empty policy sets retain their current
+behavior until the separate task 5 PR. No issuer/combined runtime, compatibility
+imports, repository abstraction or new concurrency mechanism is introduced.
+
+### Verifier mapping
+
+Production packages stay unchanged. Test files follow the modules they exercise:
+
+| Old tests | New location |
+|---|---|
+| `test_runtime.py` | `runtime/test_serving.py`, with CLI/config cases in `runtime/test_cli.py` and `runtime/test_config.py` |
+| `test_directing.py` | `receiving/test_directing.py`; service-composition case in `runtime/test_serving.py` |
+| `test_intake.py` | `receiving/test_grants.py`; coordinator wrong-schema case in `verification/test_coordinating.py` |
+| `test_account.py` | `verification/test_worker.py` |
+| `test_coordinating.py` | `verification/test_coordinating.py` |
+| `test_authing.py` | `delivery/test_authing.py` |
+| `test_delivering.py`, `test_retry.py` | `delivery/test_delivering.py` |
+| `test_basing.py` | `persistence/test_basing.py` |
+| `test_accepted_nonces.py` | `persistence/test_accepted_nonces.py` |
+| `test_accepting.py` | storage cases in `persistence/test_basing.py`, public GET in `associations/test_statusing.py`, whole cross-boundary retirement/GET scenario in `integration/test_acceptance_status.py` |
+| `test_nonce_contract.py` | schema/proof inputs in `verification/test_eoa.py`; native key/consumption assertions in `persistence/test_accepted_nonces.py` |
+| `test_ipex_integration.py` | `integration/test_ipex_verification.py` |
+| `keripy_helpers.py` | `support/issuers.py`, `support/services.py`, `support/network.py` |
+| acceptance construction from `test_accepting.py` | `support/acceptance.py`; shared fixture in the narrowest common conftest |
+
+The nonce contract's 4 valid and 16 invalid parameter cases currently combine two
+independent boundaries. Splitting them preserves every assertion/matrix and adds
+20 collected cases (expected verifier total: 154), rather than mixing persistence
+assertions into proof tests. Other scenarios move whole. Acceptance/retirement
+workers remain covered by witnessed IPEX integration; do not add mock unit cases
+merely to populate a directory.
+
+Dependencies remain: runtime may compose all verifier components; each other
+component may depend on itself and persistence. Tests must not import test modules.
+
+### Oracle production mapping and dependency rules
+
+| Old source | New owner |
+|---|---|
+| `cli.py`, `commands/server.py`, command registration | `runtime/cli.py` |
+| `commands/parse_deploy_log.py` | `runtime/deploy_log.py` |
+| `identity.py` | `runtime/identity.py` |
+| `receiving/service.py` configuration | `runtime/config.py` |
+| `receiving/service.py` composition/lifetime | `runtime/serving.py` |
+| `authing.py` | `receiving/authing.py` |
+| `receiving/status.py` | remains authenticated ingress |
+| `statusing.py`, `identifiers.py` | `associations/statusing.py`; identifier parsing has no independent consumer |
+| status/event records and `selecting.WalletClaim` | `associations/records.py` |
+| `selecting.py` policy | `associations/selecting.py` |
+| `basing.py` storage | `persistence/basing.py` |
+| journal, replay and deployment/trust records | `persistence/records.py` |
+| `rpc.py` | `endorsement/rpc.py` |
+| existing endorsement workflow/effects/resources | remain in `endorsement/` |
+
+Allowed component edges: runtime → all; receiving → associations/persistence;
+endorsement → associations/persistence; persistence → associations; associations →
+no other oracle component. Selection stays a pure record mutation called inside
+the existing receipt write transaction. No callbacks or repository facade.
+
+Oracle test mapping:
+
+| Old tests/support | New location |
+|---|---|
+| `test_cli.py`, `test_demo_checkout.py` | `runtime/test_cli.py`, `runtime/test_demo_checkout.py` |
+| runtime cases in `test_status_inbox.py` | `runtime/test_serving.py` |
+| status/auth ingress cases | `receiving/test_status.py`, `receiving/test_authing.py` |
+| `test_selection.py` | `associations/test_selecting.py`; atomic receipt rollback in `persistence/test_basing.py`, missing-facts ingress in `receiving/test_status.py` |
+| `test_posting.py` pure desired actions | `endorsement/test_decisions.py` |
+| `test_contract_effects.py`, `test_contract_rpc.py` | `endorsement/test_effects.py`; storage scope/immutability cases in `persistence/test_basing.py` |
+| `test_status_posting.py` | `integration/test_status_posting.py` |
+| `test_association_protocol.py` | `integration/test_association_profile.py` (producer-profile conformance, not oracle verification) |
+| `test_two_services.py` | `qualification/test_two_services.py` (the sole maintained paired scenario) |
+| `association_issuer.py`, `scripts/protocol/issuance_helpers.py` | `support/issuers.py` |
+| contract fixture/construction from test files and scripts | `support/contracts.py` |
+| `service_processes.py` | `support/processes.py` |
+| status construction and signed posting helpers from test files | `support/status_events.py` |
+
+Shared peer/deployment fixtures keep their existing lifetimes in the narrowest
+common conftest. In particular, module-scoped chain deployments remain per test
+module. Preserve all scenarios and matrices; expected oracle total remains 130.
+
+### Comply mapping and dependency rules
+
+| Old source | New owner |
+|---|---|
+| `identity/interfaces/IIdentityRegistry.sol` | `identity/IIdentityRegistry.sol` |
+| `interfaces/IGL1IdentityRegistry.sol` | `identity/IGL1IdentityRegistry.sol` |
+| `attestation/VLEIOracleRegistry.sol`, `VLEIEndorsementChecker.sol`, `interfaces/IVLEIOracleRegistry.sol` | `associations/` |
+| `interfaces/IPolicy.sol`, `IPolicyManager.sol`, `IAttestationServiceVerifier.sol`, `policies/VLEIWalletAssociationPolicy.sol` | `policy/` |
+| `assets/USDC.sol`, `policy/AllowAllPolicyEngine.sol` | `demo/`; concrete consumers are DeployAll/tests only |
+| admin, identity implementation/adapter, PolicyManager, wUSDC | remain in their topical components |
+
+Allowed source edges from actual imports: identity/admin → their own components;
+policy → identity/admin; associations → policy/admin; wrappers → policy/admin;
+demo → admin. DeployAll composes all components. Production components may not
+import demo contracts. External vendor interfaces remain external dependencies.
+
+Tests move to `test/associations/VLEIOracleRegistry.t.sol`,
+`test/policy/PolicyManager.t.sol`, and
+`test/integration/WalletAssociationCompliance.t.sol`. Extract policy doubles into
+`test/support/doubles/PolicyDoubles.sol`; keep the genuine multi-contract fixture
+and scenarios intact. Public ABI and publication-vector files stay under `abi/`
+because oracle qualification and contract documentation consume them as published
+encoding artifacts, not private test fixtures. Expected Foundry count remains 28.
+
+### Rollout and validation gates
+
+1. Capture baseline test functions, decorators/parameterization, assertion counts,
+   contract ABI/storage layouts and source bodies before moves. Record final
+   old-to-new locations and explain any corrections to this mapping.
+2. Use explicit Python test/support packages and pytest importlib mode. Invocations
+   run from the repository or copied qualification root via `python -m pytest`;
+   remove PYTHONPATH/sys.path workarounds. Copy test configuration outside the
+   checkout in CI. Keep test support out of wheels.
+3. Review component dependencies, cycles and test support imports as part of code
+   review. Keep the documented boundaries; do not add custom architecture-check
+   scripts or replacement enforcement machinery.
+4. Run focused collection/import/boundary checks, full fresh installed-wheel
+   Python suites outside checkouts, full Forge suite, and unchanged launcher tests.
+   Compare ABI exactly and storage semantically, accounting for moved source paths
+   and compiler AST identifiers. Contract bodies must differ only in imports.
+5. Qualify all final components/contracts through the relocated maintained paired
+   scenario. Preserve witnesses, actors, independent processes, real LMDB/RPC,
+   transfers and all recovery assertions. Do not invent a second paired scenario.
+6. Publish three focused PRs. Verifier tests and contract layout may publish first;
+   oracle publishes last so it can pin their exact qualified commits and update
+   CI/demo/launcher references. Verify packaged ABI/schema content identity.
+7. Add concise testing guides with module/class/function/contract and integration
+   lookup examples. Report exact checks, revisions and limitations. Task 5 stays
+   queued as a separate behavioral PR after this organization wave.
+
+
+Organization wave implementation notes:
+
+- Root oracle literal version metadata is retained; initializers have no import
+  facades or startup side effects.
+- Signed Grant construction from verifier intake tests is now named issuer
+  support. Shared fixtures retain their original function/module scopes. The
+  standalone standard-library shell-launcher harness remains beside its scripts;
+  its four cases and invocation are documented separately from Foundry tests.
+- Verifier production: 30 files unchanged byte-for-byte; all 267 test assertion
+  expressions preserved. Oracle: all 190 test assertion expressions preserved,
+  plus identical ASTs for 14 critical record/config/policy/storage/lifetime nodes.
+- All 16 Solidity production bodies differ only in imports. Fresh compiler ABI
+  and structural storage comparisons match for all 16. All 28 Forge tests and
+  four launcher checks pass.
+- The new oracle components reopen all seven baseline LMDB tables with identical
+  stored bytes. All four CLI help surfaces remain identical. Python collection
+  is 154 verifier cases (the documented split) and 130 oracle cases.
+- Focused checks: 74 verifier and 112 oracle cases pass. Full fresh installed-wheel
+  suites now pass: 154 verifier cases in 297.77 seconds and 130 oracle cases in
+  210.36 seconds. The maintained paired scenario passes in 48.204 seconds.
+- Qualified publication pins are verifier `895713e66e6057590cf8247f8e8c1829371c6c71` and comply
+  `aeba4883dadb30e06a0316d93394b08ff9a9e97d`. The component payloads retain the qualified code and tests;
+  custom architecture-check scripts and CI hooks are removed. Empty-policy
+  behavior remains separate.
+
+Qualified artifacts exclude test support. Verifier wheel contains the same 30
+production code/resources as baseline; oracle wheel contains 24 files in the new
+components, with no deleted flat-module aliases. Packaged ABIs remain identical
+to the moved contracts. Wheel SHA-256 values:
+
+- Verifier: `f3a640402b38b3f4830d2c484c9e7bedf121e6d763bfb12152c25da0aa7b7f47`.
+- Oracle: `fac80beda0d3dfa522f791f0e0144238f98f26ef36d445d53130efc77525d9be`.
+
+Local qualification uses Python 3.12.10, GLEIF KERI/HIO 1.2.19/0.6.22, LMDB
+1.8.1 and Foundry 1.5.1. The shell
+launcher selects exactly one maintained scenario from an external working dir.
+Native parser shortage limitations remain outside this organizational change.

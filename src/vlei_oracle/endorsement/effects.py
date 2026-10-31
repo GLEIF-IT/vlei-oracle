@@ -7,7 +7,7 @@ from hio.base import doing
 from hio.core import http
 from web3 import Web3
 
-from vlei_oracle.rpc import RpcClientDoer, request_rpc
+from vlei_oracle.endorsement.rpc import RpcClientDoer, request_rpc
 
 
 class ContractEffects(doing.DoDoer):
@@ -17,8 +17,17 @@ class ContractEffects(doing.DoDoer):
     a HIO client. New connections isolate responses after a timeout.
     """
 
-    def __init__(self, *, rpc_url, chain_id, writer, endorsement, identity,
-                 confirmations=2, timeout=5.0):
+    def __init__(
+        self,
+        *,
+        rpc_url,
+        chain_id,
+        writer,
+        endorsement,
+        identity,
+        confirmations=2,
+        timeout=5.0,
+    ):
         self.rpc_url, self.chain_id = rpc_url, chain_id
         self.writer = Web3.to_checksum_address(writer)
         self.confirmations, self.timeout = confirmations, timeout
@@ -28,7 +37,11 @@ class ContractEffects(doing.DoDoer):
             ("endorsement", endorsement, "VLEIOracleRegistry.json"),
             ("identity", identity, "IdentityRegistry.json"),
         ):
-            abi = json.loads(files("vlei_oracle.endorsement").joinpath("contract_data", filename).read_text())
+            abi = json.loads(
+                files("vlei_oracle.endorsement")
+                .joinpath("contract_data", filename)
+                .read_text()
+            )
             self.contracts[key] = self.web3.eth.contract(
                 address=Web3.to_checksum_address(address), abi=abi
             )
@@ -40,10 +53,17 @@ class ContractEffects(doing.DoDoer):
         doer = RpcClientDoer(client=client)
         self.extend([doer])
         try:
-            return (yield from request_rpc(
-                client, request_id=1, method=method, params=params,
-                tymth=self.tymth, timeout=self.timeout, tock=self.tock,
-            ))
+            return (
+                yield from request_rpc(
+                    client,
+                    request_id=1,
+                    method=method,
+                    params=params,
+                    tymth=self.tymth,
+                    timeout=self.timeout,
+                    tock=self.tock,
+                )
+            )
         finally:
             self.remove([doer])
 
@@ -64,10 +84,16 @@ class ContractEffects(doing.DoDoer):
             ("endorsement", "getEndorsement", ["(bytes32,string)"]),
         ):
             contract = self.contracts[key]
-            data = contract.encode_abi(function, args=[Web3.to_checksum_address(wallet)])
-            raw = yield from self.request("eth_call", [
-                {"to": contract.address, "data": data}, selector,
-            ])
+            data = contract.encode_abi(
+                function, args=[Web3.to_checksum_address(wallet)]
+            )
+            raw = yield from self.request(
+                "eth_call",
+                [
+                    {"to": contract.address, "data": data},
+                    selector,
+                ],
+            )
             values.append(self.web3.codec.decode(types, bytes.fromhex(raw[2:]))[0])
         identity, (entity, said) = values
         return "0x" + identity.hex(), ("0x" + entity.hex(), said)
@@ -78,28 +104,52 @@ class ContractEffects(doing.DoDoer):
         key, function, args = action
         contract = self.contracts[key]
         # ABI validation and encoding run locally against the actual pinned ABI.
-        args = [Web3.to_checksum_address(arg) if isinstance(arg, str) and
-                Web3.is_address(arg) else arg for arg in args]
-        tx = {"from": self.writer, "to": contract.address,
-              "data": contract.encode_abi(function, args=args), "value": 0}
-        nonce = yield from self.request("eth_getTransactionCount", [self.writer, "pending"])
+        args = [
+            (
+                Web3.to_checksum_address(arg)
+                if isinstance(arg, str) and Web3.is_address(arg)
+                else arg
+            )
+            for arg in args
+        ]
+        tx = {
+            "from": self.writer,
+            "to": contract.address,
+            "data": contract.encode_abi(function, args=args),
+            "value": 0,
+        }
+        nonce = yield from self.request(
+            "eth_getTransactionCount", [self.writer, "pending"]
+        )
         price = yield from self.request("eth_gasPrice", [])
         gas = yield from self.request("eth_estimateGas", [tx])
-        return {**tx, "nonce": int(nonce, 16), "gasPrice": int(price, 16),
-                "gas": int(gas, 16) + 10000, "chainId": self.chain_id}
+        return {
+            **tx,
+            "nonce": int(nonce, 16),
+            "gasPrice": int(price, 16),
+            "gas": int(gas, 16) + 10000,
+            "chainId": self.chain_id,
+        }
 
     def receipt(self, tx_hash):
         """Return only canonical receipt progress; orphaned receipts stay pending."""
         receipt = yield from self.request("eth_getTransactionReceipt", [tx_hash])
         if receipt is None:
             return None
-        if receipt["transactionHash"].lower() != tx_hash or receipt["status"] not in ("0x0", "0x1"):
+        if receipt["transactionHash"].lower() != tx_hash or receipt["status"] not in (
+            "0x0",
+            "0x1",
+        ):
             raise ValueError("RPC returned an invalid transaction receipt")
-        block = yield from self.request("eth_getBlockByNumber", [receipt["blockNumber"], False])
+        block = yield from self.request(
+            "eth_getBlockByNumber", [receipt["blockNumber"], False]
+        )
         if block is None or block["hash"] != receipt["blockHash"]:
             return None
         head = yield from self.request("eth_blockNumber", [])
-        receipt["confirmed"] = int(head, 16) - int(receipt["blockNumber"], 16) + 1 >= self.confirmations
+        receipt["confirmed"] = (
+            int(head, 16) - int(receipt["blockNumber"], 16) + 1 >= self.confirmations
+        )
         return receipt
 
     def submit(self, raw, tx_hash):

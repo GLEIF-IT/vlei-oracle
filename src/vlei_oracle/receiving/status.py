@@ -5,8 +5,8 @@ from urllib.parse import urlsplit
 
 import falcon
 
-from vlei_oracle.authing import AuthenticationError
-from vlei_oracle.statusing import read_status
+from vlei_oracle.associations.statusing import read_status
+from vlei_oracle.receiving.authing import AuthenticationError
 
 
 class StatusEnd:

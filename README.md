@@ -19,14 +19,15 @@ provided. Preserve existing user stores separately.
 
 ## Code organization
 
-- `receiving/service.py` composes trusted HTTP receipt and optional posting under HIO.
-- `receiving/status.py` authenticates events and ACKs durable receipt.
-- `selecting.py` chooses ownership using stored issuer/issuance facts.
-- `endorsement/posting.py` serializes contract actions and records receipt outcomes;
-  `effects.py` owns HIO RPC clients and ABI operations.
-- `basing.py` owns persistence; `rpc.py` provides a caller-owned-client request helper.
+- runtime/ owns CLI, validated config, identity startup and HIO/store lifetime.
+- receiving/ authenticates status ingress and signs durable receipt ACKs.
+- associations/ owns trusted status decoding, domain records and pure selection.
+- endorsement/ owns desired actions, HIO RPC, effects and posting recovery.
+- persistence/ owns LMDB tables, scopes and atomic receipt/selection/journal writes.
 
-- `identifiers.py` validates canonical external identifiers received in trusted status.
+See the [testing guide](docs/testing.md) for module/class/function lookup and paired
+qualification. Initializers contain no import facades; the root package retains
+only its literal version metadata.
 
 The [architecture cleanup plan](docs/architecture-cleanup-plan.md) sequences the
 remaining cross-repository removals and operating fixes. This application has
@@ -86,7 +87,6 @@ Association nonces contain 1–128 ASCII letters, digits, underscores or hyphens
 A different credential reusing that pair is rejected, even after revocation.
 
 The canonical profile and reference vectors remain under `protocol/`. Issuance
-assembly in `tests/association_issuer.py` and witnessed issuer setup in
-`scripts/protocol/issuance_helpers.py` belong only to qualification; they are
+assembly in `tests/support/issuers.py` belongs only to qualification; these helpers are
 not installed oracle APIs or an operational issuer tool. The oracle retains
 signed-webhook replay protection and Ethereum transaction nonce recovery.

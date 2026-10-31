@@ -1,6 +1,6 @@
 # Two-service qualification
 
-`tests/test_two_services.py` runs the installed `eoa-verifier` and `vlei-oracle`
+`tests/qualification/test_two_services.py` runs the installed `eoa-verifier` and `vlei-oracle`
 CLIs as separate processes with independent KERI identities and persistent
 stores. It reuses the witnessed GEDA/QVI/LE issuer helpers and deploys the pinned
 comply contracts on a test-owned Anvil chain. It never injects accepted results.
@@ -35,11 +35,11 @@ focused policy/transport tests; this is not a second fault-matrix suite.
 
 Install the oracle wheel and `tests/requirements.txt` in a fresh Python 3.12
 environment. Put Foundry 1.5.1 on PATH and set `VLEI_COMPLY_DIR` to comply revision
-`13c6ae3506f6c6f398b37f12d646da4f2c21577b` with submodules and built contracts.
+`aeba4883dadb30e06a0316d93394b08ff9a9e97d` with submodules and built contracts.
 From a directory containing the copied `tests`, `scripts` and `protocol` trees:
 
 ```sh
-PYTHONPATH=scripts/protocol python -m pytest -q tests/test_two_services.py
+python -m pytest -q tests/qualification/test_two_services.py
 ```
 
 CI runs this with the full installed-wheel suite. Missing prerequisites fail.
@@ -48,7 +48,7 @@ only its own subprocesses. On macOS hosts with LMDB vnode exhaustion, copy the
 inputs into a Linux container with no host bind mounts and run there.
 
 The producer is pinned to verifier companion revision
-`ba1971f54fd26191eb147fec0e7a75ed179eda7f` in `tests/requirements.txt`, not as an
+`895713e66e6057590cf8247f8e8c1829371c6c71` in `tests/requirements.txt`, not as an
 oracle runtime import. Merge the verifier acceptance-policy companion before
 this oracle schema/vector companion PR. Its source matches the qualified verifier wheel.
 Existing status-posting tests establish old-observation
@@ -68,17 +68,17 @@ copies of both working trees and install both wheels into the same fresh Python
 `tests/requirements.txt` for this run: its Git requirement deliberately installs
 the merged verifier and would replace the candidate being qualified.
 
-Copy the oracle's `tests`, `scripts` and `protocol` trees outside the checkouts,
+Copy the oracle's `tests`, `scripts` and `protocol` trees plus `pytest.ini` outside the checkouts,
 then use the same pinned comply revision and Foundry version documented above:
 
 ```sh
-PYTHONPATH=scripts/protocol VLEI_COMPLY_DIR=/path/to/pinned/comply \
+VLEI_COMPLY_DIR=/path/to/pinned/comply \
   /path/to/qualification/venv/bin/python -m pytest -q \
-  tests/test_two_services.py tests/test_status_inbox.py
+  tests/qualification/test_two_services.py tests/receiving/test_status.py
 ```
 
 The paired test verifies the installed CLIs and wire/resource compatibility.
-`test_status_inbox.py` additionally exercises Python imports from the installed
+`tests/receiving/test_status.py` additionally exercises Python imports from the installed
 producer through its `delivery`/`persistence` components. These imports require
 the reorganized producer revision pinned in `tests/requirements.txt`.
 

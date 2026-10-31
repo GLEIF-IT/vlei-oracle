@@ -1,6 +1,5 @@
-"""GL1 vLEI Oracle verifier package."""
+"""GL1 vLEI Oracle application package."""
 
 __all__ = ["__version__"]
 
 __version__ = "0.1.0"
-

@@ -7,8 +7,8 @@ from eth_account import Account
 from hio.base import doing
 from web3 import Web3
 
-from vlei_oracle.basing import PostingScope, TransactionRecord
 from vlei_oracle.endorsement.decisions import next_action
+from vlei_oracle.persistence.records import PostingScope, TransactionRecord
 
 logger = logging.getLogger(__name__)
 
@@ -28,11 +28,14 @@ class StatusPoster(doing.DoDoer):
         self.interval = interval
         if self.account.address.lower() != effects.writer.lower():
             raise ValueError("posting key does not match writer")
-        baser.bind_posting_scope(PostingScope(
-            effects.chain_id, effects.writer.lower(),
-            effects.contracts["endorsement"].address.lower(),
-            effects.contracts["identity"].address.lower(),
-        ))
+        baser.bind_posting_scope(
+            PostingScope(
+                effects.chain_id,
+                effects.writer.lower(),
+                effects.contracts["endorsement"].address.lower(),
+                effects.contracts["identity"].address.lower(),
+            )
+        )
         super().__init__(doers=[effects, doing.doify(self.post_do)])
 
     def post_do(self, tymth, tock=0.0, **opts):
@@ -50,8 +53,14 @@ class StatusPoster(doing.DoDoer):
         """Use current durable policy, never an earlier pre-RPC status snapshot."""
         current = self.baser.statuses.get(keys=(status.associationSaid,))
         selected = self.baser.selected_association(status.association["extId"])
-        valid = current.status == "accepted" and selected is not None and selected.associationSaid == current.associationSaid
-        return next_action(asdict(current), identity=identity, endorsement=endorsement, valid=valid)
+        valid = (
+            current.status == "accepted"
+            and selected is not None
+            and selected.associationSaid == current.associationSaid
+        )
+        return next_action(
+            asdict(current), identity=identity, endorsement=endorsement, valid=valid
+        )
 
     def cycle(self):
         """Resolve the outstanding send or submit at most one new contract action.
@@ -66,7 +75,9 @@ class StatusPoster(doing.DoDoer):
             yield from self.effects.check_chain()
             receipt = yield from self.effects.receipt(pending.txHash)
             if receipt is not None and receipt["confirmed"]:
-                self.baser.complete_transaction(pending, pending.txHash, receipt["status"] == "0x1")
+                self.baser.complete_transaction(
+                    pending, pending.txHash, receipt["status"] == "0x1"
+                )
                 if receipt["status"] == "0x0":
                     logger.error("transaction reverted: %s", pending.txHash)
             return
@@ -84,12 +95,15 @@ class StatusPoster(doing.DoDoer):
             if self.action(status, identity, endorsement) != action:
                 return
             signed = self.account.sign_transaction(tx)
-            intent = self.baser.pin_transaction(TransactionRecord(
-                txHash=Web3.to_hex(signed.hash),
-                rawTransaction=Web3.to_hex(signed.raw_transaction),
-                nonce=tx["nonce"],
-                associationSaid=status.associationSaid, action=action[1],
-            ))
+            intent = self.baser.pin_transaction(
+                TransactionRecord(
+                    txHash=Web3.to_hex(signed.hash),
+                    rawTransaction=Web3.to_hex(signed.raw_transaction),
+                    nonce=tx["nonce"],
+                    associationSaid=status.associationSaid,
+                    action=action[1],
+                )
+            )
             try:
                 yield from self.effects.submit(intent.rawTransaction, intent.txHash)
             except (OSError, TimeoutError, ValueError) as error:

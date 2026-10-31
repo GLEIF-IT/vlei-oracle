@@ -1,14 +1,15 @@
-# Protocol qualification helpers
+# Protocol vectors and qualification dependencies
 
-These are test-owned helpers, outside the installed oracle runtime and CLI.
+Generate reference vectors with generate_vectors.py and the installed producer.
+requirements.txt pins protocol dependencies; install the producer from
+tests/requirements.txt as well.
 
-- `generate_vectors.py` reproduces reference vectors using the installed EOA Verifier.
-- `issuance_helpers.py` creates witnessed test issuers and native KERI evidence.
-- `contract_fixture.py` performs test contract calls through HIO.
-- `requirements.txt` pins qualification dependencies; install the test-only producer
-  from `tests/requirements.txt` as well.
+Test-owned witnessed issuance and ACDC assembly live in tests/support/issuers.py;
+contract construction/RPC is in tests/support/contracts.py; processes and signed
+status have their own support modules. They are outside the oracle wheel. There
+is no issuer ceremony or association nonce store in the oracle.
 
-Minimal ACDC assembly lives in `tests/association_issuer.py`. There is no oracle
-issuer ceremony or association nonce store. EOA Verifier owns accepted-nonce
-policy; the oracle receives its signed status. Run the maintained
+Run python -m pytest tests/qualification/test_two_services.py from the oracle
+root with the qualified installed applications, Foundry and comply checkout.
+See [testing](../../docs/testing.md) and
 [two-service qualification](../../docs/two-service-qualification.md).
