@@ -1,20 +1,19 @@
 """Supported pre-issuance ceremony and durable nonce consumption."""
 
 import json
-import sqlite3
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import closing
+from contextlib import contextmanager
 from pathlib import Path
-from threading import Event
 
 import pytest
-from ceremony import consume_nonce, write_credential
+from ceremony import write_credential
 from eth_account import Account
 from eth_account.messages import encode_typed_data
 
 from vlei_oracle.cli import main
+from vlei_oracle.noncing import NonceLedger
 from vlei_oracle.verification.eoa import build_challenge, verify_eoa_proof
 from vlei_oracle.verification.schema_cache import association_schemer
 
@@ -41,7 +40,24 @@ def ceremony(nonce=" exact nonce "):
     return challenge, signature
 
 
-def test_cli_challenge_and_signature_finalize_before_issuance(tmp_path):
+@pytest.fixture
+def nonce_ledger(tmp_path):
+    with NonceLedger(tmp_path / "nonces") as ledger:
+        yield ledger
+
+
+def command(tmp_path, nonce_dir, output):
+    challenge, signature = ceremony()
+    (tmp_path / "challenge.json").write_text(json.dumps(challenge))
+    (tmp_path / "signature.txt").write_text(signature)
+    return [sys.executable, str(ROOT / "scripts/protocol/ceremony.py"),
+            "--challenge", str(tmp_path / "challenge.json"),
+            "--signature", str(tmp_path / "signature.txt"),
+            "--registry", ASSOCIATION["ri"], "--nonce-dir", str(nonce_dir),
+            "--out", str(output)]
+
+
+def test_cli_challenge_and_signature_finalize_before_issuance(tmp_path, nonce_ledger):
     challenge_file, signature_file = (
         tmp_path / "challenge.json",
         tmp_path / "signature.txt",
@@ -85,7 +101,7 @@ def test_cli_challenge_and_signature_finalize_before_issuance(tmp_path):
         challenge=json.loads(challenge_file.read_text()),
         signature=signature_file.read_text().strip(),
         registry=ASSOCIATION["ri"],
-        nonce_store=tmp_path / "nonces.db",
+        nonce_ledger=nonce_ledger,
         output=tmp_path / "association.json",
     )
     assert creder.sad["u"] == " exact nonce "
@@ -94,55 +110,52 @@ def test_cli_challenge_and_signature_finalize_before_issuance(tmp_path):
     verify_eoa_proof(creder.sad)
 
 
+def test_consumed_nonce_survives_reopen(tmp_path):
+    with NonceLedger(tmp_path / "nonces") as ledger:
+        assert ledger.claim(issuer="issuer", nonce=" exact nonce ")
+    with NonceLedger(tmp_path / "nonces") as ledger:
+        assert not ledger.claim(issuer="issuer", nonce=" exact nonce ")
+        assert ledger.claim(issuer="another issuer", nonce=" exact nonce ")
+
+
 def test_consumed_nonce_survives_a_new_process(tmp_path):
-    challenge, signature = ceremony()
-    args = {
-        "challenge": challenge,
-        "signature": signature,
-        "registry": ASSOCIATION["ri"],
-        "nonce_store": tmp_path / "nonces.db",
-        "output": tmp_path / "first.json",
-    }
-    write_credential(**args)
-    (tmp_path / "challenge.json").write_text(json.dumps(challenge))
-    (tmp_path / "signature.txt").write_text(signature)
-    result = subprocess.run(
-        [
-            sys.executable,
-            str(ROOT / "scripts/protocol/ceremony.py"),
-            "--challenge",
-            str(tmp_path / "challenge.json"),
-            "--signature",
-            str(tmp_path / "signature.txt"),
-            "--registry",
-            ASSOCIATION["ri"],
-            "--nonce-store",
-            str(tmp_path / "nonces.db"),
-            "--out",
-            str(tmp_path / "second.json"),
-        ],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert result.returncode == 1
-    assert "already consumed" in result.stderr
+    nonce_dir = tmp_path / "nonces"
+    first = subprocess.run(command(tmp_path, nonce_dir, tmp_path / "first.json"),
+                           capture_output=True, text=True)
+    assert first.returncode == 0, first.stderr
+    second = subprocess.run(command(tmp_path, nonce_dir, tmp_path / "second.json"),
+                            capture_output=True, text=True)
+    assert second.returncode == 1 and "already consumed" in second.stderr
     assert not (tmp_path / "second.json").exists()
 
 
+def test_concurrent_processes_publish_one_artifact(tmp_path):
+    commands = [command(tmp_path, tmp_path / "nonces", tmp_path / f"{i}.json")
+                for i in (1, 2)]
+    processes = [subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                  text=True) for args in commands]
+    try:
+        results = [process.communicate(timeout=15) for process in processes]
+        assert sorted(process.returncode for process in processes) == [0, 1], results
+        loser = next(i for i, process in enumerate(processes) if process.returncode == 1)
+        assert "already consumed" in results[loser][1]
+        assert sum((tmp_path / f"{i}.json").exists() for i in (1, 2)) == 1
+    finally:
+        for process in processes:
+            if process.poll() is None:
+                process.kill()
+            process.wait()
+
+
 @pytest.mark.parametrize("attempt", range(10))
-def test_concurrent_nonce_consumption_allows_one_artifact(tmp_path, attempt):
+def test_concurrent_nonce_consumption_allows_one_artifact(tmp_path, nonce_ledger, attempt):
     challenge, signature = ceremony()
 
     def finish(index):
         try:
-            write_credential(
-                challenge=challenge,
-                signature=signature,
-                registry=ASSOCIATION["ri"],
-                nonce_store=tmp_path / "nonces.db",
-                output=tmp_path / f"{index}.json",
-            )
+            write_credential(challenge=challenge, signature=signature,
+                             registry=ASSOCIATION["ri"], nonce_ledger=nonce_ledger,
+                             output=tmp_path / f"{index}.json")
             return True
         except ValueError as error:
             assert str(error) == "nonce already consumed by this issuer"
@@ -153,126 +166,83 @@ def test_concurrent_nonce_consumption_allows_one_artifact(tmp_path, attempt):
     assert len(list(tmp_path.glob("*.json"))) == 1
 
 
-def test_nonce_commit_waits_for_a_brief_reader(tmp_path, monkeypatch):
-    """A reader overlapping commit must not discard the only valid artifact."""
+def test_invalid_signature_does_not_consume_nonce(tmp_path, nonce_ledger):
     challenge, signature = ceremony()
-    store, output = tmp_path / "nonces.db", tmp_path / "association.json"
-    consume_nonce(store, issuer="seed", nonce="seed")
-    real_connect, committing = sqlite3.connect, Event()
-
-    def traced_connect(*args, **kwargs):
-        connection = real_connect(*args, **kwargs)
-        connection.set_trace_callback(
-            lambda sql: committing.set() if sql == "COMMIT" else None
-        )
-        return connection
-
-    with closing(real_connect(store)) as reader:
-        reader.execute("BEGIN")
-        reader.execute("SELECT * FROM consumed").fetchall()
-        monkeypatch.setattr("ceremony.sqlite3.connect", traced_connect)
-        with ThreadPoolExecutor(max_workers=1) as pool:
-            future = pool.submit(
-                write_credential, challenge=challenge, signature=signature,
-                registry=ASSOCIATION["ri"], nonce_store=store, output=output,
-            )
-            try:
-                assert committing.wait(timeout=5), "writer did not reach commit"
-                with pytest.raises(TimeoutError):
-                    future.result(timeout=0.1)
-            finally:
-                reader.rollback()
-            credential = future.result(timeout=5)
-    assert output.read_bytes() == credential.raw
-    with pytest.raises(ValueError, match="already consumed"):
-        consume_nonce(store, issuer=credential.issuer, nonce=credential.sad["u"])
-
-
-def test_nonce_lock_timeout_leaves_no_artifact(tmp_path):
-    """Persistent contention fails closed and does not consume an uncommitted nonce."""
-    challenge, signature = ceremony()
-    store, output = tmp_path / "nonces.db", tmp_path / "association.json"
-    consume_nonce(store, issuer="seed", nonce="seed")
-    args = dict(challenge=challenge, signature=signature,
-                registry=ASSOCIATION["ri"], nonce_store=store, output=output)
-    with closing(sqlite3.connect(store)) as blocker:
-        blocker.execute("BEGIN EXCLUSIVE")
-        with ThreadPoolExecutor(max_workers=1) as pool:
-            future = pool.submit(write_credential, **args)
-            try:
-                with pytest.raises(sqlite3.OperationalError, match="locked"):
-                    future.result(timeout=10)
-            finally:
-                blocker.rollback()
-    assert not output.exists()
-    assert write_credential(**args).raw == output.read_bytes()
-
-
-def test_invalid_signature_does_not_consume_nonce(tmp_path):
-    challenge, signature = ceremony()
-    invalid = (
-        "0x"
-        + Account.sign_message(
-            encode_typed_data(full_message=challenge), "0x" + "0" * 63 + "2"
-        ).signature.hex()
-    )
-    args = {
-        "challenge": challenge,
-        "registry": ASSOCIATION["ri"],
-        "nonce_store": tmp_path / "nonces.db",
-        "output": tmp_path / "association.json",
-    }
+    invalid = "0x" + Account.sign_message(
+        encode_typed_data(full_message=challenge), "0x" + "0" * 63 + "2"
+    ).signature.hex()
+    args = dict(challenge=challenge, registry=ASSOCIATION["ri"],
+                nonce_ledger=nonce_ledger, output=tmp_path / "association.json")
     with pytest.raises(ValueError, match="signer does not match"):
         write_credential(signature=invalid, **args)
-    assert not args["nonce_store"].exists()
+    assert not args["output"].exists()
     write_credential(signature=signature, **args)
 
 
-def test_same_nonce_cannot_finalize_a_different_wallet(tmp_path):
+def test_existing_output_does_not_consume_nonce(tmp_path, nonce_ledger):
     challenge, signature = ceremony()
-    store = tmp_path / "nonces.db"
-    write_credential(
-        challenge=challenge,
-        signature=signature,
-        registry=ASSOCIATION["ri"],
-        nonce_store=store,
-        output=tmp_path / "first.json",
-    )
+    output = tmp_path / "association.json"
+    output.write_bytes(b"existing")
+    with pytest.raises(FileExistsError):
+        write_credential(challenge=challenge, signature=signature,
+                         registry=ASSOCIATION["ri"], nonce_ledger=nonce_ledger, output=output)
+    assert output.read_bytes() == b"existing"
+    assert nonce_ledger.claim(issuer=challenge["message"]["issuerAid"],
+                              nonce=challenge["message"]["nonce"])
+
+
+def test_artifact_write_failure_keeps_nonce_consumed(tmp_path, nonce_ledger, monkeypatch):
+    challenge, signature = ceremony()
+    output, original_open = tmp_path / "association.json", Path.open
+
+    def fail_write(data):
+        raise OSError("artifact write failed")
+
+    @contextmanager
+    def failing_open(path, *args, **kwargs):
+        with original_open(path, *args, **kwargs) as stream:
+            if path == output:
+                from types import SimpleNamespace
+                yield SimpleNamespace(write=fail_write, flush=stream.flush)
+            else:
+                yield stream
+
+    monkeypatch.setattr(Path, "open", failing_open)
+    with pytest.raises(OSError, match="artifact write failed"):
+        write_credential(challenge=challenge, signature=signature,
+                         registry=ASSOCIATION["ri"], nonce_ledger=nonce_ledger, output=output)
+    assert not output.exists()
+    assert not nonce_ledger.claim(issuer=challenge["message"]["issuerAid"],
+                                  nonce=challenge["message"]["nonce"])
+
+
+def test_same_nonce_cannot_finalize_a_different_wallet(tmp_path, nonce_ledger):
+    challenge, signature = ceremony()
+    args = dict(registry=ASSOCIATION["ri"], nonce_ledger=nonce_ledger)
+    write_credential(challenge=challenge, signature=signature,
+                     output=tmp_path / "first.json", **args)
     other_key = "0x" + "0" * 63 + "2"
-    other = build_challenge(
-        issuer_aid=ASSOCIATION["i"],
-        le_vlei_said=ASSOCIATION["e"]["le"]["n"],
-        ext_id="eip155:1:" + Account.from_key(other_key).address.lower(),
-        nonce=challenge["message"]["nonce"],
-    )
-    other_signature = (
-        "0x"
-        + Account.sign_message(
-            encode_typed_data(full_message=other), other_key
-        ).signature.hex()
-    )
+    other = build_challenge(issuer_aid=ASSOCIATION["i"],
+                            le_vlei_said=ASSOCIATION["e"]["le"]["n"],
+                            ext_id="eip155:1:" + Account.from_key(other_key).address.lower(),
+                            nonce=challenge["message"]["nonce"])
+    other_signature = "0x" + Account.sign_message(
+        encode_typed_data(full_message=other), other_key
+    ).signature.hex()
     with pytest.raises(ValueError, match="already consumed"):
-        write_credential(
-            challenge=other,
-            signature=other_signature,
-            registry=ASSOCIATION["ri"],
-            nonce_store=store,
-            output=tmp_path / "second.json",
-        )
+        write_credential(challenge=other, signature=other_signature,
+                         output=tmp_path / "second.json", **args)
     assert not (tmp_path / "second.json").exists()
 
 
-def test_nonce_is_never_normalized(tmp_path):
+@pytest.mark.parametrize("nonces", [(" nonce ", "nonce"), ("é", "e\u0301"), ("🔥" * 256,)])
+def test_nonce_is_never_normalized(tmp_path, nonce_ledger, nonces):
     saids = []
-    for index, nonce in enumerate((" nonce ", "nonce")):
+    for index, nonce in enumerate(nonces):
         challenge, signature = ceremony(nonce)
-        result = write_credential(
-            challenge=challenge,
-            signature=signature,
-            registry=ASSOCIATION["ri"],
-            nonce_store=tmp_path / "nonces.db",
-            output=tmp_path / f"{index}.json",
-        )
+        result = write_credential(challenge=challenge, signature=signature,
+                                  registry=ASSOCIATION["ri"], nonce_ledger=nonce_ledger,
+                                  output=tmp_path / f"{index}.json")
         assert result.sad["u"] == nonce
         saids.append(result.said)
-    assert saids[0] != saids[1]
+    assert len(set(saids)) == len(nonces)
