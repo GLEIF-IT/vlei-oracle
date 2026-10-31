@@ -8,7 +8,7 @@ Generated from `GLEIF-IT/vlei-comply` commit
 - `IdentityRegistry.json`: `forge inspect IdentityRegistry abi --json`;
   SHA-256 `004c3f6a2dc30a19a30d20b1aac069f29afd781440a5d2744a36f1b38156d988`.
 
-Web3 uses these only for local encoding/decoding. Native HIO clients perform
+Web3 uses these only for local encoding/decoding. HIO clients perform
 all service RPC. The owned Solidity calldata vector is checked by both suites.
 The identity registry remains a policy input hint; acceptance requires the
 exact wallet/entity endorsement. There is no global wallet whitelist.

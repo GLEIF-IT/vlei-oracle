@@ -160,7 +160,7 @@ def test_rpc_tls_failure_keeps_signed_receipt_available(peers, caplog):
     from hio.core import http, tcp
 
     class PlaintextPeer(tcp.ServerDoer):
-        """Trigger a terminal native TLS error by answering ClientHello in plaintext."""
+        """Trigger a terminal HIO TLS error by answering ClientHello in plaintext."""
 
         def recur(self, tyme):
             super().recur(tyme)

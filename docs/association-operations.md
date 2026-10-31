@@ -31,9 +31,9 @@ are test keys; operator keys do not belong in files or shell history.
 
 ## Issue and present
 
-For manual operation, establish the native GEDA-delegated QVI and LE source
+For manual operation, establish the GEDA-delegated QVI and LE source
 chain, witnessed issuer KEL, registry, schema cache, and transport contacts using
-supported KLI workflows. The fixture demonstrates these native APIs; it does
+supported KLI workflows. The fixture demonstrates these KERIpy APIs; it does
 not provision an operator's identifiers. Read the root README ceremony commands:
 construct the challenge, collect the wallet signature, consume the exact issuer
 nonce in the persistent ledger, and issue `association.json` with `kli vc create
@@ -41,7 +41,7 @@ nonce in the persistent ledger, and issue `association.json` with `kli vc create
 requires a fresh challenge; an interrupted issuance requires inspection of the
 existing KLI escrows before retrying.
 
-Present the finished credential using native IPEX transport after discovering
+Present the finished credential using IPEX transport after discovering
 its recipient and delivery endpoints:
 
 ```sh
@@ -66,12 +66,12 @@ registry's compliance-admin role. Keep this writer's nonce stream exclusive.
   --endorsement-registry "$ORACLE_REGISTRY" --identity-registry "$IDENTITY_REGISTRY"
 ```
 
-Poll `/presentations/<SAID>`. `verificationState` records off-chain verification. Successful verification atomically
+Poll `/associations/<SAID>`. `verificationState` records off-chain verification. Successful verification atomically
 creates explicit managed membership; `state` then reports continuing reconciliation.
 Verification-only mode stops with managed state `verified`; successful
 verification removes its unfinished work record. Status includes no saved wallet
-binding, account observation, copied Grant metadata, retry counts, or timestamps.
-Native credentials supply identity even after revocation. Current KERI/TEL and
+association mapping, account observation, copied Grant metadata, retry counts, or timestamps.
+KERIpy-stored credentials supply identity even after revocation. Current KERI/TEL and
 canonical-block account checks are reconstructed for every posting decision;
 RPC failure stays pending. Status reads only local work and management state;
 it does not make network requests to reconstruct evidence.
@@ -91,11 +91,11 @@ cancellations; an orphaned completion reopens the same signed attempt.
 
 ## Replace and revoke
 
-Replacement requires a new ceremony nonce and wallet signature, a new native
+Replacement requires a new ceremony nonce and wallet signature, a new KERIpy
 association issuance, and another Grant. Supply the currently endorsed credential's
-native issuance evidence too; missing evidence remains pending. Immutable issuer
+verified issuance evidence too; missing evidence remains pending. Immutable issuer
 KEL issuance order prevents old replays from replacing newer associations. Resolve
-conflicting entity bindings explicitly before reuse of a wallet.
+conflicting entity association mappings explicitly before reuse of a wallet.
 
 Revoke the exact association in its LE registry and deliver the resulting signed
 KEL/TEL evidence to every relying oracle:
@@ -115,16 +115,16 @@ can remain usable indefinitely: use independent emergency controls when needed.
 
 A compromised wallet key or LE controller invalidates the assurance premise.
 Pause affected wrapper transfers through the authorized emergency role, revoke
-and deliver affected native credentials, withdraw exact current endorsements
+and deliver affected KERIpy-stored credentials, withdraw exact current endorsements
 through an uncompromised authorized writer, and rotate/recover the controller
-through native KERI governance. Reissue with fresh wallet control and nonces.
+through KERI governance. Reissue with fresh wallet control and nonces.
 
 A compromised oracle posting key requires immediate role removal by an
 uncompromised administrator, emergency pause, inspection of every affected
-registry binding and writer nonce, and a replacement dedicated writer. A fresh
+registry endorsement and writer nonce, and a replacement dedicated writer. A fresh
 writer/deployment scope requires a fresh oracle operation store; preserve the old
 journal to reconcile its outstanding signed effects. A compromised
-verifier host also requires rebuilding native evidence from trusted sources
+verifier host also requires rebuilding verified KEL/TEL and credential evidence from trusted sources
 and rechecking current validity before publishing new results. Restart alone does not repair compromise.
 
 The registry trusts its authorized writer. The local Chainlink AllowAll engine

@@ -47,7 +47,7 @@ def test_service_uses_the_association_schema_by_default():
         runtime.hby.close(clear=True)
 
 
-def test_native_doers_own_all_service_store_lifecycles():
+def test_keripy_doers_own_all_service_store_lifecycles():
     runtime = setup_service(ServiceConfig(
         name="test-service-lifecycle", temp=True, no_post=True,
         rpc_url="http://127.0.0.1:1",

@@ -44,7 +44,7 @@ def test_serialized_records_contain_only_current_recovery_fields(tmp_path):
         assert saved["state"] == "cancelled"
         assert store.get_managed("association").state == "withdrawn"
         assert store.start_verification(association_said="association", grant_said="reordered") is None
-        status = store.presentation_status("association")
+        status = store.association_status("association")
         assert status["transactions"] == store.transaction_status("association")
         assert not {"verified", "txHashes", "createdAt", "updatedAt", "retryCount"}.intersection(status)
     finally:

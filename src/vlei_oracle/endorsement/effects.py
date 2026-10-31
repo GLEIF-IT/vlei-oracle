@@ -1,4 +1,4 @@
-"""Contract encoding and native HIO JSON-RPC effects for one chain."""
+"""Contract encoding and HIO JSON-RPC effects for one chain."""
 
 import json
 from importlib.resources import files
@@ -14,7 +14,7 @@ class ContractEffects(doing.DoDoer):
     """Own HTTP connection lifecycles; expose yielding chain operations.
 
     Web3 is used only for local ABI encoding/decoding. Every network wait uses
-    a native HIO client. New connections isolate responses after a timeout.
+    a HIO client. New connections isolate responses after a timeout.
     """
 
     def __init__(self, *, rpc_url, chain_id, writer, endorsement, identity,

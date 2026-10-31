@@ -1,16 +1,21 @@
 # vLEI association oracle
 
 The [trusted-status service](docs/status-inbox.md), `server start`, accepts
-EOA Verifier's authenticated status, persists ownership selection, signs receipt
-ACKs and publishes or withdraws the selected mapping on Ethereum. `server receive`
+EOA Verifier's authenticated status, persists ownership selection, acknowledges durable
+event storage and publishes or withdraws the selected association mapping as an endorsement on Ethereum. `server receive`
 runs the same inbox without contract posting. Initial credential, wallet and
 account verification belongs to EOA Verifier; the oracle does not repeat it.
 
 Accepted associations remain valid until their association credential is revoked
 or a newer same-LE issuance supersedes them. Revocation withdraws only the matching
-association SAID. Receipt ACKs do not mean an on-chain transaction has succeeded. The
+association SAID. Storage ACKs do not mean an on-chain transaction has succeeded. The
 [two-service qualification](docs/two-service-qualification.md) exercises the installed
-applications with native witnessed evidence, signed HTTP and Anvil.
+applications with witnessed KEL/TEL evidence, signed HTTP and Anvil.
+
+KERI delivery uses JSON messages with CESR attachments. CESR-native is reserved
+for CESR serialization of message structures. Use fresh PoC application stores
+for this revised v1 status/ACK contract; no migrations or old-payload readers are
+provided. Preserve existing user stores separately.
 
 ## Code organization
 
@@ -23,7 +28,7 @@ applications with native witnessed evidence, signed HTTP and Anvil.
 
 The older combined verifier/oracle remains under `server legacy-start` for existing
 fixtures. Its `serving.py`, `verification/` and `endorsement/reconciling.py` are not
-installed in the trusted-status runtime. Use independent stores and writer keys;
+started in the trusted-status runtime. Use independent stores and writer keys;
 do not run both compositions against the same deployment. Legacy protocol tools
 and the [operations runbook](docs/association-operations.md) describe that older path.
 
@@ -53,14 +58,14 @@ source .demo-paired/demo.env
 ```
 
 This installs the invoking oracle source, the merged verifier pinned in
-`tests/requirements.txt`, and the native/runtime versions declared by the package.
+`tests/requirements.txt`, and the KERIpy/HIO versions declared by the package.
 The manifest pins KERI demo assets, vLEI schemas and the comply launcher/contracts.
 It exports both executables and checkout paths; it starts no services and creates
 no identities. Existing mismatched/dirty dependency checkouts are never reset;
 choose a new directory when changing pins. Install Foundry 1.5.1 separately, then
 follow the prepared comply checkout's `docs/gl1-vlei-local-infra-setup.md` for
 service configuration. Run its `scripts/dev/init-local-vlei-fixture.sh` with these
-exports for the native two-wallet test; keep this prepared environment rather than
+exports for the witnessed two-wallet test; keep this prepared environment rather than
 reinstalling the guide's earlier qualification snapshot.
 
 The schema-server tool `vlei` still declares upstream `keri`/`hio` distribution
@@ -91,7 +96,7 @@ issuer nonce ledger across ceremonies. A duplicate nonce fails, including after
 restart or concurrent finalization. Consumption is irreversible: a crash after
 consumption may burn the nonce. Generate a fresh challenge if no finished artifact
 survived. After an issuance interruption, inspect the existing KLI state and resume its
-native escrows. Do not blindly repeat credential creation or finalize another
+KERIpy escrows. Do not blindly repeat credential creation or finalize another
 artifact with that nonce.
 
 Issue the finished credential through the Legal Entity's existing registry:
@@ -103,13 +108,13 @@ Issue the finished credential through the Legal Entity's existing registry:
 
 KLI requires the association and source schemas in the issuer's cache, an
 accepted LE credential held by that AID, and its registry/witness configuration.
-The test exercise supplies those using native `Credentialer`/`Registrar` APIs.
+The test exercise supplies those using KERIpy `Credentialer`/`Registrar` APIs.
 The canonical schema lives under `protocol/`; the package contains an exact
 checked copy for installed-service use. Schema OOBI discovery and witness
 qualification are documented alongside the exercise as they are exercised.
 
 Present the finished ACDC and required supporting KEL/TEL evidence with `kli ipex
-grant` or native KERI CESR HTTP delivery. Addressed transport does not make the
+grant` or KERI CESR HTTP delivery. Addressed transport does not make the
 association a targeted credential.
 
 ## Legacy combined service
@@ -124,7 +129,7 @@ Use [trusted status and contract posting](docs/status-inbox.md) for `server star
 ```
 
 - `POST /` receives CESR traffic through KERIpy direct mode.
-- `GET /presentations/<association SAID>` returns durable verification status.
+- `GET /associations/<association SAID>` returns durable verification status.
 - `GET /health` returns liveness and operation counts.
 
 Proofs arrive inside the ACDC. There is no signature-attachment endpoint or
@@ -146,11 +151,11 @@ before each effect; observed revocation causes exact-association withdrawal and
 signed transaction identities before broadcast. Restart reconciles receipts,
 nonces, and current registry state. Unknown consumed nonces require operator
 reconciliation and appear in the transaction journal's current failure reason.
-Replacing an existing assertion requires its native issuance evidence; an
+Replacing an existing assertion requires its KERIpy issuance evidence; an
 unknown on-chain association stays pending. Within one entity, immutable KEL
 issuance order prevents an older association from overwriting a newer one.
 Changing entities requires explicit withdrawal and resolution of conflicting
-managed bindings.
+managed association mappings.
 
 RPC or missing-evidence outages leave current endorsements in place. Polling
 latency includes the managed association and journal counts, RPC waits, and confirmations; there is no
@@ -165,13 +170,13 @@ modify existing operator credentials or deploy to another network.
 
 ## Legacy data ownership
 
-Application state holds unfinished verification (association and native Grant
+Application state holds unfinished verification (association and KERIpy Grant
 references, progress, current blockage), explicit managed membership (association,
 reconciliation state, current blockage), and signed-effect recovery (exact original
 and cancellation identities, association/action, nonce/fee, completion outcome).
 One deployment/writer scope guards recovery; the issuer ledger holds only consumed
 issuer/nonce pairs. Withdrawn membership remains to prevent older associations
-regaining authority. Native KERI stores own credential identity and issuance order;
+regaining authority. KERI stores own credential identity and issuance order;
 current validity, account code, registry state, receipts, and proposed actions are
 reconstructed for each decision. Queues and read-only retry timing stay in memory.
 Use fresh stores for this roll-forward schema; preserve existing operator stores.

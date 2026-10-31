@@ -27,7 +27,7 @@ from vlei_oracle.receiving.endpoints import load_ends
 from vlei_oracle.receiving.grants import GrantNotificationDoer
 from vlei_oracle.receiving.processing import OracleAgent
 from vlei_oracle.verification.constants import ASSOCIATION_SCHEMA
-from vlei_oracle.verification.coordinating import PresentationVerifierDoer
+from vlei_oracle.verification.coordinating import VerificationCoordinator
 from vlei_oracle.verification.schema_cache import pin_accepted_schemas
 from vlei_oracle.verification.worker import EoaVerifierDoer
 
@@ -184,7 +184,7 @@ def setup_service(config: ServiceConfig) -> ServiceRuntime:
             parser=parser,
             expected_association_schema=association_schema,
         ),
-        PresentationVerifierDoer(
+        VerificationCoordinator(
             baser=baser,
             rgy=rgy,
             trusted_geda_aid=config.trusted_geda_aid,

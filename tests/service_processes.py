@@ -20,9 +20,9 @@ def free_port():
 
 
 def identity(root, name, alias):
-    """Initialize/reopen only the service identity using the CLI's native store layout.
+    """Initialize/reopen only the service identity using the CLI's KERIpy store layout.
 
-    Return AID and public native KEL bytes. Contexts close before the CLI opens
+    Return AID and public KERIpy KEL bytes. Contexts close before the CLI opens
     these stores; the fixture never reads a live process's writable database.
     """
     options = dict(name=name, headDirPath=str(root), temp=False)

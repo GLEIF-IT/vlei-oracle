@@ -15,12 +15,12 @@ def load_ends(app: falcon.App, *, baser: OracleBaser, rxbs: bytearray, mbx) -> N
     """Register KERI ingestion, association status, and health endpoints."""
 
     app.add_route("/", indirecting.HttpEnd(rxbs=rxbs, mbx=mbx))
-    status_end = PresentationStatusEnd(baser=baser)
-    app.add_route("/presentations/{association_said}", status_end)
+    status_end = AssociationStatusEnd(baser=baser)
+    app.add_route("/associations/{association_said}", status_end)
     app.add_route("/health", HealthEnd(baser=baser))
 
 
-class PresentationStatusEnd:
+class AssociationStatusEnd:
     """Expose local lifecycle state for polling clients and e2e checkpoints."""
 
     def __init__(self, *, baser: OracleBaser):
@@ -29,13 +29,13 @@ class PresentationStatusEnd:
     def on_get(
         self, req: falcon.Request, rep: falcon.Response, association_said: str
     ) -> None:
-        """Return the current durable status for one wallet presentation."""
+        """Return the current durable status for one association."""
 
         _ = req
-        op = self.baser.presentation_status(association_said)
+        op = self.baser.association_status(association_said)
         if op is None:
             raise falcon.HTTPNotFound(
-                description=f"presentation {association_said} not found"
+                description=f"association {association_said} not found"
             )
         _json(rep, op)
 

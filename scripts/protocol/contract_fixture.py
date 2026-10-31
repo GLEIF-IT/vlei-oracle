@@ -13,7 +13,7 @@ from web3 import Web3
 from vlei_oracle.commands.parse_deploy_log import parse_deploy_log
 from vlei_oracle.endorsement.effects import ContractEffects
 from vlei_oracle.endorsement.reconciling import EndorsementDoer
-from vlei_oracle.verification.credentials import reconstruct_binding
+from vlei_oracle.verification.credentials import reconstruct_association_mapping
 
 DEPLOYER_KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
 POSTER_KEY = "0x" + "0" * 63 + "3"
@@ -108,7 +108,7 @@ def delegate_account(effects, *, authority_key, target):
 
 def qualify_transfers(*, comply, rpc_url, artifacts, runtime, trusted_geda,
                       schema_said, sender_key, recipient, target_saids, workflow):
-    """Deploy and test rejected/allowed transfers beside the native oracle."""
+    """Deploy and test rejected/allowed transfers beside the KERIpy oracle."""
     account = Account.from_key(sender_key)
     addresses = yield from deploy(comply, rpc_url, artifacts)
     poster_address = Account.from_key(POSTER_KEY).address
@@ -161,7 +161,7 @@ def qualify_transfers(*, comply, rpc_url, artifacts, runtime, trusted_geda,
     print("Real endorsements permit transfer without global wallet admission", flush=True)
     # A stale identity hint, even for the same entity and an admin
     # wallet, must never substitute for that wallet's endorsement.
-    entity = reconstruct_binding(rgy=runtime.rgy, said=target_saids[0], schema_said=schema_said)["identityRef"]
+    entity = reconstruct_association_mapping(rgy=runtime.rgy, said=target_saids[0], schema_said=schema_said)["identityRef"]
     yield from send(fixture_effects, fixture_effects.contracts["identity"],
                     "registerIdentity", [entity, poster_address, b""], DEPLOYER_KEY)
     yield from send(fixture_effects, wrapper, "transfer", [poster_address, 1000000], sender_key)

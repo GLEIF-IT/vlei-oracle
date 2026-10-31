@@ -15,7 +15,7 @@ from vlei_oracle.verification.credentials import grant_candidate, verify_associa
 from vlei_oracle.verification.errors import MissingCredentialArtifactsError, VerificationError
 
 
-class PresentationVerifierDoer(doing.DoDoer):
+class VerificationCoordinator(doing.DoDoer):
     """Verify received credentials against accepted KERI state and wallet proof.
 
     Grants carry the proof in the ACDC. Missing artifacts remain pending;

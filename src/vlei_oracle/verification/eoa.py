@@ -162,10 +162,10 @@ def verify_eoa_account(
     # EIP-7702 represents delegation as 0xef0100 followed by a 20-byte address.
     if code and not (len(code) == 23 and code[:3] == b"\xef\x01\x00"):
         raise ValueError("external account has contract code, not an EOA delegation")
-    return association_binding(association)
+    return association_mapping(association)
 
 
-def association_binding(association: dict[str, Any]) -> dict[str, str]:
+def association_mapping(association: dict[str, Any]) -> dict[str, str]:
     """Extract immutable EOA identity without asserting credential acceptance."""
     ext_id_chain(association["a"]["extId"])
     return {

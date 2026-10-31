@@ -1,4 +1,4 @@
-"""Select the next contract action from a binding and observed chain state.
+"""Select the next contract action from an association mapping and observed chain state.
 
 This boundary has no RPC, signing, persistence, or scheduler effects. The caller
 must establish current evidence and chain scope before acting on the selection.
@@ -7,16 +7,16 @@ must establish current evidence and chain scope before acting on the selection.
 ZERO_IDENTITY = "0x" + "00" * 32
 
 
-def next_action(binding, *, identity, endorsement, valid):
+def next_action(association_mapping, *, identity, endorsement, valid):
     """Return (contract, function, arguments), or None when already reconciled.
 
     The wallet identity registry is a policy input hint. Change it only after
     clearing a different entity's old endorsement, and publish only after the
     hint matches. Invalid evidence withdraws only its exact association.
     """
-    wallet = binding["wallet"]
-    expected = binding["identityRef"]
-    said = binding["associationSaid"]
+    wallet = association_mapping["wallet"]
+    expected = association_mapping["identityRef"]
+    said = association_mapping["associationSaid"]
     current_identity, current_said = endorsement
     if not valid:
         if current_said == said and current_identity != ZERO_IDENTITY:

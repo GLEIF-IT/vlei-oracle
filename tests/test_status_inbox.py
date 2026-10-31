@@ -1,7 +1,7 @@
 """Trusted status receipt: durable ACKs, replay boundaries, and real sender recovery.
 
 EOA Verifier is an installed, pinned test dependency only. The producer fixture
-starts after initial verification; native credential verification remains covered
+starts after initial verification; KERIpy credential verification remains covered
 by that application's tests, not repeated by the oracle.
 """
 
@@ -30,7 +30,7 @@ def said(label):
 
 @pytest.fixture
 def peers(tmp_path):
-    """Own native peer identities and separate persistent application stores."""
+    """Own KERIpy peer identities and separate persistent application stores."""
     with (
         habbing.openHby(name="producer", temp=True) as producer,
         habbing.openHby(name="oracle", temp=True) as oracle,
@@ -42,7 +42,7 @@ def peers(tmp_path):
         ) as inbox,
     ):
         producer_hab = producer.makeHab(name="producer")
-        # Bootstrap through the receiver's actual native KEL import path.
+        # Bootstrap through the receiver's actual KERIpy KEL import path.
         kel = tmp_path / "producer.cesr"
         kel.write_bytes(producer_hab.makeOwnEvent(sn=0))
         with socket.socket() as sock:
@@ -66,7 +66,7 @@ def peers(tmp_path):
             "issuerAid": producer_hab.pre,
             "leSaid": said("LE"),
             "extId": "eip155:31337:0x" + "11" * 20,
-            "issuance": {"sequenceNumber": 3, "said": said("issuance")},
+            "issuanceAnchor": {"sequenceNumber": 3, "said": said("issuanceAnchor")},
         }
         association = said("association")
         outbox.enqueue(PendingVerification(association, said("grant")))
@@ -74,15 +74,15 @@ def peers(tmp_path):
             VerificationResult(
                 association,
                 "verified",
-                verified={
+                eoaResult={
                     "wallet": "0x" + "11" * 20,
-                    "observation": {"observedAt": "2000-01-01T00:00:00Z"},
+                    "accountObservation": {"observedAt": "2000-01-01T00:00:00Z"},
                 },
             )
         )
         accepted = outbox.accept(
             association,
-            facts=facts,
+            association=facts,
             destination=config.webhook_url,
             peer_aid=receiver.hab.pre,
         )
@@ -122,8 +122,8 @@ def test_status_commit_survives_reordering_reopen_and_conflict(peers):
     revoked = {
         **accepted,
         "eventId": f"{accepted['associationSaid']}:2",
-        "revision": 2,
-        "outcome": "invalid",
+        "statusRevision": 2,
+        "status": "revoked",
         "reasonCode": "REVOKED",
     }
     body = json.dumps(revoked).encode()
@@ -133,7 +133,7 @@ def test_status_commit_survives_reordering_reopen_and_conflict(peers):
     assert post(peers, peers.event.body.encode()).status_code == 200
     assert post(peers, body).status_code == 200
     status = peers.inbox.statuses.get(keys=(accepted["associationSaid"],))
-    assert (status.status, status.revision) == ("revoked", 2)
+    assert (status.status, status.statusRevision) == ("revoked", 2)
     assert status.wallet == "0x" + "11" * 20
     assert len(list(peers.inbox.inbox.getItemIter())) == 2
 
@@ -158,7 +158,14 @@ def test_authentication_replay_and_bad_event_leave_no_new_status(peers):
         assert post(peers, body, auth=stranger).status_code == 401
     assert not list(peers.inbox.inbox.getItemIter())
     assert post(peers, b"{}").status_code == 400
-    assert post(peers, body, headers=headers).status_code == 200
+    # The revised v1 consumer does not accept the former event vocabulary.
+    obsolete = json.loads(body)
+    obsolete["outcome"] = "valid"
+    del obsolete["status"]
+    assert post(peers, json.dumps(obsolete).encode()).status_code == 400
+    response = post(peers, body, headers=headers)
+    assert response.status_code == 200
+    assert response.json == {"eventId": peers.event.eventId, "stored": True}
     peers.inbox.close()
     peers.inbox.reopen()
     assert post(peers, body, headers=headers).status_code == 401
@@ -175,7 +182,7 @@ def test_real_sender_recovers_commit_ack_gaps(peers, monkeypatch, gap):
         raise RuntimeError("simulated process loss")
 
     def drive(worker, *, expect_failure=False):
-        """Run native HTTP and sender until one attempt settles, then close both sockets."""
+        """Run HIO HTTP and sender until one attempt settles, then close both sockets."""
 
         starting_attempts = peers.outbox.outbox.get(keys=(peers.event.eventId,)).attempts
 
@@ -183,7 +190,7 @@ def test_real_sender_recovers_commit_ack_gaps(peers, monkeypatch, gap):
             yield tock
             while True:
                 event = peers.outbox.outbox.get(keys=(peers.event.eventId,))
-                if event.delivered or (
+                if event.acknowledged or (
                     event.attempts > starting_attempts
                     and event.error
                     and event.error != "attempt started; authenticated ACK not recorded"
@@ -215,7 +222,7 @@ def test_real_sender_recovers_commit_ack_gaps(peers, monkeypatch, gap):
     # The receiver has committed even when the ACK/completion boundary fails.
     assert peers.inbox.inbox.get(keys=(peers.event.eventId,)) is not None
     if gap != "none":
-        assert not peers.outbox.outbox.get(keys=(peers.event.eventId,)).delivered
+        assert not peers.outbox.outbox.get(keys=(peers.event.eventId,)).acknowledged
         # Reopen both durable stores and construct fresh workers, as after restart.
         peers.outbox.close()
         peers.outbox.reopen()
@@ -226,9 +233,9 @@ def test_real_sender_recovers_commit_ack_gaps(peers, monkeypatch, gap):
         )
         sender = WebhookSender(baser=peers.outbox, hab=peers.hab, timeout=1)
         drive(sender)
-    delivered = peers.outbox.outbox.get(keys=(peers.event.eventId,))
-    assert delivered.delivered
-    assert delivered.attempts == (1 if gap == "none" else 2)
+    acknowledged = peers.outbox.outbox.get(keys=(peers.event.eventId,))
+    assert acknowledged.acknowledged
+    assert acknowledged.attempts == (1 if gap == "none" else 2)
     ext_id = json.loads(peers.event.body)["association"]["extId"]
     assert peers.inbox.selected_association(ext_id).associationSaid == peers.event.associationSaid
     assert len(list(peers.inbox.inbox.getItemIter())) == 1
@@ -243,7 +250,7 @@ def test_real_sender_recovers_commit_ack_gaps(peers, monkeypatch, gap):
     assert not peers.receiver.server.servant.opened
 
 
-def test_receiver_reopens_identity_and_native_stores(peers, tmp_path, capsys):
+def test_receiver_reopens_identity_and_keripy_stores(peers, tmp_path, capsys):
     """The real entrypoint preserves its AID and closes its listener across restarts."""
     from dataclasses import replace
 
@@ -265,12 +272,12 @@ def test_issued_then_revoked_is_terminal_and_chain_scoped(peers):
     revoked = {
         **accepted,
         "eventId": f"{accepted['associationSaid']}:2",
-        "revision": 2,
-        "outcome": "invalid",
+        "statusRevision": 2,
+        "status": "revoked",
         "reasonCode": "REVOKED",
     }
     assert post(peers, json.dumps(revoked).encode()).status_code == 200
-    revival = {**accepted, "eventId": f"{accepted['associationSaid']}:3", "revision": 3}
+    revival = {**accepted, "eventId": f"{accepted['associationSaid']}:3", "statusRevision": 3}
     assert post(peers, json.dumps(revival).encode()).status_code == 409
     revival["association"] = {
         **accepted["association"],
@@ -283,13 +290,13 @@ def test_issued_then_revoked_is_terminal_and_chain_scoped(peers):
     )
 
 
-def test_peer_rotation_requires_native_key_state_update(peers):
-    """A newly signed duplicate is accepted only after native KEL rotation is imported."""
+def test_peer_rotation_requires_keripy_key_state_update(peers):
+    """A newly signed duplicate is accepted only after KERIpy KEL rotation is imported."""
     body = peers.event.body.encode()
     assert post(peers, body).status_code == 200
     rotation = peers.hab.rotate()
     assert post(peers, body).status_code == 401
-    # Operators supply the updated native stream; existing state accepts its successor.
+    # Operators supply the updated KERIpy stream; existing state accepts its successor.
     from pathlib import Path
 
     Path(peers.config.verifier_kel).write_bytes(rotation)
