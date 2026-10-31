@@ -4,13 +4,13 @@ from importlib.resources import files
 
 from keri.core import scheming
 
-from vlei_oracle.verification.constants import ASSOCIATION_SCHEMA
+from vlei_oracle.association.constants import ASSOCIATION_SCHEMA
 
 
 def association_schemer():
     """Validate the packaged schema against the pinned protocol SAID."""
     raw = (
-        files("vlei_oracle.verification")
+        files("vlei_oracle.association")
         .joinpath("schema_data/acdc/external-association-v1.json")
         .read_bytes()
     )
@@ -20,8 +20,3 @@ def association_schemer():
             "packaged association schema does not match the pinned protocol"
         )
     return schema
-
-
-def pin_accepted_schemas(hby):
-    schema = association_schemer()
-    hby.db.schema.pin(keys=(schema.said,), val=schema)

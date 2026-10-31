@@ -1,1 +1,1 @@
-"""Maintain contract endorsements from current verified evidence."""
+"""Maintain contract endorsements from trusted verifier status and local selection."""

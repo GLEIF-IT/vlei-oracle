@@ -1,4 +1,4 @@
-"""Ethereum EOA identifiers, typed-data challenges, and proof verification."""
+"""EOA wire identifiers and issuer-side wallet challenge/proof checks."""
 
 from __future__ import annotations
 
@@ -151,25 +151,3 @@ def verify_eoa_proof(association: dict[str, Any]) -> None:
         raise ValueError("EOA proof signature cannot recover a signer") from exc
     if signer.lower() != wallet:
         raise ValueError("EOA proof signer does not match external identifier")
-
-
-def verify_eoa_account(
-    association: dict[str, Any], *, chain_id: int, code: bytes
-) -> dict[str, str]:
-    """Check resolved chain/account facts after proof verification succeeds."""
-    if chain_id != ext_id_chain(association["a"]["extId"]):
-        raise ValueError("association chain does not match oracle network")
-    # EIP-7702 represents delegation as 0xef0100 followed by a 20-byte address.
-    if code and not (len(code) == 23 and code[:3] == b"\xef\x01\x00"):
-        raise ValueError("external account has contract code, not an EOA delegation")
-    return association_mapping(association)
-
-
-def association_mapping(association: dict[str, Any]) -> dict[str, str]:
-    """Extract immutable EOA identity without asserting credential acceptance."""
-    ext_id_chain(association["a"]["extId"])
-    return {
-        "wallet": association["a"]["extId"].split(":")[2],
-        "identityRef": "0x" + keccak(text=association["i"]).hex(),
-        "associationSaid": association["d"],
-    }

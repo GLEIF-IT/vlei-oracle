@@ -28,9 +28,6 @@ class StatusPoster(doing.DoDoer):
         self.interval = interval
         if self.account.address.lower() != effects.writer.lower():
             raise ValueError("posting key does not match writer")
-        # The two runtime compositions must not share a legacy writer journal.
-        if baser.managed.cntAll() or baser.verifications.cntAll():
-            raise ValueError("use an independent trusted-status store, not a legacy workflow store")
         baser.bind_posting_scope(PostingScope(
             effects.chain_id, effects.writer.lower(),
             effects.contracts["endorsement"].address.lower(),
@@ -90,7 +87,7 @@ class StatusPoster(doing.DoDoer):
             intent = self.baser.pin_transaction(TransactionRecord(
                 txHash=Web3.to_hex(signed.hash),
                 rawTransaction=Web3.to_hex(signed.raw_transaction),
-                nonce=tx["nonce"], gasPrice=tx["gasPrice"],
+                nonce=tx["nonce"],
                 associationSaid=status.associationSaid, action=action[1],
             ))
             try:

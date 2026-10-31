@@ -33,7 +33,7 @@ def test_reconcile_association_mapping_in_safe_order(identity, endorsement, expe
 
 
 @pytest.mark.parametrize("current", ["new", "replacement", ""])
-def test_invalid_evidence_withdraws_only_its_exact_association(current):
+def test_unselected_status_withdraws_only_its_exact_association(current):
     action = next_action(
         ASSOCIATION_MAPPING, identity=IDENTITY, endorsement=(IDENTITY, current), valid=False
     )

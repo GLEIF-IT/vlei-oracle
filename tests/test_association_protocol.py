@@ -17,7 +17,7 @@ from eth_utils import keccak
 from jsonschema import Draft7Validator, ValidationError
 from keri.core import coring, scheming, serdering, signing
 
-from vlei_oracle.verification.eoa import (
+from vlei_oracle.association.eoa import (
     build_challenge,
     challenge_hashes,
     ext_id_chain,

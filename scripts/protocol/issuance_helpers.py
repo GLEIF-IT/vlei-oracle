@@ -1,12 +1,9 @@
 """Test-side issuer setup and KLI artifact workflows.
 
-The oracle library receives and verifies; these helpers own test controllers,
-credential issuance setup, and supporting evidence transport.
+These helpers own test issuers and supporting evidence delivery. EOA Verifier
+receives and accepts that evidence; oracle receives only its signed status.
 """
 
-from pathlib import Path
-import subprocess
-import sys
 
 from hio.base import doing
 from keri.app import habbing, signing
@@ -62,7 +59,7 @@ def receive(hby, rgy, stream) -> None:
     """Give an issuer supporting KERI evidence through the standard parser.
 
     QVI and LE use this local delivery before issuing their own credentials.
-    Oracle delivery is tested separately through HTTP. Acceptance is established
+    Delivery to EOA Verifier is tested separately through HTTP. Acceptance is established
     by KERIpy's verifier, including its normal escrow processing.
     """
     verifier = verifying.Verifier(hby=hby, reger=rgy.reger)
@@ -144,27 +141,6 @@ def issuer_for(hby, rgy):
         hby=hby, rgy=rgy, registrar=registrar,
         verifier=verifying.Verifier(hby=hby, reger=rgy.reger),
     )
-
-
-def kli_issue(*, base, credential, artifacts, workflow):
-    """Run KERIpy full-credential issuance while the real witness keeps running."""
-    log_path = artifacts / "kli-issuance.log"
-    with log_path.open("w") as log:
-        with subprocess.Popen(
-            [str(Path(sys.executable).with_name("kli")), "vc", "create",
-             "--name", "le", "--base", base, "--alias", "le",
-             "--registry-name", "le", "--credential", "@" + str(credential)],
-            stdout=log, stderr=subprocess.STDOUT,
-        ) as process:
-            try:
-                deadline = workflow.tyme + 30
-                while process.poll() is None:
-                    assert workflow.tyme < deadline, "KLI issuance timed out: " + log_path.read_text()
-                    yield 0.01
-                assert process.returncode == 0, log_path.read_text()
-            finally:
-                if process.poll() is None:
-                    process.terminate()
 
 
 def open_issuers(stack, schemas, *, base, temp, witness):

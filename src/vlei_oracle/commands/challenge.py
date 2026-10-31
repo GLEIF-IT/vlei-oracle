@@ -3,7 +3,7 @@
 import json
 from pathlib import Path
 
-from vlei_oracle.verification.eoa import build_challenge, normalize_ext_id
+from vlei_oracle.association.eoa import build_challenge, normalize_ext_id
 
 
 def add_parser(subparsers):

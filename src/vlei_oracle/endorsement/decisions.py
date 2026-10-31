@@ -1,7 +1,7 @@
 """Select the next contract action from an association mapping and observed chain state.
 
 This boundary has no RPC, signing, persistence, or scheduler effects. The caller
-must establish current evidence and chain scope before acting on the selection.
+supplies current trusted-status selection and chain scope before acting.
 """
 
 ZERO_IDENTITY = "0x" + "00" * 32
@@ -12,7 +12,7 @@ def next_action(association_mapping, *, identity, endorsement, valid):
 
     The wallet identity registry is a policy input hint. Change it only after
     clearing a different entity's old endorsement, and publish only after the
-    hint matches. Invalid evidence withdraws only its exact association.
+    hint matches. A revoked or unselected status withdraws only its exact association.
     """
     wallet = association_mapping["wallet"]
     expected = association_mapping["identityRef"]

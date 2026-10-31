@@ -1,9 +1,9 @@
 # Trusted verifier status and contract posting
 
 `vlei-oracle server receive` accepts EOA Verifier webhooks and signs ACKs after
-committing receipt, verifier status and ownership selection to LMDB. It does not start the legacy credential-verification or
-Ethereum-posting workers. `server start` adds trusted-status contract posting;
-`server legacy-start` retains the older combined workflow on independent stores.
+committing receipt, verifier status and ownership selection to LMDB.
+`server start` adds trusted-status contract posting. Initial credential, proof and
+account verification belongs exclusively to EOA Verifier.
 
 ## Start
 
@@ -27,10 +27,9 @@ file is optional on restart. For rotation, supply the updated stream and restart
 there is no background key discovery. Service signatures support one transferable
 Ed25519 key at threshold one. The KERIpy `/oobi/{aid}` route exports this receiver's
 identity for introduction to the verifier. Do not change a store's trusted
-verifier or chain; use another store for a different trust scope. A populated
-inbox from before ownership selection has no selection history and is refused;
-use fresh independent demonstration stores and redeliver verified status. Existing
-data is preserved. Production migration is separate work.
+verifier or chain; use another store for a different trust scope. Use fresh
+application stores for demonstrations and preserve existing operator data
+separately. There are no storage migrations or previous-format readers.
 
 ## Status delivery and acknowledgment
 
@@ -93,7 +92,7 @@ to trusted facts. One canonical `extId` (chain/address) has one current associat
 `selected`, `superseded`, `rejected` or `revoked`. `claims` retains the current SAID
 and highest known issuance sequence per issuer for that chain/address.
 `OracleBaser.selected_association(ext_id)` reads the selected stored facts without
-RPC or credential checks. The legacy management/transaction tables are unchanged.
+RPC or credential checks.
 No background selection worker is needed. Same-anchor
 multiple-association detection remains deferred as described in the ADR appendix.
 
@@ -132,8 +131,7 @@ An uncertain broadcast keeps its hash and failure reason pending across restart.
 The worker polls receipts and does not allocate another nonce until it resolves.
 A permanently dropped transaction therefore needs operator investigation; automatic
 rebroadcast, cancellation, nonce reconciliation and reorg recovery are outside this
-runtime. Never share its writer with another process. Do not reuse a legacy
-workflow store or migrate a live legacy journal; demonstrate with independent
+runtime. Never share its writer with another process. Use fresh demonstration
 stores. Changing chain, writer or contract addresses requires another store.
 
 ## Checks
