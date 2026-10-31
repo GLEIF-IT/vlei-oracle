@@ -81,6 +81,8 @@ The oracle has no wallet challenge, signing, credential finalization or associat
 nonce store. Issuers present their credentials and supporting witnessed KEL/TEL
 evidence to EOA Verifier. The verifier consumes an exact issuer/nonce only on
 application acceptance, atomically with status and optional webhook delivery.
+Association nonces contain 1–128 ASCII letters, digits, underscores or hyphens
+(`[A-Za-z0-9_-]`); the verifier stores ordinary `issuer.nonce` Komer keys.
 A different credential reusing that pair is rejected, even after revocation.
 
 The canonical profile and reference vectors remain under `protocol/`. Issuance

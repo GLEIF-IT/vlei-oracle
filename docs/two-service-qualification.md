@@ -35,7 +35,7 @@ focused policy/transport tests; this is not a second fault-matrix suite.
 
 Install the oracle wheel and `tests/requirements.txt` in a fresh Python 3.12
 environment. Put Foundry 1.5.1 on PATH and set `VLEI_COMPLY_DIR` to comply revision
-`4c83e465b3d7937f02b95e805cca5b79f5015078` with submodules and built contracts.
+`13c6ae3506f6c6f398b37f12d646da4f2c21577b` with submodules and built contracts.
 From a directory containing the copied `tests`, `scripts` and `protocol` trees:
 
 ```sh
@@ -48,9 +48,9 @@ only its own subprocesses. On macOS hosts with LMDB vnode exhaustion, copy the
 inputs into a Linux container with no host bind mounts and run there.
 
 The producer is pinned to verifier companion revision
-`2a81727e81be19d4ebcef007e7c373881313bc27` in `tests/requirements.txt`, not as an
+`ba1971f54fd26191eb147fec0e7a75ed179eda7f` in `tests/requirements.txt`, not as an
 oracle runtime import. Merge the verifier acceptance-policy companion before
-this oracle removal PR. Its source matches the qualified verifier wheel.
+this oracle schema/vector companion PR. Its source matches the qualified verifier wheel.
 Existing status-posting tests establish old-observation
 acceptance and failure handling without the verifier. The paired comply launcher invokes this same scenario; it does not copy the
 KERIpy issuance or process-ownership code.
@@ -81,3 +81,7 @@ The paired test verifies the installed CLIs and wire/resource compatibility.
 `test_status_inbox.py` additionally exercises Python imports from the installed
 producer through its `delivery`/`persistence` components. These imports require
 the reorganized producer revision pinned in `tests/requirements.txt`.
+
+The current schema restricts association nonces to 1–128 ASCII characters from
+`[A-Za-z0-9_-]`; the verifier uses direct issuer/nonce Komer keys. The reference
+ACDC, schema SAID and endorsement fixture have been regenerated together.

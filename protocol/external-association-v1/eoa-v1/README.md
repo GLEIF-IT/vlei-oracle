@@ -61,6 +61,11 @@ positive decimal integer without leading zeros, limited to 32 digits. The
 address is `0x` followed by 40 lowercase hexadecimal characters. Mixed-case
 presentations undergo EIP-55 checksum validation before normalization.
 
+The nonce `u` contains 1–128 ASCII characters from `[A-Za-z0-9_-]`, with no
+normalization. Whitespace, dots and non-ASCII text are invalid. EOA Verifier uses
+the ordinary Komer key tuple `(issuerAid, nonce)`; neither component contains a
+dot, and the schema bounds the resulting key to at most 173 bytes.
+
 The proof uses `alg` of `EIP-712/ES256K` and tag
 `vlei-external-association/v1`. Its signature is 65 bytes: concatenated 32-byte
 `r`, 32-byte `s`, and one-byte `v`, encoded as lowercase `0x` hex.

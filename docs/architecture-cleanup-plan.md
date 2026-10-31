@@ -31,6 +31,13 @@ separate, reviewable PR; complete removal precedes new mechanisms.
    trust/deployment scopes, and locally encoded contract ABIs with HIO RPC waits.
    Do not add another service concurrency model or persistence abstraction.
 
+7. Association nonces contain **1–128 ASCII characters from `[A-Za-z0-9_-]`**.
+   Preserve case and bytes; reject whitespace, dots, other punctuation and
+   non-ASCII text. Use ordinary Komer `(issuerAid, nonce)` keys (`issuer.nonce`),
+   bounded to 173 bytes by the credential schema. No hashing, JSON key encoding,
+   migration, alternate key reader or old schema acceptance. This decision
+   supersedes the earlier Unicode/digest-key requirements in historical receipts.
+
 ## Ordered PRs and acceptance gates
 
 ### 1. Remove the combined verifier/oracle runtime (merged: PR #47)
@@ -96,6 +103,10 @@ paired suite pass against the new contract revision. No compatibility selectors,
 old queue settlement or abstract-beneficiary fallback remains.
 
 ### 3. Complete PR #49 without application locking (merged)
+
+Historical requirements below describe the removed issuer ledger. Its former
+Unicode nonce and digest-key choices are superseded by binding decision 7 and
+have no current runtime/API support.
 
 Owner: vlei-oracle. Added by Kent on 2026-10-31. This is a separate focused
 refactor after the wrapper-removal qualification. Preserve
@@ -179,7 +190,7 @@ Validation and completion:
    exact test/artifact evidence and remaining limitations. Leave the refactor
    uncommitted and unpushed until Kent authorizes publication (now approved).
 
-### 4. Remove association-nonce ownership from vlei-oracle (implemented; PR review pending)
+### 4. Remove association-nonce ownership from vlei-oracle (oracle #50 merged; verifier #20 open)
 
 Owners: vlei-oracle removal PR, with an EOA Verifier acceptance-policy companion.
 This is the authorized next task after PR #49 merged. It remains separate from
@@ -218,8 +229,10 @@ proof nonce consumption or credential issuance policy.
   nonce. Revocation or supersession never releases a consumed nonce.
 - Read the issuer and exact `u` from the verified native association credential;
   do not trust a new webhook field or infer the nonce from status metadata.
-  Preserve whitespace and Unicode representation. Use an unambiguous digest key
-  and a minimal typed claim that binds issuer, nonce and the accepted SAID.
+  Enforce the 1–128 ASCII `[A-Za-z0-9_-]` contract without normalization. Use
+  ordinary Komer `(issuerAid, nonce)` keys and a minimal typed claim that binds
+  issuer, nonce and the accepted SAID. The schema's 44-byte issuer plus separator
+  and 128-byte nonce yields a maximum 173-byte key.
 - Bind claims in the existing VerifierBaser using its current service
   `name`/`base`/`head_dir` and owning LMDB context. Add no separate environment,
   nonce CLI options, mutex, thread pool, locking layer or generic repository.
@@ -243,8 +256,8 @@ proof nonce consumption or credential issuance policy.
 
 1. Prove sequential duplicate handling and real independent-process races with
    native LMDB: one accepted SAID for a pair, idempotent same-SAID replay, terminal
-   rejection for another SAID, different-issuer reuse, exact Unicode/whitespace,
-   restart, revocation/supersession without reuse, and malformed claim rejection.
+   rejection for another SAID, different-issuer reuse, exact ASCII case/bytes,
+   1/128-character boundaries, invalid-input rejection, restart, revocation/supersession without reuse, and malformed claim rejection.
 2. Crash/fault tests cover rollback before acceptance commit and recovery after
    commit but before ACK. There must never be a consumed-but-unaccepted claim or
    accepted-but-unclaimed association. Rejected candidates create no accepted
@@ -484,7 +497,7 @@ the subsequent ownership-removal wave. Oracle transport replay claims and
 Ethereum transaction nonces are outside that removal.
 
 
-## Task 4 implementation and qualification
+## Original task 4 implementation and qualification (before ASCII revision)
 
 PR #49 is merged at `7734146c9f5bb23607e9434180651ef514f4274b`.
 The current coordinated wave removes the oracle's issuer ledger, ceremony
@@ -558,3 +571,58 @@ migration, cross-store authority or Linux CI result is claimed. Existing KERIpy
 malformed-input limitations remain outside this ownership change.
 Task 5 (empty policy configuration) remains the next architecture cleanup; the
 wrapper's noncustodial audit role and direct USDC bypass remain accepted.
+
+
+## ASCII nonce contract revision
+
+Kent approved replacing the pre-use nonce contract on 2026-10-31. The current
+contract is 1–128 ASCII letters, digits, underscores or hyphens. Proof validation,
+acceptance storage and the canonical/packaged schema enforce it. Komer joins the
+issuer and nonce with its standard dot separator; there is no digest or JSON key
+encoding. The acceptance scope is `issuer-nonce-ascii-v1`, with fresh stores and
+no old-key readers or migrations.
+
+The canonical schema, packaged verifier resource, policy SAID, reference ACDC,
+protocol vectors and comply publication calldata change together. Signed challenge
+fields are unchanged for the valid reference nonce; the new schema changes the
+credential SAID. Independent-process locking remains entirely native LMDB.
+Verifier PR #20 receives the implementation. Oracle #50 is already merged, so
+its canonical fixture/docs and producer-pin update require a new companion PR.
+The comply companion changes its public fixture and documents the upstream nonce
+contract; Solidity does not interpret or store association nonces.
+
+
+Current schema SAID: `EOgZ5tOZ0f7U-4H004zKoz75Pi8XwUM2FjKoMYrkBnmu`. Current reference association SAID:
+`EIMtYfwyE2KoT65Tze54g0IyPfw41Zly2sXvo9Mrgzv3`. This replaces the preceding schema and fixture;
+no previous schema ID is accepted by the current verifier policy.
+
+Qualification: **134 standalone installed-wheel verifier tests passed** in
+322.04 seconds; **130 installed-wheel oracle tests passed** in 247.38 seconds,
+including the maintained paired qualification in 52.825 seconds; **28
+Forge tests passed** against the updated publication vector. Focused checks passed
+53 verifier and 72 oracle tests. The new matrix covers the 1/128 boundaries,
+129-character rejection, exact ASCII case, Unicode, whitespace, embedded dots,
+trailing newlines, controls and disallowed punctuation. Existing thread-free
+native LMDB process races, crash rollback/recovery, issuer scope and idempotent
+acceptance remain covered. All witnessed intake cases and maintained transfer,
+restart, lost-ACK, replacement and exact retirement assertions remain intact.
+
+The canonical/packaged schema bytes agree. The regenerated ACDC, protocol vectors,
+and Solidity publication calldata agree. Wheel audit matches all 30 verifier and
+21 oracle Python/JSON files to source. Qualified wheel SHA-256 values:
+
+- Verifier: `14a5a55f7847eaa4cf9b09b223711528b25576285602467ddd481e7f928552fc`.
+- Oracle: `763af399ab391b2a72235f275d43665926e809eb0c17dcdf1b681a5946eb5953`.
+
+Python 3.12.10, GLEIF KERI/HIO 1.2.19/0.6.22, LMDB 1.8.1 and Foundry 1.5.1
+were used locally on macOS. Native LMDB supplies locking; no mutex, migration,
+old-format reader, fallback API or separate nonce environment was added.
+
+The coordinated producer pin is verifier `ba1971f54fd26191eb147fec0e7a75ed179eda7f` (PR #20). The comply fixture/docs
+pin is `13c6ae3506f6c6f398b37f12d646da4f2c21577b`; its Solidity and ABI are unchanged from the preceding qualified
+contracts. Merge those companions before the oracle schema/vector update. The
+qualification snapshots match those commits' runtime/schema/vector contents.
+
+The published verifier install matches all 30 qualified Python/JSON files. CI and
+demo contract pins agree with comply PR #12, and its publication fixture matches
+the qualified snapshot. No runtime source changed after installed-wheel testing.
