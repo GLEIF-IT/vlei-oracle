@@ -12,7 +12,6 @@ def parse_deploy_log(text: str) -> dict[str, str]:
     labels = {
         "AdminControls": "adminControls",
         "Vendor IdentityRegistry": "identityRegistry",
-        "CredentialRegistry": "credentialRegistry",
         "VLEIOracleRegistry": "oracleRegistry",
         "Asset (USDC)": "usdcToken",
         "Wrapper (wUSDC)": "wrapper",

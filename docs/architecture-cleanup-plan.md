@@ -33,7 +33,7 @@ separate, reviewable PR; complete removal precedes new mechanisms.
 
 ## Ordered PRs and acceptance gates
 
-### 1. Remove the combined verifier/oracle runtime (implemented; review pending)
+### 1. Remove the combined verifier/oracle runtime (merged: PR #47)
 
 Owner: vlei-oracle. Start from merged PR #46.
 
@@ -63,9 +63,10 @@ qualification still proves authenticated receipt, posting, replacement,
 revocation, restart/redelivery and accepted/rejected contract transfers. No test
 may regain credential verification inside the oracle.
 
-### 2. Remove wrapper workflows incompatible with wallet association v1
+### 2. Remove wrapper workflows incompatible with wallet association v1 (implemented; review pending)
 
-Owner: vlei-comply. Follow PR 1 immediately, before adding recovery features.
+Owner: vlei-comply. [Removal PR #11](https://github.com/GLEIF-IT/vlei-comply/pull/11).
+Follow PR 1 immediately, before adding recovery features.
 
 - Remove `transferWithBeneficiary` and `transferFromWithBeneficiary` mediation
   workflows that construct parties without an associated wallet. Remove their
@@ -174,8 +175,8 @@ rosters. Run the smallest relevant checks first, then installed artifacts and
 paired qualification where shared contracts change. Report exact revisions and
 unrun integration limits. Do not treat a green fixture as deployment readiness.
 
-PR 1 is implemented and locally qualified. Subsequent PRs follow in this order
-after review; this
+PR 1 is merged and PR 2 is implemented and locally qualified. Subsequent PRs
+follow in this order after review; this
 plan is not authorization to deploy, migrate stores or merge without review.
 
 ## PR 1 qualification record
@@ -195,3 +196,27 @@ two application processes, two wallets, real contract transfers, lost ACK,
 restart, replacement and exact revocation scenario remains intact. This is local
 qualification, not deployment evidence. The active posting-reader lifetime,
 receipt-only recovery and other later PRs above remain unfinished.
+
+## PR 2 qualification record
+
+On 2026-10-31, the reduced contract deployment passed **28 Forge tests** with
+Foundry 1.5.1 and **four launcher checks**. The oracle companion passed **141
+installed-wheel tests** in 153.74 seconds, including the unchanged two-process
+witnessed issuance, signed receipt, transfer, replacement, restart and revocation
+scenario against the new contract source. The qualified contract revision is
+`4c83e465b3d7937f02b95e805cca5b79f5015078`; the verifier remains pinned to
+`486fb42f92b6c3269d7968934448f21121ef08aa`.
+
+The wrapper has only direct owner-initiated transfer routes. Mediation, pending
+settlement, unused enrichment fields, credential/trusted-issuer deployments and
+compatibility aliases are removed. Wallet lookup always resolves the registry's
+current identity; caller hints cannot substitute for it. Audit-hash and rejection
+regressions pass. The oracle's two packaged registry ABIs match the new build;
+the deploy-log parser no longer requires a credential-registry address. CI,
+demo setup and current operator guides now select the new contract revision.
+
+Review and merge the contract removal before the oracle pin companion. Use the
+oracle companion's head commit as `ORACLE_REVISION` for the contract guide's local
+qualification. PR 3 (fail-closed empty policy configuration) is next; this existing
+limitation is documented in the contract security model. Later operating fixes
+remain separate. No storage or contract migration is provided.

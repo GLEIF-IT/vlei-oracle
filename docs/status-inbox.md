@@ -138,7 +138,7 @@ stores. Changing chain, writer or contract addresses requires another store.
 
 Install the test-only sender with `pip install -r tests/requirements.txt`. CI tests
 installed wheels against Foundry 1.5.1 and comply revision
-`cdaa111041e50f56d2820b84cf15f18c96c45ac4`. For local contract tests, set
+`4c83e465b3d7937f02b95e805cca5b79f5015078`. For local contract tests, set
 `VLEI_COMPLY_DIR` to that checkout with its submodules and put `forge`/`anvil` on PATH.
 Missing prerequisites fail the contract suite. `test_status_posting.py` covers
 accepted-to-published, replacement, exact withdrawal, duplicate receipt, pending
