@@ -5,10 +5,12 @@ import sqlite3
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import closing
 from pathlib import Path
+from threading import Event
 
 import pytest
-from ceremony import write_credential
+from ceremony import consume_nonce, write_credential
 from eth_account import Account
 from eth_account.messages import encode_typed_data
 
@@ -142,12 +144,68 @@ def test_concurrent_nonce_consumption_allows_one_artifact(tmp_path, attempt):
                 output=tmp_path / f"{index}.json",
             )
             return True
-        except (ValueError, sqlite3.OperationalError):
+        except ValueError as error:
+            assert str(error) == "nonce already consumed by this issuer"
             return False
 
     with ThreadPoolExecutor(max_workers=2) as pool:
         assert sorted(pool.map(finish, [1, 2])) == [False, True]
     assert len(list(tmp_path.glob("*.json"))) == 1
+
+
+def test_nonce_commit_waits_for_a_brief_reader(tmp_path, monkeypatch):
+    """A reader overlapping commit must not discard the only valid artifact."""
+    challenge, signature = ceremony()
+    store, output = tmp_path / "nonces.db", tmp_path / "association.json"
+    consume_nonce(store, issuer="seed", nonce="seed")
+    real_connect, committing = sqlite3.connect, Event()
+
+    def traced_connect(*args, **kwargs):
+        connection = real_connect(*args, **kwargs)
+        connection.set_trace_callback(
+            lambda sql: committing.set() if sql == "COMMIT" else None
+        )
+        return connection
+
+    with closing(real_connect(store)) as reader:
+        reader.execute("BEGIN")
+        reader.execute("SELECT * FROM consumed").fetchall()
+        monkeypatch.setattr("ceremony.sqlite3.connect", traced_connect)
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(
+                write_credential, challenge=challenge, signature=signature,
+                registry=ASSOCIATION["ri"], nonce_store=store, output=output,
+            )
+            try:
+                assert committing.wait(timeout=5), "writer did not reach commit"
+                with pytest.raises(TimeoutError):
+                    future.result(timeout=0.1)
+            finally:
+                reader.rollback()
+            credential = future.result(timeout=5)
+    assert output.read_bytes() == credential.raw
+    with pytest.raises(ValueError, match="already consumed"):
+        consume_nonce(store, issuer=credential.issuer, nonce=credential.sad["u"])
+
+
+def test_nonce_lock_timeout_leaves_no_artifact(tmp_path):
+    """Persistent contention fails closed and does not consume an uncommitted nonce."""
+    challenge, signature = ceremony()
+    store, output = tmp_path / "nonces.db", tmp_path / "association.json"
+    consume_nonce(store, issuer="seed", nonce="seed")
+    args = dict(challenge=challenge, signature=signature,
+                registry=ASSOCIATION["ri"], nonce_store=store, output=output)
+    with closing(sqlite3.connect(store)) as blocker:
+        blocker.execute("BEGIN EXCLUSIVE")
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(write_credential, **args)
+            try:
+                with pytest.raises(sqlite3.OperationalError, match="locked"):
+                    future.result(timeout=10)
+            finally:
+                blocker.rollback()
+    assert not output.exists()
+    assert write_credential(**args).raw == output.read_bytes()
 
 
 def test_invalid_signature_does_not_consume_nonce(tmp_path):

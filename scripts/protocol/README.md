@@ -59,7 +59,11 @@ Add `--keep` to retain GEDA, QVI, LE, and oracle state after the run:
 ```
 
 Each run gets a fresh `issuance-…` KLI base. The issuer nonce ledger is retained
-alongside the LE credential store. The script prints actual keystore,
+alongside the LE credential store. Nonce consumption reserves the SQLite writer
+before reading schema and waits up to five seconds per busy lock, including at
+commit. Exhausted waits fail closed; no credential artifact is published. A
+committed nonce remains consumed even if subsequent artifact writing fails.
+The script prints actual keystore,
 event, credential, and oracle-operation paths, plus ready-to-run `kli status`
 and `kli vc list --verbose` commands. Add `--issued` to a credential-list command
 to inspect credentials issued by that actor. Stores use KERIpy's normal persistent

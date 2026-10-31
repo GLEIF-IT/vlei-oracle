@@ -77,11 +77,11 @@ def association_from_challenge(challenge, signature, registry):
 
 
 def consume_nonce(nonce_store, *, issuer, nonce):
-    """Commit exact issuer-scoped consumption before credential publication."""
-    with closing(sqlite3.connect(nonce_store, timeout=0.0)) as ledger, ledger:
-        # Acquire the writer reservation before any schema/read lock. With a
-        # deferred transaction, two initializers can otherwise block each other's
-        # lock upgrade and both fail. Contenders still fail without waiting.
+    """Commit issuer-scoped consumption, waiting up to five seconds per busy lock."""
+    with closing(sqlite3.connect(nonce_store, timeout=5.0)) as ledger, ledger:
+        # Reserve the writer before reading schema to avoid lock-upgrade deadlocks.
+        # Allow brief contention at BEGIN and COMMIT: even a reserved writer needs
+        # an exclusive commit lock. A timeout still fails closed without an artifact.
         ledger.execute("BEGIN IMMEDIATE")
         ledger.execute(
             "CREATE TABLE IF NOT EXISTS consumed (issuer TEXT, nonce TEXT, PRIMARY KEY (issuer, nonce))"
