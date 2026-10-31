@@ -1,9 +1,8 @@
 """The fresh application store contains obligations, not evidence snapshots."""
 
 import json
-import sqlite3
 
-from ceremony import consume_nonce
+from vlei_oracle.noncing import NonceLedger
 from vlei_oracle.basing import OracleBaser, PostingScope, TransactionRecord
 
 
@@ -52,8 +51,11 @@ def test_serialized_records_contain_only_current_recovery_fields(tmp_path):
 
 
 def test_nonce_ledger_retains_only_issuer_scoped_consumption(tmp_path):
-    ledger = tmp_path / "nonces.db"
-    consume_nonce(ledger, issuer="issuer", nonce=" exact nonce ")
-    with sqlite3.connect(ledger) as connection:
-        assert [column[1] for column in connection.execute("PRAGMA table_info(consumed)")] == ["issuer", "nonce"]
-        assert connection.execute("SELECT * FROM consumed").fetchall() == [("issuer", " exact nonce ")]
+    with NonceLedger(tmp_path / "nonces") as ledger:
+        assert ledger.claim(issuer="issuer", nonce=" exact nonce ")
+        with ledger.env.begin(db=ledger.consumed) as txn:
+            rows = list(txn.cursor())
+        assert len(rows) == 1
+        key, value = rows[0]
+        assert len(key) == 32
+        assert json.loads(value) == {"issuer": "issuer", "nonce": " exact nonce "}

@@ -1,3 +1,3 @@
 # Test-only producer; never a vlei-oracle runtime dependency.
-eoa-verifier @ git+https://github.com/GLEIF-IT/eoa-verifier.git@0a19c0b19608088af6c23e6cdf3ef1481a8cd5e2
+eoa-verifier @ git+https://github.com/GLEIF-IT/eoa-verifier.git@486fb42f92b6c3269d7968934448f21121ef08aa
 pytest>=9

@@ -22,7 +22,7 @@ def qualify_replacement(*, le, rgy, registry, issuer, le_said, previous,
     signature = Account.sign_message(encode_typed_data(full_message=challenge), key).signature
     replacement = write_credential(
         challenge=challenge, signature="0x" + signature.hex(), registry=registry.regk,
-        nonce_store=ledger, output=artifacts / "replacement.json",
+        nonce_ledger=ledger, output=artifacts / "replacement.json",
     )
     yield from issue_credential(issuer, registry, replacement)
     started = monotonic()

@@ -9,14 +9,14 @@ from __future__ import annotations
 
 import argparse
 import json
-import sqlite3
-from contextlib import closing
+import lmdb
 from pathlib import Path
 
 from keri import kering
 from keri.core import coring, serdering
 from keri.kering import Protocols, versify
 
+from vlei_oracle.noncing import NonceLedger
 from vlei_oracle.verification.constants import LE_SCHEMA
 from vlei_oracle.verification.eoa import (
     DOMAIN_TAG,
@@ -76,41 +76,21 @@ def association_from_challenge(challenge, signature, registry):
     )
 
 
-def consume_nonce(nonce_store, *, issuer, nonce):
-    """Commit exact issuer-scoped consumption before credential publication."""
-    with closing(sqlite3.connect(nonce_store, timeout=0.0)) as ledger, ledger:
-        # Acquire the writer reservation before any schema/read lock. With a
-        # deferred transaction, two initializers can otherwise block each other's
-        # lock upgrade and both fail. Contenders still fail without waiting.
-        ledger.execute("BEGIN IMMEDIATE")
-        ledger.execute(
-            "CREATE TABLE IF NOT EXISTS consumed (issuer TEXT, nonce TEXT, PRIMARY KEY (issuer, nonce))"
-        )
-        try:
-            ledger.execute(
-                "INSERT INTO consumed VALUES (?, ?)",
-                (issuer, nonce),
-            )
-        except sqlite3.IntegrityError as exc:
-            raise ValueError("nonce already consumed by this issuer") from exc
-
-
-def write_credential(*, challenge, signature, registry, nonce_store, output):
+def write_credential(*, challenge, signature, registry, nonce_ledger, output):
     """Verify the proof, consume the issuer's exact nonce, then expose the ACDC.
 
-    The ledger owns only durable consumption, scoped by issuer and exact nonce.
+    Borrow an open NonceLedger; it owns only durable consumption, scoped by issuer and exact nonce.
     Credential bytes and proof remain owned by the output and KERI credential store.
     """
     creder = association_from_challenge(challenge, signature, registry)
     association_schemer().verify(creder.raw)
     verify_eoa_proof(creder.sad)
-    nonce_store, output = Path(nonce_store), Path(output)
-    nonce_store.parent.mkdir(parents=True, exist_ok=True)
+    output = Path(output)
     # Exclusive creation avoids overwriting an operator's existing artifact.
     with output.open("xb") as stream:
         try:
-            consume_nonce(nonce_store, issuer=creder.issuer,
-                          nonce=creder.sad["u"])
+            if not nonce_ledger.claim(issuer=creder.issuer, nonce=creder.sad["u"]):
+                raise ValueError("nonce already consumed by this issuer")
             # Consumption is committed before another process can read usable bytes.
             stream.write(creder.raw)
             stream.flush()
@@ -131,22 +111,23 @@ def main():
     )
     parser.add_argument("--registry", required=True)
     parser.add_argument(
-        "--nonce-store",
+        "--nonce-dir",
         type=Path,
         required=True,
-        help="Durable issuer nonce ledger; reuse across ceremonies",
+        help="LMDB issuer nonce directory; reuse across ceremonies",
     )
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
     try:
-        creder = write_credential(
-            challenge=json.loads(args.challenge.read_text()),
-            signature=args.signature.read_text().strip(),
-            registry=args.registry,
-            nonce_store=args.nonce_store,
-            output=args.out,
-        )
-    except (ValueError, KeyError, TypeError, OSError, sqlite3.Error, kering.KeriError) as exc:
+        with NonceLedger(args.nonce_dir) as ledger:
+            creder = write_credential(
+                challenge=json.loads(args.challenge.read_text()),
+                signature=args.signature.read_text().strip(),
+                registry=args.registry,
+                nonce_ledger=ledger,
+                output=args.out,
+            )
+    except (ValueError, KeyError, TypeError, OSError, lmdb.Error, kering.KeriError) as exc:
         parser.exit(1, f"ceremony: {exc}\n")
     print(creder.said)
 
