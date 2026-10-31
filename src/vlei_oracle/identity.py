@@ -1,16 +1,11 @@
-"""Shared local oracle identity creation for both service entrypoints."""
+"""Persistent signing identity for trusted-status receipt and ACKs."""
 
 import json
 from pathlib import Path
 
 
 def incept_if_new(*, hby, alias: str, incept_file: str | None = None):
-    """Create the oracle AID if the Habery does not already contain it.
-
-    The local e2e usually incepts the oracle AID before the service starts, so
-    this normally reopens an existing Hab. The fallback keeps standalone server
-    starts usable for tests and development.
-    """
+    """Reopen the configured oracle AID or incept it on the first start."""
 
     hab = hby.habByName(name=alias)
     if hab is not None:

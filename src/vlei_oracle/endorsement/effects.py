@@ -102,39 +102,8 @@ class ContractEffects(doing.DoDoer):
         receipt["confirmed"] = int(head, 16) - int(receipt["blockNumber"], 16) + 1 >= self.confirmations
         return receipt
 
-    def reconcile(self, intent):
-        """Observe a persisted identity before deciding whether to rebroadcast it."""
-        yield from self.check_chain()
-        for tx_hash in (intent.cancelHash, intent.txHash):
-            if not tx_hash:
-                continue
-            receipt = yield from self.receipt(tx_hash)
-            if receipt is not None:
-                return "receipt", tx_hash, receipt
-        tx_hash = intent.cancelHash or intent.txHash
-        transaction = yield from self.request("eth_getTransactionByHash", [tx_hash])
-        if transaction is not None:
-            if (transaction["hash"].lower() != tx_hash or
-                transaction["from"].lower() != self.writer.lower() or
-                int(transaction["nonce"], 16) != intent.nonce):
-                raise ValueError("RPC returned another transaction")
-            if transaction["blockHash"] is None:
-                return "pending", tx_hash, None
-        nonce = yield from self.request("eth_getTransactionCount", [self.writer, "latest"])
-        if int(nonce, 16) > intent.nonce:
-            return "conflict", tx_hash, None
-        return "absent", tx_hash, None
-
     def submit(self, raw, tx_hash):
         """Broadcast an already persisted signed identity; never allocate a nonce."""
         result = yield from self.request("eth_sendRawTransaction", [raw])
         if result.lower() != tx_hash:
             raise ValueError("RPC returned a different transaction identity")
-
-    def cancellation(self, intent):
-        """Build an explicit same-nonce cancellation of a stale signed action."""
-        yield from self.check_chain()
-        price = yield from self.request("eth_gasPrice", [])
-        return {"from": self.writer, "to": self.writer, "value": 0, "gas": 21000,
-                "nonce": intent.nonce, "chainId": self.chain_id,
-                "gasPrice": max(int(price, 16) * 2, intent.gasPrice * 2)}

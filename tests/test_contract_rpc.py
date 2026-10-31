@@ -46,7 +46,7 @@ def test_mismatched_receipt_is_rejected_over_http(field, value):
     assert completed
 
 
-@pytest.mark.parametrize("unavailable", ["eth_getTransactionReceipt", "eth_getTransactionByHash", "eth_getTransactionCount", None])
+@pytest.mark.parametrize("unavailable", ["eth_getTransactionReceipt", None])
 def test_rpc_outage_is_unknown_not_transaction_absence(tmp_path, unavailable):
     from vlei_oracle.basing import OracleBaser, TransactionRecord
 
@@ -62,7 +62,6 @@ def test_rpc_outage_is_unknown_not_transaction_absence(tmp_path, unavailable):
             else:
                 resp.media = {"jsonrpc": "2.0", "id": req.media["id"], "result": {
                     "eth_chainId": "0x7a69", "eth_getTransactionReceipt": None,
-                    "eth_getTransactionByHash": None, "eth_getTransactionCount": "0x0",
                 }[method]}
 
     with socket.socket() as sock:
@@ -76,7 +75,7 @@ def test_rpc_outage_is_unknown_not_transaction_absence(tmp_path, unavailable):
                               writer=address, endorsement=address, identity=address)
     store = OracleBaser(name="rpc-unknown", headDirPath=str(tmp_path))
     intent = store.pin_transaction(TransactionRecord(
-        txHash="0x" + "12" * 32, rawTransaction="0x1234", nonce=0, gasPrice=1,
+        txHash="0x" + "12" * 32, rawTransaction="0x1234", nonce=0,
         associationSaid="association", action="publishEndorsement",
     ))
     completed = []
@@ -85,9 +84,9 @@ def test_rpc_outage_is_unknown_not_transaction_absence(tmp_path, unavailable):
         yield tock
         if unavailable:
             with pytest.raises(ValueError, match="invalid RPC response"):
-                yield from effects.reconcile(intent)
+                yield from effects.receipt(intent.txHash)
         else:
-            assert (yield from effects.reconcile(intent))[0] == "absent"
+            assert (yield from effects.receipt(intent.txHash)) is None
         assert store.unfinished_transaction() == intent
         assert "eth_sendRawTransaction" not in calls
         completed.append(True)

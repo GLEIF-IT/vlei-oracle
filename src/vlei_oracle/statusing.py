@@ -7,7 +7,7 @@ from eth_utils import keccak
 from keri import kering
 from keri.core import coring
 
-from vlei_oracle.verification.eoa import ext_id_chain
+from vlei_oracle.association.eoa import ext_id_chain
 
 
 @dataclass

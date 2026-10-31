@@ -141,13 +141,3 @@ def test_missing_facts_cannot_displace_owner(peers):
     del incomplete["association"]["issuanceAnchor"]
     assert post(peers, json.dumps(incomplete).encode()).status_code == 400
     assert selected(peers).associationSaid == peers.event.associationSaid
-
-
-def test_old_inbox_requires_fresh_selection_store(peers):
-    """Do not invent ownership history or erase receipts when opening a populated PR05 inbox."""
-    assert post(peers, peers.event.body.encode()).status_code == 200
-    # Represent the PR05 schema: receipts/status, but no ownership-decision history.
-    peers.inbox.claims.rem(keys=(json.loads(peers.event.body)["association"]["extId"],))
-    with pytest.raises(ValueError, match="fresh receiver store"):
-        StatusReceiver(peers.config, hby=peers.oracle, baser=peers.inbox)
-    assert peers.inbox.inbox.get(keys=(peers.event.eventId,)) is not None

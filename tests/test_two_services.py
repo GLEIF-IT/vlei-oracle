@@ -40,8 +40,8 @@ from service_processes import (
     stop,
 )
 from test_contract_effects import deployment, effects_for, KEY
-from vlei_oracle.verification.constants import LE_SCHEMA, QVI_SCHEMA
-from vlei_oracle.verification.eoa import build_challenge
+from vlei_oracle.association.constants import LE_SCHEMA, QVI_SCHEMA
+from vlei_oracle.association.eoa import build_challenge
 
 
 def test_two_installed_services_publish_replace_and_retire(tmp_path, deployment):

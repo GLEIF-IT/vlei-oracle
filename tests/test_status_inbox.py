@@ -304,3 +304,9 @@ def test_peer_rotation_requires_keripy_key_state_update(peers):
     peers.receiver = StatusReceiver(peers.config, hby=peers.oracle, baser=peers.inbox)
     assert post(peers, body).status_code == 200
     assert len(list(peers.inbox.inbox.getItemIter())) == 1
+
+
+@pytest.mark.parametrize("method,path", [("POST", "/"), ("GET", "/associations/credential")])
+def test_receiver_has_no_credential_intake_or_verification_api(peers, method, path):
+    response = testing.TestClient(peers.receiver.app).simulate_request(path=path, method=method)
+    assert response.status_code == 404

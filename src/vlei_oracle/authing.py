@@ -244,8 +244,8 @@ class ServiceAuthenticator:
     def _signature_base(inp, method, target, expected):
         """Rebuild the exact pinned KERIpy siginput base for signature verification.
 
-        Preserve its field and parameter spelling/order; this narrow compatibility
-        function is not a general RFC 9421 canonicalizer.
+        Preserve the field and parameter spelling/order required by the current
+        closed service-signature profile.
         """
         values = {"@method": method, "@path": _path(target), **expected}
         lines = [f'"{field}": {values[field].strip()}' for field in FIELDS]
