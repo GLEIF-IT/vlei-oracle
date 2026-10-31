@@ -3,7 +3,6 @@
 import json
 import subprocess
 import sys
-from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -148,25 +147,6 @@ def test_concurrent_processes_publish_one_artifact(tmp_path):
             process.wait()
 
 
-@pytest.mark.parametrize("attempt", range(10))
-def test_concurrent_nonce_consumption_allows_one_artifact(tmp_path, nonce_ledger, attempt):
-    challenge, signature = ceremony()
-
-    def finish(index):
-        try:
-            write_credential(challenge=challenge, signature=signature,
-                             registry=ASSOCIATION["ri"], nonce_ledger=nonce_ledger,
-                             output=tmp_path / f"{index}.json")
-            return True
-        except ValueError as error:
-            assert str(error) == "nonce already consumed by this issuer"
-            return False
-
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        assert sorted(pool.map(finish, [1, 2])) == [False, True]
-    assert len(list(tmp_path.glob("*.json"))) == 1
-
-
 def test_invalid_signature_does_not_consume_nonce(tmp_path, nonce_ledger):
     challenge, signature = ceremony()
     invalid = "0x" + Account.sign_message(
@@ -269,3 +249,15 @@ def test_cli_has_no_path_alias_or_implicit_store_selection(tmp_path, extra, code
     assert result.returncode == code and reason in result.stderr
     assert "Traceback" not in result.stderr
     assert not head.exists() and not output.exists()
+
+
+def test_repeating_a_ceremony_cannot_publish_a_second_artifact(tmp_path, nonce_ledger):
+    challenge, signature = ceremony()
+    options = dict(challenge=challenge, signature=signature,
+                   registry=ASSOCIATION["ri"], nonce_ledger=nonce_ledger)
+    first, duplicate = tmp_path / "first.json", tmp_path / "duplicate.json"
+    credential = write_credential(output=first, **options)
+    with pytest.raises(ValueError, match="nonce already consumed by this issuer"):
+        write_credential(output=duplicate, **options)
+    assert first.read_bytes() == credential.raw
+    assert not duplicate.exists()

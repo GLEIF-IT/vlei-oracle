@@ -114,8 +114,10 @@ use `dbing.openLMDB(cls=NonceLedger, name=..., base=..., headDirPath=..., temp=F
 ceremony functions borrow the open ledger. KERIpy owns creation and closure.
 Persistent closure retains claims; standard temporary contexts clean up test
 stores. Keep one open ledger per store in each process and share it with
-borrowers. Each ledger serializes threads, and LMDB coordinates independent
-processes with synchronous commits.
+borrowers in the synchronous issuer tooling. LMDB provides transaction locking
+and synchronous commits. There is no application mutex, thread pool, retry loop
+or additional serialization. The pinned binding rejects overlapping writes on
+one environment with a native error; callers must not assume those calls queue.
 
 This is a fresh storage/API baseline. There is no positional-path constructor,
 `--nonce-dir` alias, migration or old-format reader. Preserve old operator stores

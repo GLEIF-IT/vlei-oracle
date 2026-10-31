@@ -1,11 +1,9 @@
 """Nonce claim durability and native KERIpy store ownership."""
 
-from concurrent.futures import ThreadPoolExecutor
 import json
-import multiprocessing
-import os
+import subprocess
+import sys
 from pathlib import Path
-from threading import Barrier
 
 import lmdb
 import pytest
@@ -140,61 +138,6 @@ def test_post_open_failure_closes_resources_and_preserves_persistent_claims(tmp_
         assert not ledger.claim(issuer="issuer", nonce="consumed")
 
 
-def test_shared_threads_serialize_same_and_distinct_claims(tmp_path):
-
-    with dbing.openLMDB(cls=NonceLedger, name="issuer", headDirPath=tmp_path, temp=False) as ledger:
-        for shared in (True, False):
-            gate = Barrier(16)
-
-            def consume(index):
-                gate.wait(timeout=10)
-                return ledger.claim(issuer="issuer", nonce=" shared 🔥 " if shared else f"nonce-{index}")
-
-            with ThreadPoolExecutor(max_workers=16) as pool:
-                results = list(pool.map(consume, range(64)))
-            assert sum(results) == (1 if shared else 64)
-        assert ledger.consumed.cntAll() == 65
-
-
-def consume_in_process(head, gate, outcomes):
-    """Each spawned process owns its own native environment for the same store."""
-
-    with dbing.openLMDB(cls=NonceLedger, name="issuer", headDirPath=head, temp=False) as ledger:
-        gate.wait(timeout=15)
-        won = ledger.claim(issuer="issuer", nonce="shared 🔥")
-        scoped = ledger.claim(issuer=str(os.getpid()), nonce="shared 🔥")
-        outcomes.put((won, scoped))
-
-
-def test_independent_processes_share_native_locking_and_issuer_scope(tmp_path):
-
-    context = multiprocessing.get_context("spawn")
-    gate, outcomes = context.Barrier(4), context.Queue()
-    processes = [context.Process(target=consume_in_process, args=(str(tmp_path), gate, outcomes))
-                 for _ in range(4)]
-    try:
-        for process in processes:
-            process.start()
-        results = [outcomes.get(timeout=20) for _ in processes]
-        for process in processes:
-            process.join(timeout=10)
-            assert process.exitcode == 0
-        assert sum(won for won, _ in results) == 1
-        assert all(scoped for _, scoped in results)
-    finally:
-        for process in processes:
-            if process.pid is None:
-                continue
-            if process.is_alive():
-                process.terminate()
-            process.join(timeout=10)
-        outcomes.close()
-        outcomes.join_thread()
-    with dbing.openLMDB(cls=NonceLedger, name="issuer", headDirPath=tmp_path, temp=False) as ledger:
-        assert not ledger.claim(issuer="issuer", nonce="shared 🔥")
-        assert ledger.consumed.cntAll() == 5
-
-
 def test_unambiguous_keys_preserve_exact_strings(tmp_path):
     pairs = [("ab", "c"), ("a", "bc"), ("issuer", " nonce "), ("issuer", "nonce"),
              ("issuer", "é"), ("issuer", "e\u0301"), ("issuer", "🔥" * 256)]
@@ -254,3 +197,41 @@ def test_temporary_reopen_never_reuses_a_previous_persistent_path(tmp_path):
     assert (persistent / "data.mdb").exists()
     with dbing.openLMDB(**options) as ledger:
         assert not ledger.claim(issuer="issuer", nonce="consumed")
+
+
+def test_native_overlapping_writer_error_does_not_consume_nonce(tmp_path):
+    with dbing.openLMDB(cls=NonceLedger, name="issuer", headDirPath=tmp_path, temp=False) as ledger:
+        with ledger.env.begin(write=True):
+            with pytest.raises(lmdb.Error, match="write transaction is already active"):
+                ledger.claim(issuer="issuer", nonce="not yet consumed")
+        assert ledger.consumed.cntAll() == 0
+        assert ledger.claim(issuer="issuer", nonce="not yet consumed")
+        assert not ledger.claim(issuer="issuer", nonce="not yet consumed")
+
+
+def test_independent_processes_use_native_writer_locking(tmp_path):
+    worker = """
+import os, sys
+from keri.db import dbing
+from vlei_oracle.noncing import NonceLedger
+with dbing.openLMDB(cls=NonceLedger, name="issuer", headDirPath=sys.argv[1], temp=False) as ledger:
+    won = ledger.claim(issuer="issuer", nonce="shared 🔥")
+    for index in range(16):
+        assert ledger.claim(issuer=str(os.getpid()), nonce=f"nonce:{index}")
+print(int(won))
+"""
+    processes = [subprocess.Popen([sys.executable, "-c", worker, str(tmp_path)],
+                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                 for _ in range(4)]
+    try:
+        results = [process.communicate(timeout=20) for process in processes]
+        assert all(process.returncode == 0 for process in processes), results
+        assert sorted(out.strip() for out, _ in results) == ["0", "0", "0", "1"]
+    finally:
+        for process in processes:
+            if process.poll() is None:
+                process.terminate()
+            process.wait(timeout=10)
+    with dbing.openLMDB(cls=NonceLedger, name="issuer", headDirPath=tmp_path, temp=False) as ledger:
+        assert not ledger.claim(issuer="issuer", nonce="shared 🔥")
+        assert ledger.consumed.cntAll() == 65

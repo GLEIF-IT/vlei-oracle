@@ -95,7 +95,7 @@ and cross-entity cases behave correctly; fresh deployment and the installed-whee
 paired suite pass against the new contract revision. No compatibility selectors,
 old queue settlement or abstract-beneficiary fallback remains.
 
-### 3. Refactor NonceLedger onto KERIpy database patterns (qualified locally; awaiting review)
+### 3. Complete PR #49 without application locking (qualified; PR review pending)
 
 Owner: vlei-oracle. Added by Kent on 2026-10-31. This is a separate focused
 refactor after the wrapper-removal qualification. Preserve
@@ -140,9 +140,12 @@ Required implementation:
   same transaction. Return False only for the identical pair; fail closed on
   inconsistent or malformed stored data. Follow OracleBaser's use of Komer
   serialization and subdatabase handles for atomic operations.
-- Retain per-ledger thread serialization. Inheriting LMDBer does not solve the
-  pinned binding's overlapping-thread writer behavior. Preserve LMDB's native
-  independent-process writer locking and synchronous durability.
+- Kent's correction supersedes the original thread-serialization requirement:
+  remove the Python mutex, thread pools, barriers and custom coordination from
+  nonce handling and its tests. Use native LMDB transactions and process locking.
+  The pinned binding may reject overlapping writes on one environment; surface
+  that error without retries or a new serialization mechanism. Follow the
+  synchronous, single-owner KERIpy/HIO calling model.
 - Update CLI storage options, all callers, tests and documentation together.
   Replace positional-path construction and the current `--nonce-dir` selection
   with explicit standard storage options; document the resulting layout after
@@ -160,8 +163,8 @@ Validation and completion:
    standard temporary cleanup, deferred opening, stable selected paths and rejected
    alternate-directory fallback. Exercise failure during post-open initialization
    and verify acquired resources close.
-2. Exercise issuer scoping, exact Unicode/whitespace nonces, thread contention,
-   independent-process contention and inconsistent stored claims. Preserve the
+2. Exercise issuer scoping, exact Unicode/whitespace nonces, native overlapping-
+   writer rejection, independent-process contention and inconsistent stored claims. Preserve the
    ceremony's invalid-proof, existing-output and post-commit output-failure
    assertions; do not replace meaningful contention with serial calls.
 3. Build and install a fresh oracle wheel outside the checkout. Run the full
@@ -174,7 +177,92 @@ Validation and completion:
    exact test/artifact evidence and remaining limitations. Leave the refactor
    uncommitted and unpushed until Kent authorizes publication (now approved).
 
-### 4. Make an empty policy configuration explicit and fail closed
+### 4. Remove association-nonce ownership from vlei-oracle (next PR wave)
+
+Owners: vlei-oracle removal PR, with an EOA Verifier acceptance-policy companion.
+This is planned work, not part of the PR #49 locking correction. Kent explicitly
+rejected consolidating this issuer ledger into the oracle AID store. The oracle
+receives verified status and posts selected associations; it must not own EOA
+proof nonce consumption or credential issuance policy.
+
+**Oracle removal:**
+
+- Delete `NonceLedger`, `NonceClaim`, the separate nonce store and all
+  `--nonce-*` options and call sites. Do not rename those flags onto oracle
+  `--name`/`--base`/`--head-dir`, open the ledger alongside the oracle AID, or move
+  issuance nonce claims into OracleBaser/Habery. No aliases or migration readers.
+- Remove issuer-facing ceremony/finalization code from the oracle package and
+  user CLI. Do not leave `write_credential` as an unchecked credential writer
+  after removing its nonce guard. Audit challenge/signing/profile commands for
+  the same ownership and remove issuer-only surfaces from the oracle product.
+- Keep only consumer-side canonical identifier parsing required by status
+  receipt/chain selection. Rehome the minimal credential assembly/signing needed
+  for qualification into test-owned issuer helpers or the actual issuer tool;
+  keep those helpers outside the installed oracle runtime and production CLI.
+- Remove obsolete nonce/ceremony tests and operational recipes with the code.
+  Preserve the maintained witnessed issuance and two-process qualification,
+  including topology and real transfer/replacement/revocation assertions.
+- Keep OracleBaser's authenticated-webhook replay claims and Ethereum signed
+  transaction nonce journal. Those are oracle transport/posting state and are
+  distinct from the association proof's `u` nonce.
+
+**Verifier acceptance-policy companion:**
+
+- Record an ADR that consumes an exact `(issuerAid, nonce)` only when an
+  association becomes application-accepted. Re-delivery of that same association
+  SAID is idempotent. A different SAID with an already accepted pair is rejected,
+  including another wallet or LE credential. Another issuer may use the same
+  nonce. Revocation or supersession never releases a consumed nonce.
+- Read the issuer and exact `u` from the verified native association credential;
+  do not trust a new webhook field or infer the nonce from status metadata.
+  Preserve whitespace and Unicode representation. Use an unambiguous digest key
+  and a minimal typed claim that binds issuer, nonce and the accepted SAID.
+- Bind claims in the existing VerifierBaser using its current service
+  `name`/`base`/`head_dir` and owning LMDB context. Add no separate environment,
+  nonce CLI options, mutex, thread pool, locking layer or generic repository.
+- Extend the existing `VerifierBaser.accept()` write transaction so the nonce
+  claim, accepted association and any outbox obligation commit together. A
+  conflicting claim must produce a terminal local `NONCE_REUSED` rejection,
+  with no acceptance event/outbox entry and no retry loop. Keep this policy
+  outcome distinguishable from invalid signature/evidence.
+- Do not consume for pending/missing evidence, failed proof/account checks or
+  otherwise unaccepted candidates. Existing accepted-SAID redelivery must return
+  the original status/event without re-consuming or issuing another delivery.
+- Apply the policy regardless of webhook configuration. Today AcceptanceDoer is
+  composed only when a webhook is configured; resolve that domain/delivery
+  coupling explicitly in the companion design. Optional delivery must not become
+  a bypass of accepted-nonce uniqueness.
+- Keep the verifier-to-oracle wire contract unchanged. This acceptance policy
+  belongs entirely to the producer; the oracle needs no association nonce field
+  or duplicate nonce check.
+
+**Acceptance gates and rollout:**
+
+1. Prove sequential duplicate handling and real independent-process races with
+   native LMDB: one accepted SAID for a pair, idempotent same-SAID replay, terminal
+   rejection for another SAID, different-issuer reuse, exact Unicode/whitespace,
+   restart, revocation/supersession without reuse, and malformed claim rejection.
+2. Crash/fault tests cover rollback before acceptance commit and recovery after
+   commit but before ACK. There must never be a consumed-but-unaccepted claim or
+   accepted-but-unclaimed association. Rejected candidates create no accepted
+   outbox event; invalid proofs cannot burn a nonce.
+3. Qualify with delivery enabled and disabled. Test the actual verifier intake
+   path with a newly issued, otherwise valid second association reusing a nonce;
+   do not substitute injected acceptance records for that integration evidence.
+4. Use a deliberate fresh acceptance-state baseline for the new policy. Do not
+   silently adopt a populated store that has accepted associations but no nonce
+   history, or claim global uniqueness across independent verifier stores. No
+   historical backfill/migration is implied by this plan.
+5. Run verifier focused/full installed-wheel checks, oracle full installed-wheel
+   checks and the maintained paired qualification. The oracle wheel/CLI must
+   contain no association issuance nonce store or issuer finalization workflow;
+   webhook replay rejection and Ethereum posting recovery must remain covered.
+6. Review the coordinated changes, merge the verifier policy first if the oracle
+   removal PR advances its producer pin, then merge the oracle removal. Publish
+   exact qualified revisions and remaining deployment limits. This plan does not
+   authorize implementing either ownership PR in the current locking correction.
+
+### 5. Make an empty policy configuration explicit and fail closed
 
 Owner: vlei-comply, `src/policy/PolicyManager.sol`.
 
@@ -186,7 +274,7 @@ configuration. Keep the documented AllowAll engine confined to explicit demos.
 Acceptance: unconfigured manager, last-policy removal, configured Pass and
 configured Fail tests; deploy scripts demonstrate an intentional active policy.
 
-### 5. Close LMDB readers before yielding to RPC
+### 6. Close LMDB readers before yielding to RPC
 
 Owner: vlei-oracle, `endorsement/posting.py`.
 
@@ -200,7 +288,7 @@ concurrent receipt/writes continue; multiple pages progress fairly; selected
 association is rechecked before a newly prepared effect. Preserve single-writer
 ordering and recorded transaction identities.
 
-### 6. Give the current transaction journal bounded recovery
+### 7. Give the current transaction journal bounded recovery
 
 Owner: vlei-oracle, `endorsement/posting.py` and `basing.py`.
 
@@ -216,7 +304,7 @@ restart, exact-byte resubmission, conflicting nonce and reorg evidence; later
 withdrawals progress after supported recovery. Document operator actions and
 limits, rather than calling receipt-only polling recovery.
 
-### 7. Support validated peer key updates during operation
+### 8. Support validated peer key updates during operation
 
 Owners: EOA Verifier and oracle delivery/receipt boundaries.
 
@@ -229,7 +317,7 @@ bring credential verification back into the oracle.
 Acceptance: live peer rotation, stale signer, out-of-order/missing key events,
 untrusted peer and restart tests through the real signed transport.
 
-### 8. Establish one signed transport profile and remove duplicate policy
+### 9. Establish one signed transport profile and remove duplicate policy
 
 Owners: EOA Verifier `delivery/authing.py` and oracle `authing.py`.
 
@@ -254,8 +342,7 @@ rosters. Run the smallest relevant checks first, then installed artifacts and
 paired qualification where shared contracts change. Report exact revisions and
 unrun integration limits. Do not treat a green fixture as deployment readiness.
 
-PRs 1 and 2 are merged. Task 3 is implemented and qualified locally, pending
-review. Subsequent PRs follow in this order after review; this
+PRs 1 and 2 are merged. Task 3 is qualified without application locking and awaits PR review. Subsequent PRs follow in this order after review; this
 plan is not authorization to deploy, migrate stores or merge without review.
 
 ## PR 1 qualification record
@@ -296,11 +383,11 @@ demo setup and current operator guides now select the new contract revision.
 
 Review and merge the contract removal before the oracle pin companion. Use the
 oracle companion's head commit as `ORACLE_REVISION` for the contract guide's local
-qualification. PR 3 is now the separately requested NonceLedger refactor. PR 4 addresses the
+qualification. PR 3 is now the separately requested NonceLedger refactor. Task 4 now removes misplaced association-nonce ownership; task 5 addresses the
 existing empty-policy limitation documented in the contract security model. Later operating fixes
 remain separate. No storage or contract migration is provided.
 
-## Task 3 local qualification record
+## Initial task 3 qualification (superseded by the no-mutex correction)
 
 Implemented on `refactor/nonce-ledger-lmdber`, based on merged oracle
 `2b028c9299426a61a7dab68a80b6357d53ac572f`. Kent authorized publishing the
@@ -308,7 +395,8 @@ qualified refactor on 2026-10-31; PR review is pending.
 
 The ledger now subclasses LMDBer, binds a typed, non-duplicate `consumed.` Komer
 in `reopen()`, and uses explicit insert-without-overwrite plus same-transaction
-conflict inspection. The per-ledger writer lock remains. Direct environment
+conflict inspection. The initial candidate retained a per-ledger writer lock; Kent has rejected it.
+The correction below removes it. Direct environment
 opening, manual directory creation and custom enter/exit lifecycle methods are
 removed. Owning call sites use `dbing.openLMDB`; ceremonies borrow the ledger.
 
@@ -353,5 +441,41 @@ for a deliberately new store; there is no migration, old-format reader or replay
 protection across independently selected empty stores. A post-commit failure can
 burn a nonce by design. Native temporary cleanup removes the ledger directory;
 the pinned Filer can leave empty ancestor directories. Qualification was local macOS; Linux CI is not run before review. This task adds
-no custom parent-directory cleanup or unrelated persistence changes. Publication is approved; the next implementation task after PR review is the
-empty-policy configuration fix.
+no custom parent-directory cleanup or unrelated persistence changes. Publication is approved; the next implementation task after PR review is task 4, removing association-
+nonce ownership from the oracle with the verifier-policy companion. The empty-
+policy configuration fix follows as task 5.
+
+## Current PR #49 locking correction qualification
+
+Kent's 2026-10-31 correction removes the application mutex and all shared-thread
+coordination from nonce handling. The implementation now relies solely on one
+native LMDB transaction per claim. There is no application lock, thread pool,
+barrier, queue or retry loop. Synchronous caller ordering follows KERIpy/HIO's
+normal execution model; native LMDB coordinates separate processes.
+
+The pinned binding rejects overlapping writes on the same environment with
+`lmdb.Error` / Resource busy. The removed shared-thread tests required the
+application to queue those calls; that is no longer the contract. A deterministic
+native-overlap regression now verifies the error propagates without consuming a
+nonce. Synchronous duplicate-publication checks remain, as do the actual four-
+process ledger test and two-process ceremony test. The process harness now uses
+ordinary subprocesses instead of threading, multiprocessing barriers or queues.
+No error is converted into a duplicate or hidden by a retry.
+
+**28 focused checks passed. The full fresh installed-wheel suite passed 147 tests
+in 153.38 seconds**, including the unchanged maintained two-process qualification.
+The reduced count reflects removal of the ten parametrized shared-thread ceremony
+cases in favor of one synchronous duplicate case; no maintained paired-system
+assertion or topology was weakened. Native durability, issuer scope, exact
+Unicode, malformed-claim rejection, failure cleanup and persistent lifecycle
+coverage remain. Existing dependency warnings remain.
+
+The qualified contracts remain `4c83e465b3d7937f02b95e805cca5b79f5015078`; verifier
+remains `486fb42f92b6c3269d7968934448f21121ef08aa`, with Foundry 1.5.1 and GLEIF
+KERI/HIO 1.2.19/0.6.22 plus LMDB 1.8.1. Candidate wheel SHA-256:
+`7d6a899d5d9cdd17a7f794a7e4796f17968841b07848154662d681b48726488f`.
+
+This PR deliberately does not move issuer nonce state into the oracle AID store,
+rename its temporary nonce flags or implement verifier nonce policy. Task 4 is
+the subsequent ownership-removal wave. Oracle transport replay claims and
+Ethereum transaction nonces are outside that removal.

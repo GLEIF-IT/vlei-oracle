@@ -3,7 +3,6 @@
 from dataclasses import dataclass
 import hashlib
 import os
-from threading import Lock
 
 from keri.db import dbing, koming
 
@@ -19,8 +18,8 @@ class NonceClaim:
 class NonceLedger(dbing.LMDBer):
     """KERIpy-owned LMDB lifecycle with atomic, issuer-scoped nonce claims.
 
-    Owners use openLMDB; ceremony functions borrow the open ledger. Threads share
-    this instance's writer lock; independent processes use LMDB's native locking.
+    Owners use openLMDB; ceremony functions borrow the open ledger. LMDB owns
+    transaction locking; overlapping writes may raise its native binding error.
     Persistent closure preserves consumption. No expiry or release is supported.
     """
 
@@ -32,7 +31,6 @@ class NonceLedger(dbing.LMDBer):
 
     def __init__(self, *, name="issuer-nonces", base="", headDirPath=None,
                  temp=False, reopen=True, **kwa):
-        self._writer = Lock()
         self.consumed: koming.Komer | None = None
         # Freeze relative roots now, rather than selecting another store if cwd changes.
         head = self.HeadDirPath if headDirPath is None else headDirPath
@@ -80,8 +78,7 @@ class NonceLedger(dbing.LMDBer):
         claim = NonceClaim(issuer=issuer, nonce=nonce)
         value = self.consumed.serializer(claim)
         key = hashlib.sha256(value).hexdigest().encode("ascii")
-        # The pinned binding needs this lock before entering its active write slot.
-        with self._writer, self.env.begin(write=True) as txn:
+        with self.env.begin(write=True) as txn:
             if txn.put(key, value, db=self.consumed.sdb, overwrite=False):
                 return True
             if self.consumed.deserializer(txn.get(key, db=self.consumed.sdb)) != claim:
