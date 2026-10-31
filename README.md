@@ -89,17 +89,40 @@ local test-key helper:
   --private-key "$TEST_WALLET_KEY" --out signature.txt
 .venv/bin/python scripts/protocol/ceremony.py --challenge challenge.json \
   --signature signature.txt --registry "$LE_REGISTRY_SAID" \
-  --nonce-dir issuer-nonces --out association.json
+  --nonce-head-dir "$ISSUER_STATE_ROOT" --nonce-name issuer-nonces \
+  --out association.json
 ```
 
 The ceremony validates the signature and canonical profile, then consumes the
 nonce durably for that issuer before exposing credential bytes. Reuse the same
-issuer-owned LMDB nonce directory across ceremonies. A duplicate nonce fails, including after
+issuer-owned store selection across ceremonies. `--nonce-head-dir` is required;
+`--nonce-name` defaults to `issuer-nonces` and `--nonce-base` defaults to empty.
+The persistent layout is `<head>/vlei-oracle/nonces/<base>/<name>/`, containing
+LMDB `data.mdb` and `lock.mdb`. Relative roots resolve at construction and remain
+stable across reopen. If the selected root cannot open, the ceremony fails;
+it never redirects consumption to a home-directory store. A duplicate nonce fails, including after
 restart or concurrent finalization. Consumption is irreversible: a crash after
 consumption may burn the nonce. Generate a fresh challenge if no finished artifact
 survived. After an issuance interruption, inspect the existing KLI state and resume its
 KERIpy escrows. Do not blindly repeat credential creation or finalize another
 artifact with that nonce.
+
+The ledger uses KERIpy `LMDBer` and a non-duplicate `Komer` table named
+`consumed.`. Each typed claim stores only its exact issuer and nonce; its key is
+a 64-character hexadecimal SHA-256 digest of the serialized pair. Ledger owners
+use `dbing.openLMDB(cls=NonceLedger, name=..., base=..., headDirPath=..., temp=False)`;
+ceremony functions borrow the open ledger. KERIpy owns creation and closure.
+Persistent closure retains claims; standard temporary contexts clean up test
+stores. Keep one open ledger per store in each process and share it with
+borrowers in the synchronous issuer tooling. LMDB provides transaction locking
+and synchronous commits. There is no application mutex, thread pool, retry loop
+or additional serialization. The pinned binding rejects overlapping writes on
+one environment with a native error; callers must not assume those calls queue.
+
+This is a fresh storage/API baseline. There is no positional-path constructor,
+`--nonce-dir` alias, migration or old-format reader. Preserve old operator stores
+separately. Select the new store deliberately and use fresh ceremony nonces;
+do not replay historical challenges into an empty store.
 
 Issue the finished credential through the Legal Entity's existing registry:
 

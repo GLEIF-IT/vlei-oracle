@@ -12,8 +12,10 @@ import json
 import lmdb
 from pathlib import Path
 
+from hio import hioing
 from keri import kering
 from keri.core import coring, serdering
+from keri.db import dbing
 from keri.kering import Protocols, versify
 
 from vlei_oracle.noncing import NonceLedger
@@ -110,16 +112,17 @@ def main():
         help="65-byte 0x hexadecimal signature file",
     )
     parser.add_argument("--registry", required=True)
+    parser.add_argument("--nonce-name", default="issuer-nonces", help="Persistent nonce ledger name")
+    parser.add_argument("--nonce-base", default="", help="Relative namespace within the nonce store")
     parser.add_argument(
-        "--nonce-dir",
-        type=Path,
-        required=True,
-        help="LMDB issuer nonce directory; reuse across ceremonies",
+        "--nonce-head-dir", type=Path, required=True,
+        help="Explicit storage root; ledger is under vlei-oracle/nonces/<base>/<name>",
     )
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
     try:
-        with NonceLedger(args.nonce_dir) as ledger:
+        with dbing.openLMDB(cls=NonceLedger, name=args.nonce_name, base=args.nonce_base,
+                            headDirPath=args.nonce_head_dir, temp=False) as ledger:
             creder = write_credential(
                 challenge=json.loads(args.challenge.read_text()),
                 signature=args.signature.read_text().strip(),
@@ -127,7 +130,7 @@ def main():
                 nonce_ledger=ledger,
                 output=args.out,
             )
-    except (ValueError, KeyError, TypeError, OSError, lmdb.Error, kering.KeriError) as exc:
+    except (ValueError, KeyError, TypeError, OSError, lmdb.Error, hioing.FilerError, kering.KeriError) as exc:
         parser.exit(1, f"ceremony: {exc}\n")
     print(creder.said)
 
