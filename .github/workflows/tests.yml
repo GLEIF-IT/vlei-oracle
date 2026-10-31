@@ -18,7 +18,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: GLEIF-IT/vlei-comply
-          ref: 13c6ae3506f6c6f398b37f12d646da4f2c21577b
+          ref: aeba4883dadb30e06a0316d93394b08ff9a9e97d
           path: comply
           ssh-key: ${{ secrets.VLEI_COMPLY_READ_KEY }}
           persist-credentials: false
@@ -40,7 +40,8 @@ jobs:
         run: |
           mkdir "$RUNNER_TEMP/qualification"
           cp -R tests scripts protocol "$RUNNER_TEMP/qualification/"
+          cp pytest.ini "$RUNNER_TEMP/qualification/"
           cd "$RUNNER_TEMP/qualification"
           "$RUNNER_TEMP/oracle-tests/bin/vlei-oracle" server receive --help
           "$RUNNER_TEMP/oracle-tests/bin/vlei-oracle" server start --help
-          PYTHONPATH=scripts/protocol "$RUNNER_TEMP/oracle-tests/bin/python" -m pytest -q tests
+          "$RUNNER_TEMP/oracle-tests/bin/python" -m pytest -q tests

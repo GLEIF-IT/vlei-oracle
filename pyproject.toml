@@ -30,13 +30,10 @@ dev = [
 ]
 
 [project.scripts]
-vlei-oracle = "vlei_oracle.cli:main"
+vlei-oracle = "vlei_oracle.runtime.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.package-data]
 "vlei_oracle.endorsement" = ["contract_data/*.json"]
-
-[tool.pytest.ini_options]
-pythonpath = ["scripts/protocol"]
