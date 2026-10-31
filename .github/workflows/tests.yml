@@ -18,7 +18,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: GLEIF-IT/vlei-comply
-          ref: cdaa111041e50f56d2820b84cf15f18c96c45ac4
+          ref: 4c83e465b3d7937f02b95e805cca5b79f5015078
           path: comply
           ssh-key: ${{ secrets.VLEI_COMPLY_READ_KEY }}
           persist-credentials: false
