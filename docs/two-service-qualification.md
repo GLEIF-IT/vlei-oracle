@@ -55,3 +55,27 @@ Both applications use GLEIF KERI 1.2.19 and HIO 0.6.22. This qualification uses
 merged application behavior: the closed ingress and replay-pruning candidates are
 excluded. The known KERIpy receipt-couple shortage limitation remains unresolved;
 a passing valid-stream workflow does not establish liveness for that malformed input.
+
+## Qualify local application changes
+
+To qualify unmerged verifier/oracle changes, build wheels from clean temporary
+copies of both working trees and install both wheels into the same fresh Python
+3.12 environment with pytest and `scripts/protocol/requirements.txt`. Omit
+`tests/requirements.txt` for this run: its Git requirement deliberately installs
+the merged verifier and would replace the candidate being qualified.
+
+Copy the oracle's `tests`, `scripts` and `protocol` trees outside the checkouts,
+then use the same pinned comply revision and Foundry version documented above:
+
+```sh
+PYTHONPATH=scripts/protocol VLEI_COMPLY_DIR=/path/to/pinned/comply \
+  /path/to/qualification/venv/bin/python -m pytest -q \
+  tests/test_two_services.py tests/test_status_inbox.py
+```
+
+The paired test verifies the installed CLIs and wire/resource compatibility.
+`test_status_inbox.py` additionally exercises Python imports from the installed
+producer. Its fixture supports both the merged producer's flat imports and the
+candidate's `delivery`/`persistence` components. Only absence of the new delivery
+package selects the old paths; unrelated dependency failures still surface.
+The committed producer pin stays unchanged until a merged revision is selected.
