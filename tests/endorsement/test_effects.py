@@ -13,6 +13,7 @@ from hio.core import http
 from web3 import Web3
 
 from tests.support.contracts import drive, effects_for, signed_intent
+from vlei_oracle.associations.statusing import read_status
 from vlei_oracle.endorsement.effects import ContractEffects
 from vlei_oracle.persistence.basing import OracleBaser
 
@@ -28,6 +29,22 @@ def test_python_encoding_matches_owned_solidity_vector(deployment):
         )
     )
     vector = json.loads((comply / "abi/endorsement-vector.json").read_text())
+    # The contract fixture owns mapping/calldata; proof conformance lives in Verifier.
+    facts = {
+        "issuerAid": 'DIqI4910CfGV_VLbLTy6XXLKZwm_HZQSG_N0iAG0D29c',
+        "leSaid": 'EDtvFDCx-Kjtac85bs5PenfQlm41Y5BlWlpooRhF-RGn',
+        "extId": "eip155:1:" + vector["wallet"],
+        "issuanceAnchor": {"sequenceNumber": 3, "said": 'EIMtYfwyE2KoT65Tze54g0IyPfw41Zly2sXvo9Mrgzv3'},
+    }
+    _, mapped = read_status(json.dumps({
+        "version": "1", "eventId": vector["associationSaid"] + ":1",
+        "associationSaid": vector["associationSaid"], "statusRevision": 1,
+        "status": "accepted", "association": facts,
+    }).encode(), chain_id=1)
+    assert mapped.associationSaid == vector["associationSaid"]
+    assert mapped.identityRef == vector["identityRef"]
+    assert mapped.wallet == vector["wallet"]
+    assert "expiresAt" not in json.dumps(vector)
     contracts = effects_for(deployment).contracts
     contract = contracts["endorsement"]
     assert contract.abi == json.loads(

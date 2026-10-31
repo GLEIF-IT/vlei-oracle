@@ -200,6 +200,7 @@ def main() -> None:
             "VLEI_SERVER": str(bin_dir / "vLEI-server"),
             "VLEI_ORACLE": str(bin_dir / "vlei-oracle"),
             "EOA_VERIFIER": str(bin_dir / "eoa-verifier"),
+            "EOA_VERIFIER_PYTHON": str(python),
         },
     )
     print(f"Dependencies prepared. Load exports with: source {shlex.quote(str(path))}")
