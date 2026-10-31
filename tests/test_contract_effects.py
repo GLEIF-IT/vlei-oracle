@@ -75,7 +75,7 @@ def effects_for(deployment, *, chain_id=31337):
 
 
 def drive(effects, workflow):
-    """Run effect generators beside their native clients on one HIO clock."""
+    """Run effect generators beside their HIO clients on one HIO clock."""
     results = []
 
     def run(tymth, tock=0.0, **opts):

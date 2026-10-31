@@ -1,4 +1,4 @@
-"""Native live replacement and late revocation against deployed contracts."""
+"""Live replacement and late revocation against deployed contracts."""
 
 from time import monotonic
 from uuid import uuid4
@@ -14,7 +14,7 @@ from vlei_oracle.verification.eoa import build_challenge, normalize_ext_id
 
 def qualify_replacement(*, le, rgy, registry, issuer, le_said, previous,
                         key, runtime, port, effects, workflow, artifacts, ledger):
-    """Replace a live endorsement; old native revocation must leave it intact."""
+    """Replace a live endorsement; verified old-association revocation must leave it intact."""
     wallet = Account.from_key(key).address
     assert (yield from effects.observe(wallet))[1][1] == previous.said
     challenge = build_challenge(issuer_aid=le.pre, le_vlei_said=le_said,

@@ -13,7 +13,7 @@ from hio.core import http, tcp
 
 from vlei_oracle.basing import VerificationWork, OracleBaser
 from vlei_oracle.verification.worker import EoaVerifierDoer
-from vlei_oracle.verification.coordinating import PresentationVerifierDoer
+from vlei_oracle.verification.coordinating import VerificationCoordinator
 from vlei_oracle.verification.errors import VerificationError
 
 FIXTURE = (
@@ -117,8 +117,8 @@ def test_worker_resolves_account_over_http(rpc, chain, code, expected):
     assert cue["kin"] == expected
     assert endpoint.calls == ["eth_chainId", "eth_getBlockByNumber", "eth_getCode"]
     if expected == "verified":
-        assert cue["verified"]["wallet"] == association["a"]["extId"].split(":")[2]
-        observation = cue["verified"]["observation"]
+        assert cue["eoaResult"]["wallet"] == association["a"]["extId"].split(":")[2]
+        observation = cue["eoaResult"]["accountObservation"]
         assert observation["blockNumber"] == 42
         assert observation["blockHash"] == endpoint.block["hash"]
         assert observation["chainId"] == 1
@@ -179,7 +179,7 @@ def operation(tmp_path):
 
 def coordinator(baser, association, url):
     """Compose the real coordinator and worker around a test operation store."""
-    return PresentationVerifierDoer(
+    return VerificationCoordinator(
         baser=baser,
         rgy=None,
         trusted_geda_aid="test-root",
@@ -291,7 +291,7 @@ def test_noncanonical_observation_is_not_account_invalidity(rpc):
     run_until([http.ServerDoer(server=server), worker], lambda: bool(worker.cues))
     cue = worker.cues.popleft()
     assert cue["kin"] == "retry"
-    assert "verified" not in cue
+    assert "eoaResult" not in cue
 
 
 @pytest.mark.parametrize("chain", [None, 1, "1", "0x01", "0x0", "0xzz"])

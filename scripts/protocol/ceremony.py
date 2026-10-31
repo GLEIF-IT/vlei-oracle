@@ -1,7 +1,7 @@
 """Finalize a proof-bearing association for issuance with KLI.
 
 Nonce consumption is fail closed: a crash after consumption burns that nonce.
-Inspect KLI state after interrupted issuance and resume its native escrows;
+Inspect KLI state after interrupted issuance and resume its KERIpy escrows;
 never create a second credential with its nonce. This command does not hold issuer keys.
 """
 
@@ -28,7 +28,7 @@ from vlei_oracle.verification.schema_cache import association_schemer
 
 
 def association_from_challenge(challenge, signature, registry):
-    """Assemble schema-specific blocks with native KERIpy SAID/ACDC APIs."""
+    """Assemble schema-specific blocks with KERIpy SAID/ACDC APIs."""
     fields = challenge["message"]
     expected = build_challenge(
         issuer_aid=fields["issuerAid"],

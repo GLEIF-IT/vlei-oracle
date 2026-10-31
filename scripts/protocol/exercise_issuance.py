@@ -55,7 +55,7 @@ from keri.db import basing, dbing
 from keri.help import helping
 from keri.vdr import credentialing
 
-from vlei_oracle.verification.credentials import assess_association, reconstruct_binding, verify_association
+from vlei_oracle.verification.credentials import assess_association, reconstruct_association_mapping, verify_association
 from vlei_oracle.verification.constants import LE_SCHEMA, QVI_SCHEMA
 from vlei_oracle.endorsement.effects import ContractEffects
 from vlei_oracle.verification.eoa import (
@@ -197,7 +197,7 @@ def exercise(schema_dir: Path, *, keep: bool = False, comply: Path | None = None
         final_operations = []
 
         def run(tymth, tock=0.0, **opts):
-            """Advance explicit workflow steps while native HIO children do the work."""
+            """Advance explicit workflow steps while HIO children do the work."""
             nonlocal le_hby, le, le_rgy
             yield tock
             # 5. Wait for Anvil through a nonblocking HIO JSON-RPC request.
@@ -332,7 +332,7 @@ def exercise(schema_dir: Path, *, keep: bool = False, comply: Path | None = None
                     nonce=str(uuid4()),
                 )
                 signature = Account.sign_message(encode_typed_data(full_message=challenge), key).signature
-                cli_file = artifacts / "native-kli.json"
+                cli_file = artifacts / "kli.json"
                 creder = write_credential(
                     challenge=challenge, signature="0x" + signature.hex(),
                     registry=registries["le"].regk,
@@ -362,7 +362,7 @@ def exercise(schema_dir: Path, *, keep: bool = False, comply: Path | None = None
                 assert le_rgy.reger.creds.get(keys=(creder.said,)).raw == creder.raw
                 cli_port = free_port()
                 cli_runtime = setup_service(ServiceConfig(
-                    name="native-kli-oracle", base=base, temp=False, no_post=True,
+                    name="kli-oracle", base=base, temp=False, no_post=True,
                     host="127.0.0.1", http_port=cli_port, trusted_geda_aid=geda.pre,
                     schema_dir=str(schema_dir), rpc_url=rpc_url,
                 ))
@@ -379,7 +379,7 @@ def exercise(schema_dir: Path, *, keep: bool = False, comply: Path | None = None
                     yield 0.01
                 workflow.remove([check])
                 workflow.remove(cli_runtime.doers)
-                print("Native KLI issued the pre-signed untargeted ACDC and HTTP verification passed", flush=True)
+                print("KLI issued the pre-signed untargeted ACDC and HTTP verification passed", flush=True)
 
             # Missing TEL/anchor evidence in fresh receivers must stay pending.
             # These are HTTP acceptance checks, independent of the original session.
@@ -452,7 +452,7 @@ def exercise(schema_dir: Path, *, keep: bool = False, comply: Path | None = None
             workflow.remove([check])
             print("Grant pending until source evidence arrives", flush=True)
 
-            # 10. Deliver the chain and assert the independently verified wallet binding.
+            # 10. Deliver the chain and assert the independently verified association mapping.
             check = PresentationDoer(
                 port=oracle_port,
                 recipient=runtime.hab.pre,
@@ -467,7 +467,7 @@ def exercise(schema_dir: Path, *, keep: bool = False, comply: Path | None = None
                 yield 0.01
             workflow.remove([check])
             verified = check.result
-            assert reconstruct_binding(rgy=runtime.rgy, said=association.said, schema_said=schema_said)["wallet"] == account.address.lower(), verified
+            assert reconstruct_association_mapping(rgy=runtime.rgy, said=association.said, schema_said=schema_said)["wallet"] == account.address.lower(), verified
             assert verified["associationSaid"] == association.said and verified["managed"], verified
             assert not verified["transactions"], verified
             try:
@@ -642,7 +642,7 @@ def exercise(schema_dir: Path, *, keep: bool = False, comply: Path | None = None
                         runtime.rgy.reger.creds.pin(keys=(current_said,), val=current_creder)
                 finally:
                     runtime.baser.pin_managed(current_op)
-                # Controlled worker-result boundary over the real native stores:
+                # Controlled worker-result boundary over the real KERIpy stores:
                 # newer work arriving during RPC must invalidate the old dispatch.
                 checker = EndorsementDoer(
                     baser=runtime.baser, rgy=runtime.rgy, trusted_geda_aid=geda.pre,
@@ -661,7 +661,7 @@ def exercise(schema_dir: Path, *, keep: bool = False, comply: Path | None = None
                     assert checker.eoa.msgs
                     runtime.baser.pin_managed(current_op)
                     checker.eoa.cues.append({
-                        "said": old.said, "kin": "verified", "verified": {"observation": {"chainId": 31337}},
+                        "said": old.said, "kin": "verified", "eoaResult": {"accountObservation": {"chainId": 31337}},
                     })
                     try:
                         next(pending)
@@ -793,7 +793,7 @@ def exercise(schema_dir: Path, *, keep: bool = False, comply: Path | None = None
                 assert (yield from read(fixture_effects, token, "balanceOf", [beneficiary.address])) == (1000000,)
                 propagation["associationRevocationSeconds"] = round(monotonic() - started, 3)
                 assert propagation["associationRevocationSeconds"] < 30
-                print("Association revocation withdraws only its binding and rejects transfer", flush=True)
+                print("Association revocation withdraws only its endorsement and rejects transfer", flush=True)
 
             # 12. Revoke LE through Registrar, then present a previously withheld child.
             yield from revoke_credential(issuers["qvi"], registries["qvi"], le_credential)
@@ -847,10 +847,10 @@ def exercise(schema_dir: Path, *, keep: bool = False, comply: Path | None = None
                 assert "revoked" in str(exc), exc
             else:
                 raise AssertionError("Revoked LE passed fresh verification")
-            binding = reconstruct_binding(rgy=runtime.rgy, said=association.said,
+            association_mapping = reconstruct_association_mapping(rgy=runtime.rgy, said=association.said,
                                           schema_said=schema_said)
-            assert binding["wallet"] == association.attrib["extId"].split(":")[2]
-            assert binding["associationSaid"] == association.said
+            assert association_mapping["wallet"] == association.attrib["extId"].split(":")[2]
+            assert association_mapping["associationSaid"] == association.said
             assert assess_association(rgy=runtime.rgy, said=association.said,
                                       schema_said=schema_said,
                                       trusted_geda_aid=geda.pre).outcome == "invalid"
@@ -920,7 +920,7 @@ def main() -> None:
     )
     parser.add_argument("--comply-dir", type=Path, help="Extend through fresh Forge deployment, posting, and transfers")
     parser.add_argument("--process-check", action="store_true", help="Qualify crash/restart through independent oracle CLI processes")
-    parser.add_argument("--kli-check", action="store_true", help="Qualify native CLI issuance; retains fresh test stores")
+    parser.add_argument("--kli-check", action="store_true", help="Qualify KERIpy CLI issuance; retains fresh test stores")
     parser.add_argument("--two-chain-check", action="store_true", help="Qualify actual signed-chain isolation through two deployments")
     args = parser.parse_args()
     if args.two_chain_check and args.comply_dir is None:

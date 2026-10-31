@@ -1,4 +1,4 @@
-"""Test-side issuer setup and native KLI artifact workflows.
+"""Test-side issuer setup and KLI artifact workflows.
 
 The oracle library receives and verifies; these helpers own test controllers,
 credential issuance setup, and supporting evidence transport.
@@ -41,7 +41,7 @@ def replay(hab, rgy, registry, creder) -> bytes:
 
 
 def issue_credential(issuer, registry, creder):
-    """Schedule native TEL/KEL issuance and wait for Credentialer completion."""
+    """Schedule KERIpy TEL/KEL issuance and wait for Credentialer completion."""
     issuance = registry.issue(said=creder.said, dt=creder.attrib.get("dt"))
     anc = anchor(registry.hab, issuance)
     issuer.issue(creder, issuance)
@@ -51,7 +51,7 @@ def issue_credential(issuer, registry, creder):
 
 
 def revoke_credential(issuer, registry, creder):
-    """Anchor native revocation and wait for witnessed Registrar completion."""
+    """Anchor KERIpy revocation and wait for witnessed Registrar completion."""
     revocation = registry.revoke(said=creder.said)
     issuer.registrar.revoke(creder, revocation, anchor(registry.hab, revocation))
     while not issuer.registrar.complete(creder.said, sn=revocation.sn):
@@ -122,7 +122,7 @@ class IssuerEscrows(doing.Doer):
 
     The KLI normally performs this alongside its mailbox processing. Local
     issuer-to-holder delivery here has no mailbox; Registrar and Credentialer
-    still run as their own native HIO doers.
+    still run as their own HIO doers.
     """
 
     def __init__(self, issuers):
@@ -138,7 +138,7 @@ class IssuerEscrows(doing.Doer):
 
 
 def issuer_for(hby, rgy):
-    """Compose the native single-sig issuance runtime for one controller store."""
+    """Compose the KERIpy single-sig issuance runtime for one controller store."""
     registrar = credentialing.Registrar(hby=hby, rgy=rgy, counselor=None)
     return credentialing.Credentialer(
         hby=hby, rgy=rgy, registrar=registrar,
@@ -147,7 +147,7 @@ def issuer_for(hby, rgy):
 
 
 def kli_issue(*, base, credential, artifacts, workflow):
-    """Run native full-credential issuance while the real witness keeps running."""
+    """Run KERIpy full-credential issuance while the real witness keeps running."""
     log_path = artifacts / "kli-issuance.log"
     with log_path.open("w") as log:
         with subprocess.Popen(
@@ -159,7 +159,7 @@ def kli_issue(*, base, credential, artifacts, workflow):
             try:
                 deadline = workflow.tyme + 30
                 while process.poll() is None:
-                    assert workflow.tyme < deadline, "native KLI issuance timed out: " + log_path.read_text()
+                    assert workflow.tyme < deadline, "KLI issuance timed out: " + log_path.read_text()
                     yield 0.01
                 assert process.returncode == 0, log_path.read_text()
             finally:
@@ -168,7 +168,7 @@ def kli_issue(*, base, credential, artifacts, workflow):
 
 
 def open_issuers(stack, schemas, *, base, temp, witness):
-    """Open isolated, witnessed GEDA/QVI/LE stores and native issuance doers."""
+    """Open isolated, witnessed GEDA/QVI/LE stores and KERIpy issuance doers."""
     actors, issuers = {}, {}
     for name in ("geda", "qvi", "le"):
         hby = stack.enter_context(habbing.openHby(name=name, base=base, temp=temp))
@@ -193,7 +193,7 @@ def open_issuers(stack, schemas, *, base, temp, witness):
 
 
 def collect_receipts(issuer, hab, sn):
-    """Yield while the native Registrar's receipt worker contacts the witness."""
+    """Yield while the KERIpy Registrar's receipt worker contacts the witness."""
     receiptor = issuer.registrar.receiptor
     receiptor.msgs.append({"pre": hab.pre, "sn": sn})
     while not any(cue["pre"] == hab.pre and cue["sn"] == sn for cue in receiptor.cues):

@@ -45,9 +45,9 @@ from vlei_oracle.verification.eoa import build_challenge
 
 
 def test_two_installed_services_publish_replace_and_retire(tmp_path, deployment):
-    """Qualify native trust, two-wallet USDC transfer, lost ACK, restart and exact retirement.
+    """Qualify witnessed KERI trust, two-wallet USDC transfer, lost ACK, restart and exact retirement.
 
-    Issuers/witness use native fixture stores; both applications own independent
+    Issuers/witness use KERIpy fixture stores; both applications own independent
     persistent stores. Only CESR HTTP, signed webhooks, public status and contract
     reads cross process boundaries. No acceptance/result records are injected.
     """
@@ -175,7 +175,7 @@ def test_two_installed_services_publish_replace_and_retire(tmp_path, deployment)
         registries, credentials, streams = {}, {}, {}
 
         def deliver(stream):
-            """PUT a finite native CESR stream; transport acceptance is not credential acceptance."""
+            """PUT a finite CESR stream; transport acceptance is not credential acceptance."""
             code, _ = yield from request(
                 workflow, verifier_port, "/", method="PUT", body=stream
             )
@@ -192,7 +192,7 @@ def test_two_installed_services_publish_replace_and_retire(tmp_path, deployment)
                 if (
                     code == 200
                     and value["status"] == expected
-                    and value.get("delivery", {}).get("delivered")
+                    and value.get("delivery", {}).get("acknowledged")
                 ):
                     return value
                 assert workflow.tyme < deadline, (
@@ -311,8 +311,8 @@ def test_two_installed_services_publish_replace_and_retire(tmp_path, deployment)
             first, first_stream = yield from association()
             yield from deliver(streams["geda"] + streams["qvi"] + first_stream)
             accepted = yield from status(first.said, "accepted")
-            assert accepted["facts"]["issuerAid"] == le.pre
-            assert accepted["observation"]["chainId"] == 31337
+            assert accepted["association"]["issuerAid"] == le.pre
+            assert accepted["accountObservation"]["chainId"] == 31337
             yield from mapping(first.said)
             beneficiary, beneficiary_stream = yield from association(recipient_key)
             yield from deliver(beneficiary_stream)
@@ -345,7 +345,7 @@ def test_two_installed_services_publish_replace_and_retire(tmp_path, deployment)
             verifier = launch(stack, verifier_command, verifier_log)
             yield from ready(verifier, verifier_port, verifier_log, workflow)
             reopened = yield from status(first.said, "accepted")
-            assert reopened["observation"] == accepted["observation"]
+            assert reopened["accountObservation"] == accepted["accountObservation"]
             yield from deliver(
                 first_stream
             )  # Duplicate presentation has no new application effects.
@@ -357,7 +357,7 @@ def test_two_installed_services_publish_replace_and_retire(tmp_path, deployment)
             yield from deliver(second_stream)
             yield from status(second.said, "accepted")
             yield from mapping(second.said)
-            # A Grant still carries issuance. Retirement requires the native revocation TEL and its anchor.
+            # A Grant still carries issuance. Retirement requires verified revocation TEL and its anchor.
             yield from revoke_credential(issuers["le"], registries["le"], first)
             yield from deliver(
                 grant(le, le_rgy, first, verifier_aid)

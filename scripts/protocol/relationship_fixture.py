@@ -147,7 +147,7 @@ def qualify_relationships(*, actors, issuers, registries, credentials, schemas,
         workflow.remove([check])
         assert reason in check.result["failureReason"], (label, check.result)
         assert not check.result["managed"] and not check.result["transactions"]
-    # Native source-chain rejection is its own boundary: a signed/anchored
+    # KERIpy source-chain rejection is its own boundary: a signed/anchored
     # LE artifact with a wrong issuer/holder link or QVI edge never becomes
     # accepted evidence. Its child must stay pending, never publish authority.
     for label in ("le_issuer_qvi_holder", "le_qvi_edge_schema"):
@@ -181,6 +181,6 @@ def qualify_relationships(*, actors, issuers, registries, credentials, schemas,
         assert not runtime.rgy.reger.saved.get(keys=(invalid_source.said,)), label
         assert not check.result["managed"] and not check.result["transactions"], label
         assert "not accepted" in check.result["failureReason"], check.result
-    print("Native LE issuer/QVI holder and QVI edge failures cannot authorize a child", flush=True)
+    print("KERIpy LE issuer/QVI holder and QVI edge failures cannot authorize a child", flush=True)
     print("Real source/TEL negatives reject issuer, unrelated holder, edge, schema, targeting, and copied LEI", flush=True)
     workflow.remove(aux_doers)

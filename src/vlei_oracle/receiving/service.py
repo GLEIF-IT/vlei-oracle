@@ -72,9 +72,9 @@ class ReceiverConfig:
 
 
 class StatusReceiver(doing.DoDoer):
-    """Borrow identity and stores; let the native HTTP Doer own its listener.
+    """Borrow identity and stores; let the HIO HTTP Doer own its listener.
 
-    Peer KEL import uses native validation. Only accepted local key state can
+    Peer KEL import uses KERIpy validation. Only accepted local key state can
     authorize a webhook; no header-provided key or credential verifier is used.
     Update the KEL file and restart after peer rotation.
     """
@@ -101,7 +101,7 @@ class StatusReceiver(doing.DoDoer):
                 chain_id=config.chain_id,
             ),
         )
-        # Native OOBI export lets the verifier learn this receiver's signing AID.
+        # KERIpy OOBI export lets the verifier learn this receiver's signing AID.
         self.app.add_route("/oobi/{aid}", ending.OOBIEnd(hby=hby))
         self.server = http.Server(host=config.host, port=config.http_port, app=self.app)
         doers = [http.ServerDoer(server=self.server)]
@@ -124,11 +124,11 @@ class StatusReceiver(doing.DoDoer):
 
 
 def run_receiver(config, *, expire=0.0):
-    """Run HIO inside native store contexts; child sockets close before stores.
+    """Run HIO inside KERIpy store contexts; child sockets close before stores.
 
     temp is explicit for every context. Persistent stores survive shutdown; an
     exception during later startup closes previously acquired stores. Supplied
-    native stores are borrowed by Habery, with no second cleanup-owning Doer.
+    KERIpy stores are borrowed by Habery, with no second cleanup-owning Doer.
     """
     options = dict(name=config.name, base=config.base, headDirPath=config.head_dir)
     with (

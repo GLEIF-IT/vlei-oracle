@@ -1,4 +1,4 @@
-"""Native LMDB records for the legacy workflow and trusted status receiver.
+"""LMDB records for the legacy workflow and trusted status receiver.
 
 Verification owns acceptance progress; management owns continuing reconciliation.
 Their handoff commits atomically. Queues and cues remain transient scheduling
@@ -71,10 +71,10 @@ class ManagedAssociation:
 
 
 @dataclass
-class MessageReceipt:
+class ReplayClaim:
     """Authenticated transport nonce lifetime, independent of event deduplication."""
 
-    expires: int
+    expiresAt: int
 
 
 @dataclass
@@ -97,7 +97,7 @@ class OracleBaser(dbing.LMDBer):
         super().__init__(name=name, reopen=reopen, **kwa)
 
     def reopen(self, **kwa: Any):
-        """Open native LMDB and bind the independently owned record families."""
+        """Open LMDB and bind the independently owned record families."""
 
         super().reopen(**kwa)
         self.verifications = koming.Komer(db=self, subkey="verification.", schema=VerificationWork)
@@ -106,7 +106,7 @@ class OracleBaser(dbing.LMDBer):
         self.scope = koming.Komer(db=self, subkey="scope.", schema=PostingScope)
         self.inbox = koming.Komer(db=self, subkey="inbox.", schema=StatusEvent)
         self.statuses = koming.Komer(db=self, subkey="statuses.", schema=AssociationStatus)
-        self.messages = koming.Komer(db=self, subkey="messages.", schema=MessageReceipt)
+        self.replay_claims = koming.Komer(db=self, subkey="replay_claims.", schema=ReplayClaim)
         self.claims = koming.Komer(db=self, subkey="claims.", schema=WalletClaim)
         self.inbox_scope = koming.Komer(db=self, subkey="inbox-scope.", schema=InboxScope)
         return self.env
@@ -120,9 +120,9 @@ class OracleBaser(dbing.LMDBer):
             raise ValueError("inbox predates ownership selection; use a fresh receiver store")
         self.inbox_scope.put(keys=("receiver",), val=scope)
 
-    def claim_message(self, peer, nonce, expires):
-        """Claim an authenticated attempt once; persistent receipts reject replay."""
-        return self.messages.put(keys=(peer, nonce), val=MessageReceipt(expires))
+    def claim_nonce(self, peer, nonce, expires_at):
+        """Claim an authenticated attempt once; persistent claims reject replay."""
+        return self.replay_claims.put(keys=(peer, nonce), val=ReplayClaim(expires_at))
 
     def receive_status(self, event, status):
         """Commit event receipt, monotonic status and ownership selection before ACK.
@@ -143,12 +143,12 @@ class OracleBaser(dbing.LMDBer):
             if current is not None:
                 if current.association != status.association:
                     raise ValueError("association facts cannot change")
-                if current.status == "revoked" and status.status != "revoked" and status.revision > current.revision:
+                if current.status == "revoked" and status.status != "revoked" and status.statusRevision > current.statusRevision:
                     raise ValueError("revoked association cannot be reaccepted")
-                if current.status == "accepted" and status.status == "revoked" and status.revision < current.revision:
+                if current.status == "accepted" and status.status == "revoked" and status.statusRevision < current.statusRevision:
                     raise ValueError("revocation revision precedes acceptance")
             txn.put(event_key, self.inbox.serializer(event), db=self.inbox.sdb)
-            if current is None or status.revision > current.revision:
+            if current is None or status.statusRevision > current.statusRevision:
                 if current is not None:
                     status.selection = current.selection
                 self._apply_status(txn, status)
@@ -283,7 +283,7 @@ class OracleBaser(dbing.LMDBer):
             member = ManagedAssociation(associationSaid=work.associationSaid)
             txn.put(key, self.managed.serializer(member), db=self.managed.sdb, overwrite=False)
 
-    def presentation_status(self, association_said: str) -> dict | None:
+    def association_status(self, association_said: str) -> dict | None:
         """Compose local lifecycle status without RPC or evidence reconstruction."""
         member = self.get_managed(association_said)
         if member is not None:

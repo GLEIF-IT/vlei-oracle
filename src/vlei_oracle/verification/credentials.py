@@ -9,7 +9,7 @@ from keri.db import dbing
 from keri.vdr import credentialing
 from keri.peer import exchanging
 
-from vlei_oracle.verification.eoa import association_binding
+from vlei_oracle.verification.eoa import association_mapping
 
 from vlei_oracle.verification.constants import LE_SCHEMA, QVI_SCHEMA
 from vlei_oracle.verification.errors import MissingCredentialArtifactsError, VerificationError
@@ -25,7 +25,7 @@ class Assessment:
 
 
 def assess_association(**kwa) -> Assessment:
-    """Assess native acceptance and current validity without saving evidence."""
+    """Assess KERIpy acceptance and current validity without saving evidence."""
     try:
         return Assessment("valid", verify_association(**kwa))
     except MissingCredentialArtifactsError as exc:
@@ -35,23 +35,23 @@ def assess_association(**kwa) -> Assessment:
 
 
 def grant_candidate(rgy, grant_said):
-    """Read immutable candidate bytes from the native accepted Grant store."""
+    """Read immutable candidate bytes from the KERIpy accepted Grant store."""
     exn, _ = exchanging.cloneMessage(rgy.hby, said=grant_said) if grant_said else (None, None)
     return serdering.SerderACDC(sad=exn.ked["e"]["acdc"]) if exn is not None else None
 
 
-def reconstruct_binding(*, rgy, said, schema_said, grant_said=""):
+def reconstruct_association_mapping(*, rgy, said, schema_said, grant_said=""):
     """Read immutable identity even after revocation, without granting acceptance.
 
-    Native credential bytes remain authoritative. The accepted Grant is a
-    fallback for candidates not yet materialized by native credential processing.
+    KERIpy-stored credential bytes remain authoritative. The accepted Grant is a
+    fallback for candidates not yet materialized by KERIpy credential processing.
     Neither source bypasses the independent validity assessment.
     """
     candidate = None
     if rgy.reger.creds.get(keys=(said,)) is None:
         candidate = grant_candidate(rgy, grant_said)
     credential = stored_credential(rgy, said, schema_said, candidate=candidate)
-    return association_binding(credential.sad)
+    return association_mapping(credential.sad)
 
 
 def verify_association(
@@ -114,7 +114,7 @@ def accepted_credential(rgy, said: str, schema_said: str) -> serdering.SerderACD
     if rgy.reger.saved.get(keys=(said,)) is None:
         raise MissingCredentialArtifactsError(f"credential {said} is not accepted yet")
     creder = stored_credential(rgy, said, schema_said)
-    # Native read-through caches reload persisted state through indexed lookup.
+    # KERIpy read-through caches reload persisted state through indexed lookup.
     # Their get() methods consult only the in-memory cache in this KERI version.
     try:
         tever = rgy.reger.tevers[creder.regi]
@@ -162,7 +162,7 @@ def stored_credential(
 
 
 def verify_witnessed_anchor(rgy, association):
-    """Use native anchor, historical witness-state, and signature APIs."""
+    """Use KERIpy anchor, historical witness-state, and signature APIs."""
     tever = rgy.reger.tevers[association.regi]
     state = tever.vcState(association.said)
     if state.et not in ("iss", "bis"):

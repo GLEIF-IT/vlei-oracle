@@ -25,16 +25,16 @@ def test_status_and_health_read_durable_association_work(service):
     op = baser.start_verification(
         association_said="association",
         grant_said="grant")
-    assert client.simulate_get("/presentations/association").json == baser.presentation_status(op.associationSaid)
+    assert client.simulate_get("/associations/association").json == baser.association_status(op.associationSaid)
     assert client.simulate_get("/health").json["verification"] == {"verifying": 1}
-    assert client.simulate_get("/presentations/missing").status_code == 404
+    assert client.simulate_get("/associations/missing").status_code == 404
 
 
 def test_signature_attachment_route_is_absent(service):
     _, client = service
     assert (
         client.simulate_post(
-            "/presentations/association/signature", json={}
+            "/associations/association/signature", json={}
         ).status_code
         == 404
     )
@@ -47,7 +47,7 @@ def test_management_does_not_overwrite_verification_status(service):
     member = baser.get_managed("association")
     member.state = "withdrawn"
     baser.pin_managed(member)
-    status = client.simulate_get("/presentations/association").json
+    status = client.simulate_get("/associations/association").json
     assert status["verificationState"] == "verified"
     assert status["state"] == "withdrawn" and status["managed"]
     assert client.simulate_get("/health").json == {

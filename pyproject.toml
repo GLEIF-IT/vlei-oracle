@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "vlei-oracle"
 version = "0.1.0"
-description = "Authenticated EOA status receiver and Ethereum association publisher"
+description = "Authenticated EOA status receiver and Ethereum association endorsement publisher"
 readme = "README.md"
 requires-python = ">=3.12.6"
 license = { text = "Apache-2.0" }

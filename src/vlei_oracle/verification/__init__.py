@@ -1,1 +1,1 @@
-"""Check native credential evidence and Ethereum wallet proofs."""
+"""Check KERI/ACDC evidence and Ethereum wallet proofs."""
