@@ -17,7 +17,7 @@ from keri.db import basing
 from keri.help import helping
 
 from contract_fixture import contract, read, send
-from ceremony import association_from_challenge
+from association_issuer import association_from_challenge
 from issuance_helpers import (
     IssuerEscrows,
     anchor,
@@ -40,8 +40,8 @@ from service_processes import (
     stop,
 )
 from test_contract_effects import deployment, effects_for, KEY
-from vlei_oracle.association.constants import LE_SCHEMA, QVI_SCHEMA
-from vlei_oracle.association.eoa import build_challenge
+from eoa_verifier.verification.constants import LE_SCHEMA, QVI_SCHEMA
+from eoa_verifier.verification.eoa import build_challenge
 
 
 def test_two_installed_services_publish_replace_and_retire(tmp_path, deployment):
@@ -212,13 +212,13 @@ def test_two_installed_services_publish_replace_and_retire(tmp_path, deployment)
                 assert workflow.tyme < deadline, (current, oracle_log.read_text())
                 yield 0.05
 
-        def association(key=wallet_key):
+        def association(key=wallet_key, nonce=None):
             """Issue a real wallet-signed association at a new witnessed LE KEL event."""
             challenge = build_challenge(
                 issuer_aid=le.pre,
                 le_vlei_said=credentials["qvi"].said,
                 ext_id=f"eip155:31337:{Account.from_key(key).address.lower()}",
-                nonce=str(uuid4()),
+                nonce=nonce if nonce is not None else str(uuid4()),
             )
             sig = Account.sign_message(
                 encode_typed_data(full_message=challenge), key
@@ -313,6 +313,20 @@ def test_two_installed_services_publish_replace_and_retire(tmp_path, deployment)
             accepted = yield from status(first.said, "accepted")
             assert accepted["association"]["issuerAid"] == le.pre
             assert accepted["accountObservation"]["chainId"] == 31337
+            yield from mapping(first.said)
+            duplicate, duplicate_stream = yield from association(recipient_key, first.sad["u"])
+            assert duplicate.said != first.said
+            yield from deliver(duplicate_stream)
+            deadline = workflow.tyme + 15
+            while True:
+                code, body = yield from request(workflow, verifier_port, f"/v1/associations/{duplicate.said}/status")
+                rejected = json.loads(body)
+                if code == 200 and rejected["status"] == "rejected":
+                    break
+                assert workflow.tyme < deadline, (rejected, verifier_log.read_text())
+                yield 0.05
+            assert rejected["reason"] == "NONCE_REUSED" and rejected["delivery"] is None
+            assert not any(json.loads(body)["associationSaid"] == duplicate.said for body in proxy.events)
             yield from mapping(first.said)
             beneficiary, beneficiary_stream = yield from association(recipient_key)
             yield from deliver(beneficiary_stream)

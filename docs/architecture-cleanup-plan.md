@@ -95,17 +95,19 @@ and cross-entity cases behave correctly; fresh deployment and the installed-whee
 paired suite pass against the new contract revision. No compatibility selectors,
 old queue settlement or abstract-beneficiary fallback remains.
 
-### 3. Complete PR #49 without application locking (qualified; PR review pending)
+### 3. Complete PR #49 without application locking (merged)
 
 Owner: vlei-oracle. Added by Kent on 2026-10-31. This is a separate focused
 refactor after the wrapper-removal qualification. Preserve
 [vlei-comply PR #11](https://github.com/GLEIF-IT/vlei-comply/pull/11) and
 [oracle companion PR #48](https://github.com/GLEIF-IT/vlei-oracle/pull/48).
 Both wrapper PRs are merged. Nonce implementation is isolated on
-`refactor/nonce-ledger-lmdber`; publication is approved and PR review is pending.
+`refactor/nonce-ledger-lmdber`; PR #49 merged as
+`7734146c9f5bb23607e9434180651ef514f4274b`. Task 4 supersedes its issuer ledger.
 
 **Publication approved:** Kent authorized committing and pushing the PR on
-2026-10-31 after local qualification. Merge remains subject to PR review.
+2026-10-31 after local qualification. PR #49 is now merged; the following
+requirements and receipts describe that completed wave.
 
 Required source inspection, before implementation:
 
@@ -177,10 +179,11 @@ Validation and completion:
    exact test/artifact evidence and remaining limitations. Leave the refactor
    uncommitted and unpushed until Kent authorizes publication (now approved).
 
-### 4. Remove association-nonce ownership from vlei-oracle (next PR wave)
+### 4. Remove association-nonce ownership from vlei-oracle (implemented; PR review pending)
 
 Owners: vlei-oracle removal PR, with an EOA Verifier acceptance-policy companion.
-This is planned work, not part of the PR #49 locking correction. Kent explicitly
+This is the authorized next task after PR #49 merged. It remains separate from
+that locking correction. Kent explicitly
 rejected consolidating this issuer ledger into the oracle AID store. The oracle
 receives verified status and posts selected associations; it must not own EOA
 proof nonce consumption or credential issuance policy.
@@ -259,8 +262,8 @@ proof nonce consumption or credential issuance policy.
    webhook replay rejection and Ethereum posting recovery must remain covered.
 6. Review the coordinated changes, merge the verifier policy first if the oracle
    removal PR advances its producer pin, then merge the oracle removal. Publish
-   exact qualified revisions and remaining deployment limits. This plan does not
-   authorize implementing either ownership PR in the current locking correction.
+   exact qualified revisions and remaining deployment limits. The ownership changes are now authorized as the next coordinated PR wave;
+   neither is part of the merged locking correction.
 
 ### 5. Make an empty policy configuration explicit and fail closed
 
@@ -391,7 +394,7 @@ remain separate. No storage or contract migration is provided.
 
 Implemented on `refactor/nonce-ledger-lmdber`, based on merged oracle
 `2b028c9299426a61a7dab68a80b6357d53ac572f`. Kent authorized publishing the
-qualified refactor on 2026-10-31; PR review is pending.
+qualified refactor on 2026-10-31; PR #49 subsequently merged.
 
 The ledger now subclasses LMDBer, binds a typed, non-duplicate `consumed.` Komer
 in `reopen()`, and uses explicit insert-without-overwrite plus same-transaction
@@ -441,11 +444,11 @@ for a deliberately new store; there is no migration, old-format reader or replay
 protection across independently selected empty stores. A post-commit failure can
 burn a nonce by design. Native temporary cleanup removes the ledger directory;
 the pinned Filer can leave empty ancestor directories. Qualification was local macOS; Linux CI is not run before review. This task adds
-no custom parent-directory cleanup or unrelated persistence changes. Publication is approved; the next implementation task after PR review is task 4, removing association-
-nonce ownership from the oracle with the verifier-policy companion. The empty-
-policy configuration fix follows as task 5.
+no custom parent-directory cleanup or unrelated persistence changes. PR #49 is
+merged; task 4 now removes association-nonce ownership from the oracle with the
+verifier-policy companion. The empty-policy configuration fix follows as task 5.
 
-## Current PR #49 locking correction qualification
+## Historical PR #49 locking correction qualification
 
 Kent's 2026-10-31 correction removes the application mutex and all shared-thread
 coordination from nonce handling. The implementation now relies solely on one
@@ -479,3 +482,79 @@ This PR deliberately does not move issuer nonce state into the oracle AID store,
 rename its temporary nonce flags or implement verifier nonce policy. Task 4 is
 the subsequent ownership-removal wave. Oracle transport replay claims and
 Ethereum transaction nonces are outside that removal.
+
+
+## Task 4 implementation and qualification
+
+PR #49 is merged at `7734146c9f5bb23607e9434180651ef514f4274b`.
+The current coordinated wave removes the oracle's issuer ledger, ceremony
+finalization, challenge/signing CLI and installed association schema/proof package.
+Only canonical status identifier parsing remains in `identifiers.py`. Minimal
+ACDC assembly is test-owned in `tests/association_issuer.py`; protocol conformance
+and vector generation use the installed producer. Canonical SAID-bearing schema
+bytes are unchanged; application acceptance policy does not change the schema.
+
+The verifier companion implements ADR 0005: permanent exact issuer/nonce/SAID
+claims in `VerifierBaser.accepted_nonces`, committed with accepted status and any
+outbox obligation. Nonce reuse produces terminal local `NONCE_REUSED`, preserving
+the independent verified result. Acceptance runs without webhook delivery too;
+those records have no delivery obligation, and later enabling delivery does not
+backfill them. Revocation retains claims. The scope now requires `issuer-nonce-v1`;
+pre-policy scopes and missing/inconsistent accepted history are refused, without
+migration. There is no new store, option, application lock or concurrency runtime.
+
+Kent authorized committing, pinning and opening both coordinated PRs on
+2026-10-31. The test-only producer requirement now pins companion commit
+`2a81727e81be19d4ebcef007e7c373881313bc27` from
+[verifier PR #20](https://github.com/GLEIF-IT/eoa-verifier/pull/20). Merge it first.
+Candidate qualification installed both fresh wheels; the published pin's installed
+Python/JSON files are checked against the qualified verifier artifact. The final
+oracle wheel passed the full suite again against that published Git pin; all
+10 focused inbox/import checks also passed.
+Qualification completed locally on macOS with Python 3.12.10, GLEIF KERI/HIO
+1.2.19/0.6.22, LMDB 1.8.1 and Foundry 1.5.1:
+
+- Full standalone verifier installed-wheel suite: **114 passed**, 268.30 seconds.
+  Its fresh environment contains no oracle package. The four witnessed intake
+  cases cover POST/PUT with delivery enabled/disabled, valid different-wallet
+  nonce reuse, pending evidence, invalid proof and revocation during initial RPC.
+- Full oracle installed-wheel suite: **119 passed**, 150.68 seconds. The reduced
+  count removes the retired 28 ledger/ceremony cases, packaged issuer-schema test
+  and deleted normalization API test, and adds two rejected issuer-command cases.
+  Protocol conformance now checks the installed producer; its canonical fixtures
+  remain unchanged. No maintained paired assertion was removed.
+- Maintained paired scenario: **passed**, 44.492 seconds within that oracle suite.
+  It rejects a valid newly issued second-wallet credential sharing the first pair,
+  then accepts a fresh-nonce credential and retains witnessed issuance, real USDC
+  balance changes, signed retry/lost ACK, independent restart, replacement and
+  exact revocation/withdrawal checks.
+- Native storage tests include same/different-SAID four-process races, issuer
+  scope, exact composed/decomposed Unicode and whitespace, persistent reopen,
+  malformed/orphaned claims, missing history and abrupt process death before
+  and after acceptance commit. Fault injection confirms claim/status/outbox
+  rollback. Referenced-but-missing delivery is refused, while explicitly local
+  acceptance/retirement has no event. Public NONCE_REUSED GET returns HTTP 200
+  without attempting an empty LMDB key lookup.
+- Oracle-only runtime smoke: all 18 modules import and CLI help loads in another
+  fresh environment with no verifier installed. Wheel audits match all 30
+  verifier and 21 oracle Python/JSON files to current source and exclude the
+  deleted issuer package, nonce ledger and commands. Component architecture and
+  whitespace checks pass.
+
+Contracts remain `4c83e465b3d7937f02b95e805cca5b79f5015078`, tree-equivalent to
+merged comply `9f93d8da3601ae12a747731dc0767128ac95c102`. All 17 contract-source
+and build-configuration files used by qualification match that clean checkout.
+Candidate wheel SHA-256 values:
+
+- Verifier: `7ffb46d0d1b37052b2c158d685d7a7fe582703665734ea284fea2bdd4a3b6e84`.
+- Oracle: `07491f8d43a991fcc55b5095ba77a6863616d585fba1b2add348042c4d3edef7`.
+
+The runtime source of both artifacts matches the implementation branches based on
+verifier `486fb42f92b6c3269d7968934448f21121ef08aa` and oracle
+`7734146c9f5bb23607e9434180651ef514f4274b`. Remaining limits: nonce uniqueness
+is per preserved verifier store, pre-policy stores require a deliberate fresh
+baseline, and startup history audit scans all accepted SAIDs into memory. No
+migration, cross-store authority or Linux CI result is claimed. Existing KERIpy
+malformed-input limitations remain outside this ownership change.
+Task 5 (empty policy configuration) remains the next architecture cleanup; the
+wrapper's noncustodial audit role and direct USDC bypass remain accepted.

@@ -20,8 +20,9 @@ schema leaves identifier and signature formats to profiles such as the
 
 The association stands on its own; an oracle may separately publish a verified
 association mapping for on-chain use. See the [schema](association.schema.json) for field
-constraints and the [issuance exercise](../../scripts/protocol/README.md) for a
-complete delegated test chain presented to the oracle.
+constraints and the [paired qualification helpers](../../scripts/protocol/README.md) for a
+complete delegated test chain presented to EOA Verifier. The oracle receives
+authenticated accepted/revoked status and publishes selected mappings.
 
 ## Sources
 

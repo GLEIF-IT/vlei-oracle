@@ -12,7 +12,9 @@ The test follows these boundaries:
 2. Observe verifier acceptance, signed webhook receipt and actual contract mapping.
    Drop one successful ACK after the receiver commits; verify retry keeps identical
    event bytes and eventually obtains an authenticated ACK.
-3. Issue a second real association for the beneficiary wallet. With both wallet
+3. Issue an otherwise valid second-wallet credential reusing the first issuer/nonce;
+   require terminal `NONCE_REUSED`, no webhook and no change to the mapping. Then
+   issue a fresh-nonce association for the beneficiary wallet. With both wallet
    mappings confirmed, transfer USDC and check both token balances. The oracle
    uses a separately funded, explicitly authorized writer key.
 4. Restart both applications from their own stores without another Grant. Keep the
@@ -45,15 +47,17 @@ Test logs and stores live beneath pytest's temporary directory; the fixture stop
 only its own subprocesses. On macOS hosts with LMDB vnode exhaustion, copy the
 inputs into a Linux container with no host bind mounts and run there.
 
-The producer is pinned to merged verifier revision
-`486fb42f92b6c3269d7968934448f21121ef08aa` in `tests/requirements.txt`, not as an
-oracle runtime import. Existing status-posting tests establish old-observation
+The producer is pinned to verifier companion revision
+`2a81727e81be19d4ebcef007e7c373881313bc27` in `tests/requirements.txt`, not as an
+oracle runtime import. Merge the verifier acceptance-policy companion before
+this oracle removal PR. Its source matches the qualified verifier wheel.
+Existing status-posting tests establish old-observation
 acceptance and failure handling without the verifier. The paired comply launcher invokes this same scenario; it does not copy the
 KERIpy issuance or process-ownership code.
 
 Both applications use GLEIF KERI 1.2.19 and HIO 0.6.22. This qualification uses
-merged application behavior: the closed ingress and replay-pruning candidates are
-excluded. The known KERIpy receipt-couple shortage limitation remains unresolved;
+the coordinated nonce-policy candidate wheels; the closed ingress and
+replay-pruning candidates remain excluded. The known KERIpy receipt-couple shortage limitation remains unresolved;
 a passing valid-stream workflow does not establish liveness for that malformed input.
 
 ## Qualify local application changes
