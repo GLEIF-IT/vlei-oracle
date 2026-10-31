@@ -1,6 +1,6 @@
-"""Native KERI HTTP signatures for one configured service peer.
+"""KERI HTTP signatures for one configured service peer.
 
-Compatible with eoa-verifier PR04 (fab5e504). Keep this narrow native profile
+Compatible with the pinned EOA Verifier. Keep this narrow service profile
 aligned through sender interoperability tests; neither application imports the other.
 
 This is transport authentication only. Callers retain exact body bytes and supply
@@ -18,7 +18,7 @@ from keri.core import coring
 from keri.end import ending
 from keri.help import helping
 
-# Exact native signature profile; changing coverage requires peer coordination.
+# Exact service signature profile; changing coverage requires peer coordination.
 FIELDS = (
     "@method",
     "@path",
@@ -30,7 +30,7 @@ FIELDS = (
     "eoa-request",
     "eoa-status",
 )
-# Native signature label and context distinguish this service transport profile.
+# Application signature label and context distinguish this service transport profile.
 LABEL = "sig0"
 CONTEXT = "eoa-verifier/v1"
 
@@ -67,18 +67,18 @@ def _path(target):
 
 
 class ServiceAuthenticator:
-    """Sign and authenticate messages with a native habitat and one trusted peer.
+    """Sign and authenticate messages with a KERIpy habitat and one trusted peer.
 
     Borrow the habitat/key-state database and replay store; own no network tasks.
     Only locally accepted current single-key, threshold-one transferable AIDs are
-    supported. Rotation uses native key-state updates, never an arbitrary header key.
+    supported. Rotation uses KERIpy key-state updates, never an arbitrary header key.
     """
 
     def __init__(self, *, hab, baser, peer_aid, lifetime=60):
         """Configure peer trust and maximum message lifetime in seconds.
 
         baser owns durable replay claims. The lifetime is transport validity only;
-        it does not limit accepted associations. Native UTC supplies wall time.
+        it does not limit accepted associations. KERIpy time helpers supply wall time.
         """
         self.hab, self.baser, self.peer_aid = hab, baser, peer_aid
         self.lifetime = lifetime
@@ -90,7 +90,7 @@ class ServiceAuthenticator:
             raise ValueError("peer AID and positive message lifetime are required")
 
     def _key(self, aid):
-        """Read the supported native current key or reject unavailable/unsupported state."""
+        """Read the supported KERIpy current key or reject unavailable/unsupported state."""
         try:
             kever = self.hab.db.kevers[aid]
         except KeyError as exc:
@@ -159,7 +159,7 @@ class ServiceAuthenticator:
         return headers, AuthenticatedMessage(self.hab.pre, nonce, digest)
 
     def _read_signature(self, headers):
-        """Decode one native signature and enforce peer/profile/message-time constraints.
+        """Decode one KERIpy signature and enforce peer/profile/message-time constraints.
 
         Return normalized headers, parsed input and signature. Malformed data raises
         AuthenticationError; no replay state is claimed at this boundary.
@@ -234,7 +234,7 @@ class ServiceAuthenticator:
                 raise AuthenticationError("signature does not verify")
         except (KeyError, TypeError, ValueError, kering.KeriError) as exc:
             raise AuthenticationError(str(exc)) from exc
-        if not self.baser.claim_message(self.peer_aid, inp.nonce, inp.expires):
+        if not self.baser.claim_nonce(self.peer_aid, inp.nonce, inp.expires):
             raise AuthenticationError("message replay")
         return AuthenticatedMessage(
             self.peer_aid, inp.nonce, expected["content-digest"]
@@ -242,7 +242,7 @@ class ServiceAuthenticator:
 
     @staticmethod
     def _signature_base(inp, method, target, expected):
-        """Rebuild the exact pinned KERIpy siginput base for native signature verification.
+        """Rebuild the exact pinned KERIpy siginput base for signature verification.
 
         Preserve its field and parameter spelling/order; this narrow compatibility
         function is not a general RFC 9421 canonicalizer.

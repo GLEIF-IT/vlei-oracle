@@ -15,7 +15,7 @@ class EoaVerifierDoer(doing.DoDoer):
     """Consume association ACDCs from ``msgs`` and emit completion ``cues``.
 
     Each cue identifies the association by ``said`` and has a ``kin`` of
-    ``verified`` (with result fields), ``failed`` (invalid proof/account), or
+    ``verified`` (with ``eoaResult`` fields), ``failed`` (invalid proof/account), or
     ``retry`` (RPC unavailable or unusable). Only the coordinator persists state.
     One request runs at a time; HTTP clients are owned and closed by this worker.
     """
@@ -95,7 +95,7 @@ class EoaVerifierDoer(doing.DoDoer):
                 ):
                     raise ValueError("eth_getCode returned invalid hex data")
                 code = bytes.fromhex(code_hex[2:])
-                observation = {
+                account_observation = {
                     "chainId": chain_id,
                     "blockNumber": int(block["number"], 16),
                     "blockHash": block["hash"],
@@ -115,5 +115,5 @@ class EoaVerifierDoer(doing.DoDoer):
             except ValueError as exc:
                 self.cues.append({"kin": "failed", "said": said, "error": str(exc)})
             else:
-                result["observation"] = observation
-                self.cues.append({"kin": "verified", "said": said, "verified": result})
+                result["accountObservation"] = account_observation
+                self.cues.append({"kin": "verified", "said": said, "eoaResult": result})

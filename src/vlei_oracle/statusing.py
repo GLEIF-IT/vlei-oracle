@@ -23,7 +23,7 @@ class AssociationStatus:
     """Latest verifier status and immutable facts, with a separate local selection decision."""
 
     associationSaid: str
-    revision: int
+    statusRevision: int
     status: str
     association: dict
     wallet: str
@@ -34,27 +34,27 @@ class AssociationStatus:
 def read_status(body: bytes, *, chain_id: int):
     """Return event and status from the small v1 object, or raise ValueError.
 
-    The caller must authenticate the exact bytes first. Only valid acceptance and
+    The caller must authenticate the exact bytes first. Only accepted associations and
     explicit REVOKED retirement are supported. Observation metadata is ignored:
     the configured verifier already performed the initial account/chain checks.
     """
     try:
         payload = json.loads(body)
-        said, revision = payload["associationSaid"], payload["revision"]
-        if payload["version"] != "1" or type(revision) is not int or revision < 1:
+        said, status_revision = payload["associationSaid"], payload["statusRevision"]
+        if payload["version"] != "1" or type(status_revision) is not int or status_revision < 1:
             raise ValueError("unsupported event version or revision")
         if coring.Saider(qb64=said).qb64 != said:
             raise ValueError("invalid association SAID")
-        if payload["eventId"] != f"{said}:{revision}":
+        if payload["eventId"] != f"{said}:{status_revision}":
             raise ValueError("event ID must identify association and revision")
-        if payload["outcome"] == "valid" and "reasonCode" not in payload:
+        if payload["status"] == "accepted" and "reasonCode" not in payload:
             status = "accepted"
-        elif payload["outcome"] == "invalid" and payload.get("reasonCode") == "REVOKED":
+        elif payload["status"] == "revoked" and payload.get("reasonCode") == "REVOKED":
             status = "revoked"
         else:
             raise ValueError("unsupported association status")
         facts = payload["association"]
-        issuer, le, issuance = facts["issuerAid"], facts["leSaid"], facts["issuance"]
+        issuer, le, issuance = facts["issuerAid"], facts["leSaid"], facts["issuanceAnchor"]
         if (
             coring.Prefixer(qb64=issuer).qb64 != issuer
             or coring.Saider(qb64=le).qb64 != le
@@ -71,7 +71,7 @@ def read_status(body: bytes, *, chain_id: int):
             raise ValueError("association belongs to another chain")
         return StatusEvent(payload["eventId"], body.decode("utf-8")), AssociationStatus(
             said,
-            revision,
+            status_revision,
             status,
             facts,
             facts["extId"].split(":")[2],

@@ -152,7 +152,7 @@ def test_lost_broadcast_response_is_pending_until_confirmed(peers, deployment):
     drive(poster.effects, workflow)
 
 
-def test_rpc_tls_failure_keeps_signed_receipt_available(peers, caplog):
+def test_rpc_tls_failure_keeps_signed_ack_available(peers, caplog):
     """After a real RPC TLS failure, the composed service still ACKs an HTTP duplicate."""
     import json
     import socket
@@ -160,7 +160,7 @@ def test_rpc_tls_failure_keeps_signed_receipt_available(peers, caplog):
     from hio.core import http, tcp
 
     class PlaintextPeer(tcp.ServerDoer):
-        """Trigger a terminal native TLS error by answering ClientHello in plaintext."""
+        """Trigger a terminal HIO TLS error by answering ClientHello in plaintext."""
 
         def recur(self, tyme):
             super().recur(tyme)
@@ -209,6 +209,6 @@ def test_rpc_tls_failure_keeps_signed_receipt_available(peers, caplog):
     parent = doing.DoDoer(doers=[receiver, server_doer, client_doer, doing.doify(probe)])
     doing.Doist(real=True, tock=0.01, limit=3).do(doers=[parent])
     assert parent.done and responses[0]["status"] == 200
-    assert json.loads(responses[0]["body"])["accepted"] is True
+    assert json.loads(responses[0]["body"])["stored"] is True
     assert peers.inbox.selected_association("eip155:31337:0x" + "11" * 20) is not None
     assert peers.inbox.transactions.cntAll() == 0  # No fabricated submission on failure.

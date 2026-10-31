@@ -1,4 +1,4 @@
-"""Schedule native KERI parsing and escrow processing on HIO."""
+"""Schedule KERI parsing and escrow processing on HIO."""
 
 from hio.base import doing
 from hio.help import decking

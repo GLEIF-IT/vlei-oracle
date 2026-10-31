@@ -43,7 +43,7 @@ def test_false_acdc_said_cannot_poison_an_operation(tmp_path):
 
     from vlei_oracle.receiving.grants import GrantNotificationDoer
 
-    # Only the envelope lookup is stubbed. Native ACDC validation must reject
+    # Only the envelope lookup is stubbed. KERIpy ACDC validation must reject
     # the claimed identity before replay or creating durable work for it.
     association = json.loads(
         (
@@ -87,7 +87,7 @@ import os, sys
 from vlei_oracle.basing import OracleBaser
 store = OracleBaser(name="handoff", headDirPath=sys.argv[1])
 if sys.argv[2] == "during_commit":
-    # Crash after verification is removed inside the native transaction,
+    # Crash after verification is removed inside the LMDB transaction,
     # before membership serialization. No committed half-handoff is allowed.
     store.managed.serializer = lambda value: os._exit(17)
 store.complete_verification(store.get_verification("association"))

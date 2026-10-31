@@ -58,7 +58,7 @@ def _receiver_arguments(receive):
     receive.add_argument("--verifier-aid", required=True)
     receive.add_argument("--chain-id", required=True, type=int)
     receive.add_argument("--webhook-url", required=True, help="Exact public /v1/status-events URL")
-    receive.add_argument("--verifier-kel", default="", help="Native CESR key-event stream for verifier bootstrap/rotation")
+    receive.add_argument("--verifier-kel", default="", help="CESR key-event stream for verifier bootstrap/rotation")
     receive.add_argument("--name", default="vlei-oracle-inbox")
     receive.add_argument("--base", default="")
     receive.add_argument("--alias", default="oracle")

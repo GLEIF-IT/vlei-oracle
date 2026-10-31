@@ -82,7 +82,7 @@ class StatusPoster(doing.DoDoer):
             if action is None:
                 continue
             tx = yield from self.effects.prepare(action)
-            # Native RPC waits yield to the inbox: replacement/revocation may
+            # HIO RPC waits yield to the inbox: replacement/revocation may
             # have changed the required action while preparing this transaction.
             if self.action(status, identity, endorsement) != action:
                 return

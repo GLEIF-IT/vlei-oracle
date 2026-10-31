@@ -6,7 +6,7 @@ remain available for ceremony tooling and the legacy combined-service tests.
 
 - [exercise_issuance.py](exercise_issuance.py): Real delegated credential issuance and IPEX/HTTP verification, including rejection cases.
 - [ceremony.py](ceremony.py): Verify the pre-issuance proof, consume the issuer nonce durably, and write a full ACDC for KLI.
-- [issuance_helpers.py](issuance_helpers.py): Test actor/store setup and native evidence workflows.
+- [issuance_helpers.py](issuance_helpers.py): Test actor/store setup and KERIpy evidence workflows.
 - [generate_vectors.py](generate_vectors.py): Known-answer vectors derived from an existing association ACDC.
 - [requirements.txt](requirements.txt): Reproducible Python dependency versions.
 
@@ -24,7 +24,7 @@ uv pip install --python .venv/bin/python -e '.[dev]' -r scripts/protocol/require
 
 The preparer checks out the pinned public vLEI schemas. Python uses PyPI's
 `gleif_keri==1.2.18`. The exercise starts its own Anvil and HIO/Falcon server on local
-ephemeral ports, starts one native KERI witness, and closes its temporary KERI
+ephemeral ports, starts one KERI witness, and closes its temporary KERI
 stores and processes on exit.
 
 Use a fresh virtual environment when switching from upstream `keri`/`hio`:
@@ -34,8 +34,8 @@ the GLEIF packages own those same import paths. The pinned release requires
 The test GEDA delegates the QVI identifier and issues its QVI credential. The
 QVI issues the chained LE credential. The LE signs and issues an untargeted
 association containing the wallet's EIP-712 proof. All identifiers use one key
-and one local witness. Actors discover the witness through native OOBI resolution
-and collect actual receipts through the native Registrar. The oracle independently
+and one local witness. Actors discover the witness through KERIpy OOBI resolution
+and collect actual receipts through the KERIpy Registrar. The oracle independently
 processes their signed, receipted KELs, TELs,
 credentials, and addressed IPEX Grant over HTTP.
 
@@ -103,20 +103,20 @@ transaction installs a delegation to deployed test code, and the oracle records
 that exact designation before endorsement. This qualifies account eligibility;
 the test token code is not a production wallet implementation.
 Fixture token/admin calls run in test-side
-helpers; all service network waits remain native HIO requests.
+helpers; all service network waits remain HIO requests.
 
 Add `--process-check` to crash/restart actual oracle CLI processes while source
 evidence is missing and while an RPC check is interrupted. With `--comply-dir`,
 also crash immediately before broadcast and after broadcast with mining paused.
 Recovery reconciles the saved hashes and nonce counts, then observes source
 revocation and withdraws. Separate dedicated keys avoid sharing nonce streams.
-The same native stores and AID recover verification without another Grant. Each run prints its
+The same KERIpy stores and AID recover verification without another Grant. Each run prints its
 fresh persistent process-test namespace before starting; those test stores are
 retained for inspection, including when an assertion fails.
 
 After initial endorsement, a newly issued beneficiary association replaces its
-live binding. Native revocation of the superseded association leaves the new
-binding intact. The fixture separately records live supersession latency.
+live endorsement. Verified revocation of the superseded association leaves the new
+endorsement intact. The fixture separately records live supersession latency.
 
 The contract tests also exercise saved-hash recovery, explicit same-nonce
 cancellation, reorg reconciliation with the same signed identity, and wrong-chain
@@ -160,7 +160,7 @@ constructor adds a subject nonce, which the association schema does not use.
 Two deliberate test choices replace CLI transport plumbing: GEDA's local
 approval records the same authorizer seal as `kli delegate confirm --interact`,
 and issuer/holder credential evidence is replayed directly rather than delivered
-through mailboxes. Witness discovery and receipt collection use native network
+through mailboxes. Witness discovery and receipt collection use KERIpy network
 doers. Oracle traffic crosses its real CESR HTTP endpoint.
 Separate source delivery tests a Grant arriving before its supporting chain.
 
@@ -174,10 +174,10 @@ The service accepts the bundled association schema by default. Start it with:
 ```
 
 Send the finished credential and supporting KERI evidence through the CESR
-HTTP endpoint and IPEX Grant. Poll `GET /presentations/<association SAID>`;
-`verified` includes `wallet`, `identityRef`, and `associationSaid`. The embedded
-proof needs no signature POST. This result records verification at that time;
-in `--no-post` mode. Posting flags and lifecycle are described in the root README.
+HTTP endpoint and IPEX Grant. Poll `GET /associations/<association SAID>`;
+`verificationState: "verified"` records completed initial checks; `managed`
+records enrollment for the legacy posting worker. The embedded proof needs no
+signature POST. Posting flags and lifecycle are described in the root README.
 
 The obsolete wallet-transfer shell workflow has been removed. This exercise
 also covers contract posting and transfers when `--comply-dir` is supplied.

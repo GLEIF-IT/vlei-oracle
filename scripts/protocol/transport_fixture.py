@@ -1,4 +1,4 @@
-"""Native CESR delivery and HTTP status assertions for local exercises."""
+"""CESR delivery and HTTP status assertions for local exercises."""
 
 import json
 
@@ -26,7 +26,7 @@ class PresentationDoer(doing.DoDoer):
     def run(self, tymth, tock=0.0, **opts):
         """Send all messages, consume their responses, then poll with fresh headers."""
         yield tock
-        # Native streamCESRRequests requires at least one frame. Restart checks
+        # KERIpy streamCESRRequests requires at least one frame. Restart checks
         # intentionally poll existing work without presenting another Grant.
         count = (
             httping.streamCESRRequests(self.client, bytearray(self.stream), self.recipient)
@@ -40,7 +40,7 @@ class PresentationDoer(doing.DoDoer):
         for _ in range(100):
             # HIO retains headers by default; GET must drop the CESR POST headers.
             self.client.request(
-                method="GET", path=f"/presentations/{self.said}", headers={}
+                method="GET", path=f"/associations/{self.said}", headers={}
             )
             while not self.client.responses:
                 yield 0.01

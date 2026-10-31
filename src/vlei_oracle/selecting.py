@@ -23,7 +23,7 @@ def update_selection(status, *, current, claim):
     receipt even when ownership policy rejects the claim; no contract effect occurs.
     """
     issuer = status.association["issuerAid"]
-    sequence = status.association["issuance"]["sequenceNumber"]
+    sequence = status.association["issuanceAnchor"]["sequenceNumber"]
     previous_sequence = claim.issuanceByIssuer.get(issuer, -1)
     claim.issuanceByIssuer[issuer] = max(previous_sequence, sequence)
 
@@ -38,7 +38,7 @@ def update_selection(status, *, current, claim):
     if (
         current is not None
         and current.association["issuerAid"] == issuer
-        and sequence > current.association["issuance"]["sequenceNumber"]
+        and sequence > current.association["issuanceAnchor"]["sequenceNumber"]
     ):
         current.selection = "superseded"
         claim.currentSaid = ""

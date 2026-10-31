@@ -21,10 +21,10 @@ class StatusEnd:
     def on_post(self, req, rep):
         """Accept a signed v1 JSON status POST at the configured destination.
 
-        req supplies exact body bytes and native KERI Signature/Signature-Input
-        headers. HTTP 200 returns signed {eventId, accepted: true}, bound to this
+        req supplies exact body bytes and KERI Signature/Signature-Input
+        headers. HTTP 200 returns signed {eventId, stored: true}, bound to this
         request attempt, only after inbox, status and selection commit together. Duplicate
-        events get a new ACK without repeated effects. ACK is receipt, not ownership
+        events get a new ACK without repeated effects. ACK confirms durable storage, not ownership
         approval or an on-chain endorsement. Return 401 for authentication
         or replay failure, 400 for malformed events, and 409 for revision conflicts;
         errors never carry a success ACK. No credential or Ethereum RPC work occurs.
@@ -54,7 +54,7 @@ class StatusEnd:
             raise falcon.HTTPConflict(description=str(exc)) from exc
 
         # A crash or signing failure here leaves a committed event safe to redeliver.
-        ack = json.dumps({"eventId": event.eventId, "accepted": True}).encode()
+        ack = json.dumps({"eventId": event.eventId, "stored": True}).encode()
         headers, _ = self.auth.sign(
             method=req.method,
             target=self.target,

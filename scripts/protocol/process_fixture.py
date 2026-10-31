@@ -20,7 +20,7 @@ from contract_fixture import DEPLOYER_KEY, contract, read, send
 
 
 class SubmissionBarrier:
-    """Forward real reads through native WSGI streaming; hold broadcasts."""
+    """Forward real reads through HIO WSGI streaming; hold broadcasts."""
 
     def __init__(self, *, rpc_url, tymth):
         self.rpc_url, self.tymth = rpc_url, tymth

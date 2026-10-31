@@ -37,7 +37,7 @@ signature. Nonce reuse prevention belongs to the application; EIP-712 does not
 provide it automatically.
 
 The verifier reconstructs the challenge from the ACDC and checks the embedded
-signature. The resulting compact wallet/entity/association binding is the proposed
+signature. The resulting compact wallet/entity/association mapping is the proposed
 registry input described [below](#verification-and-endorsement).
 
 ### EIP-712 payload
@@ -78,7 +78,7 @@ credentials and presents them to the running oracle.
 
 A verifier checks the association's credential chain, status, and embedded wallet
 signature. [endorsement.json](endorsement.json) illustrates the resulting
-wallet/entity/association binding for registry consumption. Verification yields `verified`. When configured for posting, the service
+wallet/entity/association mapping for registry consumption. Verification yields `verified`. When configured for posting, the service
 maintains the minimal exact-wallet endorsement and progresses to `endorsed`;
 observed revocation causes exact withdrawal. The contract trusts that oracle
 result. See the root README for dedicated-writer and recovery settings.

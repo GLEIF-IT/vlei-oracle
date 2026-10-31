@@ -1,4 +1,4 @@
-"""Ownership policy through authenticated receipt, with native peer fixtures and durable stores."""
+"""Ownership policy through authenticated receipt, with KERIpy peer fixtures and durable stores."""
 
 import json
 from unittest.mock import patch
@@ -13,18 +13,18 @@ def event_body(peers, label, sequence, *, issuer=None, revoked=False):
     """Make post-verification fixture facts; this helper does not assert credential validity."""
     body = json.loads(peers.event.body)
     body["associationSaid"] = said(label)
-    body["revision"] = 2 if revoked else 1
-    body["eventId"] = f"{body['associationSaid']}:{body['revision']}"
+    body["statusRevision"] = 2 if revoked else 1
+    body["eventId"] = f"{body['associationSaid']}:{body['statusRevision']}"
     body["association"] = {
         **body["association"],
         "issuerAid": issuer or peers.hab.pre,
         "leSaid": said(
             f"LE-{label}"
         ),  # LE credential SAID is not the holder's identity.
-        "issuance": {"sequenceNumber": sequence, "said": said(f"anchor-{label}")},
+        "issuanceAnchor": {"sequenceNumber": sequence, "said": said(f"anchor-{label}")},
     }
     if revoked:
-        body.update(outcome="invalid", reasonCode="REVOKED")
+        body.update(status="revoked", reasonCode="REVOKED")
     return json.dumps(body).encode()
 
 
@@ -66,7 +66,7 @@ def test_other_le_requires_release_and_a_new_claim(peers):
     owner = event_body(peers, "owner", 10)
     other = (
         peers.receiver.hab.pre
-    )  # A distinct native AID used only as a fixture LE label.
+    )  # A distinct KERI AID used only as a fixture LE label.
     competitor = event_body(peers, "competitor", 900, issuer=other)
     assert post(peers, owner).status_code == 200
     assert (
@@ -138,7 +138,7 @@ def test_missing_facts_cannot_displace_owner(peers):
     """Incomplete facts never supply authority to replace the selected association."""
     assert post(peers, peers.event.body.encode()).status_code == 200
     incomplete = json.loads(event_body(peers, "missing", 20))
-    del incomplete["association"]["issuance"]
+    del incomplete["association"]["issuanceAnchor"]
     assert post(peers, json.dumps(incomplete).encode()).status_code == 400
     assert selected(peers).associationSaid == peers.event.associationSaid
 

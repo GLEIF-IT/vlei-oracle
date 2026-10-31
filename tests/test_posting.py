@@ -5,7 +5,7 @@ from vlei_oracle.endorsement.decisions import ZERO_IDENTITY, next_action
 WALLET = "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf"
 IDENTITY = "0x" + "12" * 32
 OTHER = "0x" + "34" * 32
-BINDING = {"wallet": WALLET, "identityRef": IDENTITY, "associationSaid": "new"}
+ASSOCIATION_MAPPING = {"wallet": WALLET, "identityRef": IDENTITY, "associationSaid": "new"}
 
 
 @pytest.mark.parametrize(
@@ -26,16 +26,16 @@ BINDING = {"wallet": WALLET, "identityRef": IDENTITY, "associationSaid": "new"}
          ("identity", "removeIdentity", [OTHER, WALLET, b""])),
     ],
 )
-def test_reconcile_binding_in_safe_order(identity, endorsement, expected):
+def test_reconcile_association_mapping_in_safe_order(identity, endorsement, expected):
     assert next_action(
-        BINDING, identity=identity, endorsement=endorsement, valid=True
+        ASSOCIATION_MAPPING, identity=identity, endorsement=endorsement, valid=True
     ) == expected
 
 
 @pytest.mark.parametrize("current", ["new", "replacement", ""])
 def test_invalid_evidence_withdraws_only_its_exact_association(current):
     action = next_action(
-        BINDING, identity=IDENTITY, endorsement=(IDENTITY, current), valid=False
+        ASSOCIATION_MAPPING, identity=IDENTITY, endorsement=(IDENTITY, current), valid=False
     )
     assert action == (
         ("endorsement", "withdrawEndorsement", [WALLET, "new"])

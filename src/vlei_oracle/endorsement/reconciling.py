@@ -7,7 +7,7 @@ from keri.core import coring
 from keri.db import dbing
 from web3 import Web3
 
-from vlei_oracle.verification.credentials import assess_association, reconstruct_binding
+from vlei_oracle.verification.credentials import assess_association, reconstruct_association_mapping
 from vlei_oracle.basing import STATE_ENDORSED, STATE_WITHDRAWN, PostingScope, TransactionRecord
 from vlei_oracle.verification.worker import EoaVerifierDoer
 from vlei_oracle.verification.errors import MissingCredentialArtifactsError, VerificationError
@@ -49,8 +49,8 @@ class EndorsementDoer(doing.DoDoer):
         ))
         super().__init__(doers=[effects, self.eoa, doing.doify(self.run)])
 
-    def binding(self, op):
-        return reconstruct_binding(
+    def association_mapping(self, op):
+        return reconstruct_association_mapping(
             rgy=self.rgy, said=op.associationSaid,
             schema_said=self.association_schema,
         )
@@ -64,11 +64,11 @@ class EndorsementDoer(doing.DoDoer):
         """
         positions = []
         for _, candidate in self.baser.managed.getItemIter():
-            if self.binding(candidate)["wallet"] == self.binding(op)["wallet"]:
+            if self.association_mapping(candidate)["wallet"] == self.association_mapping(op)["wallet"]:
                 issuer, sn = issuance_position(self.rgy, candidate.associationSaid)
                 positions.append((issuer, sn, candidate.associationSaid))
         if len({issuer for issuer, _, _ in positions}) != 1:
-            raise MissingCredentialArtifactsError("conflicting entity bindings require resolution")
+            raise MissingCredentialArtifactsError("conflicting entity association mappings require resolution")
         newest = max(sn for _, sn, _ in positions)
         latest = [said for _, sn, said in positions if sn == newest]
         if len(latest) != 1:
@@ -90,13 +90,13 @@ class EndorsementDoer(doing.DoDoer):
         """Require evidence for the current assertion before replacing it.
 
         A fresh operation store may not know a later on-chain association. Read
-        immutable issuance anchors from native credential/TEL stores rather
+        immutable issuance anchors from KERIpy credential/TEL stores rather
         than treating absence of a local operation as permission to overwrite.
         """
         entity, said = endorsement
         if (entity, said) == (ZERO_IDENTITY, ""):
             return True, ""
-        if entity != self.binding(op)["identityRef"]:
+        if entity != self.association_mapping(op)["identityRef"]:
             raise MissingCredentialArtifactsError(
                 "current wallet entity requires explicit withdrawal before replacement"
             )
@@ -134,7 +134,7 @@ class EndorsementDoer(doing.DoDoer):
             self.current_credential(op)
             if not self.desired(op):
                 return False, "superseded by newer verified association"
-            if cue["verified"]["observation"]["chainId"] != self.effects.chain_id:
+            if cue["eoaResult"]["accountObservation"]["chainId"] != self.effects.chain_id:
                 raise MissingCredentialArtifactsError("profile observation is on another chain")
             return True, ""
         except (VerificationError, kering.ValidationError) as exc:
@@ -167,7 +167,7 @@ class EndorsementDoer(doing.DoDoer):
             return
         valid, reason = yield from self.evidence(op)
         if valid:
-            _, endorsement = yield from self.effects.observe(self.binding(op)["wallet"])
+            _, endorsement = yield from self.effects.observe(self.association_mapping(op)["wallet"])
             try:
                 self.current_credential(op)
                 valid, reason = (
@@ -206,10 +206,10 @@ class EndorsementDoer(doing.DoDoer):
     def process(self, op):
         """Reconcile one wallet from current evidence and observed chain state."""
         valid, reason = yield from self.evidence(op)
-        identity, endorsement = yield from self.effects.observe(self.binding(op)["wallet"])
+        identity, endorsement = yield from self.effects.observe(self.association_mapping(op)["wallet"])
         if valid:
             valid, reason = self.chain_order(op, endorsement)
-        action = next_action(self.binding(op), identity=identity, endorsement=endorsement, valid=valid)
+        action = next_action(self.association_mapping(op), identity=identity, endorsement=endorsement, valid=valid)
         if action is None:
             state = STATE_ENDORSED if valid else STATE_WITHDRAWN
             if op.state != state or op.failureReason != reason:
