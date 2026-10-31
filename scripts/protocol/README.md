@@ -14,7 +14,11 @@ credential verifier inside the oracle.
 - [requirements.txt](requirements.txt) pins qualification dependencies.
 
 Follow the root [ceremony instructions](../../README.md#ceremony) for issuance.
-Each issuer owns one persistent nonce directory across ceremonies. Consumption
+Use an explicit `--nonce-head-dir`, optional `--nonce-base`, and `--nonce-name`
+(default `issuer-nonces`) consistently across ceremonies. The ledger lives at
+`<head>/vlei-oracle/nonces/<base>/<name>/`. An unavailable selected root fails
+without alternate-directory fallback. Owners use KERIpy `openLMDB`; ceremony
+functions borrow its open `NonceLedger`. Consumption
 commits before credential bytes are exposed; a consumed nonce stays consumed
 through restart, concurrency and later output failure.
 

@@ -63,7 +63,7 @@ qualification still proves authenticated receipt, posting, replacement,
 revocation, restart/redelivery and accepted/rejected contract transfers. No test
 may regain credential verification inside the oracle.
 
-### 2. Remove wrapper workflows incompatible with wallet association v1 (implemented; review pending)
+### 2. Remove wrapper workflows incompatible with wallet association v1 (merged: comply #11, oracle #48)
 
 Owner: vlei-comply. [Removal PR #11](https://github.com/GLEIF-IT/vlei-comply/pull/11).
 Follow PR 1 immediately, before adding recovery features.
@@ -95,7 +95,86 @@ and cross-entity cases behave correctly; fresh deployment and the installed-whee
 paired suite pass against the new contract revision. No compatibility selectors,
 old queue settlement or abstract-beneficiary fallback remains.
 
-### 3. Make an empty policy configuration explicit and fail closed
+### 3. Refactor NonceLedger onto KERIpy database patterns (qualified locally; awaiting review)
+
+Owner: vlei-oracle. Added by Kent on 2026-10-31. This is a separate focused
+refactor after the wrapper-removal qualification. Preserve
+[vlei-comply PR #11](https://github.com/GLEIF-IT/vlei-comply/pull/11) and
+[oracle companion PR #48](https://github.com/GLEIF-IT/vlei-oracle/pull/48).
+Both wrapper PRs are merged. Nonce implementation is isolated on
+`refactor/nonce-ledger-lmdber`; publication is approved and PR review is pending.
+
+**Publication approved:** Kent authorized committing and pushing the PR on
+2026-10-31 after local qualification. Merge remains subject to PR review.
+
+Required source inspection, before implementation:
+
+- Inspect the actual installed, pinned GLEIF KERIpy/HIO implementations of
+  `dbing.LMDBer`, `dbing.openLMDB`, `koming.Komer` and `Filer`, plus this
+  application's `OracleBaser`. The currently qualified distributions are
+  `gleif_keri==1.2.19` and `gleif_hio==0.6.22`. Verify those pins when starting;
+  do not design against another local KERIpy checkout or revision.
+- Trace environment opening, subdatabase serialization/handles, synchronous
+  commit defaults, deferred opening, normal/temporary closure and Filer's
+  alternate-directory behavior. Explicit selection of a nonce store must never
+  silently redirect consumption into a different store.
+
+Required implementation:
+
+- Keep the NonceLedger domain API (`claim(issuer=..., nonce=...)`), but subclass
+  `dbing.LMDBer`. Use standard `name`, `base`, `headDirPath`, `temp` and `reopen`
+  construction with ledger-specific directory constants.
+- Remove direct `lmdb.open`, manual directory management and custom context-manager
+  lifecycle methods. Owning call sites use `dbing.openLMDB(cls=NonceLedger, ...)`;
+  ceremony functions borrow the already-open ledger. Persistent closure must
+  never delete consumed nonces. Standard temporary closure must clean its store.
+- Define a minimal typed `NonceClaim` record containing only `issuer` and `nonce`.
+  Bind a non-duplicate `Komer` subdatabase in `reopen()` after the base environment
+  opens. Close acquired resources if later initialization fails.
+- Preserve the exact issuer and nonce strings, including Unicode and whitespace.
+  Retain an unambiguous encoding of the pair and use its SHA-256 digest as a
+  fixed-length 64-character hexadecimal Komer key. No normalization, expiry or
+  release of consumed nonces is introduced.
+- Implement `claim()` with one explicit LMDB write transaction. Insert without
+  overwrite; if occupied, deserialize and inspect the existing claim inside that
+  same transaction. Return False only for the identical pair; fail closed on
+  inconsistent or malformed stored data. Follow OracleBaser's use of Komer
+  serialization and subdatabase handles for atomic operations.
+- Retain per-ledger thread serialization. Inheriting LMDBer does not solve the
+  pinned binding's overlapping-thread writer behavior. Preserve LMDB's native
+  independent-process writer locking and synchronous durability.
+- Update CLI storage options, all callers, tests and documentation together.
+  Replace positional-path construction and the current `--nonce-dir` selection
+  with explicit standard storage options; document the resulting layout after
+  inspecting the pinned Filer behavior. No positional-path compatibility
+  constructor, deprecated flag aliases, migrations, old-format readers or
+  fallback APIs are required.
+- Consumption must commit before usable credential bytes are published. Preserve
+  proof validation before consumption, existing-output handling and the rule that
+  an output failure after commit leaves the nonce consumed.
+- Introduce no generic repository framework or unrelated persistence cleanup.
+
+Validation and completion:
+
+1. Run focused checks for persistent reopen, persistent closure without deletion,
+   standard temporary cleanup, deferred opening, stable selected paths and rejected
+   alternate-directory fallback. Exercise failure during post-open initialization
+   and verify acquired resources close.
+2. Exercise issuer scoping, exact Unicode/whitespace nonces, thread contention,
+   independent-process contention and inconsistent stored claims. Preserve the
+   ceremony's invalid-proof, existing-output and post-commit output-failure
+   assertions; do not replace meaningful contention with serial calls.
+3. Build and install a fresh oracle wheel outside the checkout. Run the full
+   oracle suite and maintained two-process qualification against the appropriate
+   qualified contracts and verifier. At this plan update those are contracts
+   `4c83e465b3d7937f02b95e805cca5b79f5015078` and verifier
+   `486fb42f92b6c3269d7968934448f21121ef08aa`; re-verify merge/pin state at execution.
+   Do not restore deleted combined-runtime fixtures or weaken assertions.
+4. Report the resulting on-disk storage layout, removed custom lifecycle code,
+   exact test/artifact evidence and remaining limitations. Leave the refactor
+   uncommitted and unpushed until Kent authorizes publication (now approved).
+
+### 4. Make an empty policy configuration explicit and fail closed
 
 Owner: vlei-comply, `src/policy/PolicyManager.sol`.
 
@@ -107,7 +186,7 @@ configuration. Keep the documented AllowAll engine confined to explicit demos.
 Acceptance: unconfigured manager, last-policy removal, configured Pass and
 configured Fail tests; deploy scripts demonstrate an intentional active policy.
 
-### 4. Close LMDB readers before yielding to RPC
+### 5. Close LMDB readers before yielding to RPC
 
 Owner: vlei-oracle, `endorsement/posting.py`.
 
@@ -121,7 +200,7 @@ concurrent receipt/writes continue; multiple pages progress fairly; selected
 association is rechecked before a newly prepared effect. Preserve single-writer
 ordering and recorded transaction identities.
 
-### 5. Give the current transaction journal bounded recovery
+### 6. Give the current transaction journal bounded recovery
 
 Owner: vlei-oracle, `endorsement/posting.py` and `basing.py`.
 
@@ -137,7 +216,7 @@ restart, exact-byte resubmission, conflicting nonce and reorg evidence; later
 withdrawals progress after supported recovery. Document operator actions and
 limits, rather than calling receipt-only polling recovery.
 
-### 6. Support validated peer key updates during operation
+### 7. Support validated peer key updates during operation
 
 Owners: EOA Verifier and oracle delivery/receipt boundaries.
 
@@ -150,7 +229,7 @@ bring credential verification back into the oracle.
 Acceptance: live peer rotation, stale signer, out-of-order/missing key events,
 untrusted peer and restart tests through the real signed transport.
 
-### 7. Establish one signed transport profile and remove duplicate policy
+### 8. Establish one signed transport profile and remove duplicate policy
 
 Owners: EOA Verifier `delivery/authing.py` and oracle `authing.py`.
 
@@ -175,8 +254,8 @@ rosters. Run the smallest relevant checks first, then installed artifacts and
 paired qualification where shared contracts change. Report exact revisions and
 unrun integration limits. Do not treat a green fixture as deployment readiness.
 
-PR 1 is merged and PR 2 is implemented and locally qualified. Subsequent PRs
-follow in this order after review; this
+PRs 1 and 2 are merged. Task 3 is implemented and qualified locally, pending
+review. Subsequent PRs follow in this order after review; this
 plan is not authorization to deploy, migrate stores or merge without review.
 
 ## PR 1 qualification record
@@ -217,6 +296,62 @@ demo setup and current operator guides now select the new contract revision.
 
 Review and merge the contract removal before the oracle pin companion. Use the
 oracle companion's head commit as `ORACLE_REVISION` for the contract guide's local
-qualification. PR 3 (fail-closed empty policy configuration) is next; this existing
-limitation is documented in the contract security model. Later operating fixes
+qualification. PR 3 is now the separately requested NonceLedger refactor. PR 4 addresses the
+existing empty-policy limitation documented in the contract security model. Later operating fixes
 remain separate. No storage or contract migration is provided.
+
+## Task 3 local qualification record
+
+Implemented on `refactor/nonce-ledger-lmdber`, based on merged oracle
+`2b028c9299426a61a7dab68a80b6357d53ac572f`. Kent authorized publishing the
+qualified refactor on 2026-10-31; PR review is pending.
+
+The ledger now subclasses LMDBer, binds a typed, non-duplicate `consumed.` Komer
+in `reopen()`, and uses explicit insert-without-overwrite plus same-transaction
+conflict inspection. The per-ledger writer lock remains. Direct environment
+opening, manual directory creation and custom enter/exit lifecycle methods are
+removed. Owning call sites use `dbing.openLMDB`; ceremonies borrow the ledger.
+
+Persistent layout: `<head>/vlei-oracle/nonces/<base>/<name>/data.mdb` and
+`lock.mdb`. The CLI requires `--nonce-head-dir`, with optional `--nonce-base`
+and `--nonce-name` (default `issuer-nonces`). Exact issuer/nonce pairs are stored
+as typed NonceClaim records under 64-character hexadecimal SHA-256 keys. Relative
+roots are frozen to an absolute path. Primary and alternate Filer directory
+settings resolve to the same selected store; unavailable roots fail instead of
+redirecting to a fresh namespace. Explicit root or temporary-mode changes override cached-path reuse. Failed
+remakes preserve the previous persistent mode and invalidate stale cached paths;
+cleanup cannot delete a previous persistent store or retry against the wrong
+namespace. Post-open initialization failures close acquired resources and
+preserve persistent consumption.
+
+Validation on 2026-10-31:
+
+- **37 focused checks passed from the fresh installed wheel.** Coverage includes
+  persistent reopen/closure, temporary cleanup, deferred opening, stable relative
+  paths, explicit root changes, rejected fallback, failed initialization cleanup,
+  failed temporary reopen and persistent-path protection during temporary reuse,
+  Unicode and issuer scoping, 64 contending thread claims and four simultaneous
+  independent processes, malformed/conflicting rows, and current CLI selection.
+  Existing proof-before-consumption, existing-output and post-commit output-failure
+  assertions remain intact, including two-process artifact publication.
+- **156 full installed-wheel oracle tests passed in 146.62 seconds**, including
+  the unchanged maintained two-process qualification. Verifier:
+  `486fb42f92b6c3269d7968934448f21121ef08aa`; qualified contracts:
+  `4c83e465b3d7937f02b95e805cca5b79f5015078` (the merged contract tree);
+  Foundry 1.5.1. Existing HIO datetime deprecation warnings remain.
+- Inspected the installed `gleif_keri==1.2.19`, `gleif_hio==0.6.22` and
+  `lmdb==1.8.1` implementations. The fresh environment's dbing, koming and Filer
+  source files match those inspected byte for byte. Native synchronous commit
+  and process-lock flags are asserted. The wheel's Python/JSON files match the
+  working source byte for byte.
+- Candidate wheel SHA-256:
+  `04ca27c156b56c90e3678e281634e99c54baf4e1a387255f0b7b0dc21d008a00`.
+
+Remaining limits: use one open ledger per store in each process, shared by its
+borrowers. Keep persistent namespace selection consistent and use fresh nonces
+for a deliberately new store; there is no migration, old-format reader or replay
+protection across independently selected empty stores. A post-commit failure can
+burn a nonce by design. Native temporary cleanup removes the ledger directory;
+the pinned Filer can leave empty ancestor directories. Qualification was local macOS; Linux CI is not run before review. This task adds
+no custom parent-directory cleanup or unrelated persistence changes. Publication is approved; the next implementation task after PR review is the
+empty-policy configuration fix.

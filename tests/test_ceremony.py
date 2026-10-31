@@ -11,6 +11,7 @@ import pytest
 from ceremony import write_credential
 from eth_account import Account
 from eth_account.messages import encode_typed_data
+from keri.db import dbing
 
 from vlei_oracle.cli import main
 from vlei_oracle.noncing import NonceLedger
@@ -42,18 +43,18 @@ def ceremony(nonce=" exact nonce "):
 
 @pytest.fixture
 def nonce_ledger(tmp_path):
-    with NonceLedger(tmp_path / "nonces") as ledger:
+    with dbing.openLMDB(cls=NonceLedger, name="issuer", headDirPath=tmp_path, temp=False) as ledger:
         yield ledger
 
 
-def command(tmp_path, nonce_dir, output):
+def command(tmp_path, nonce_head, output):
     challenge, signature = ceremony()
     (tmp_path / "challenge.json").write_text(json.dumps(challenge))
     (tmp_path / "signature.txt").write_text(signature)
     return [sys.executable, str(ROOT / "scripts/protocol/ceremony.py"),
             "--challenge", str(tmp_path / "challenge.json"),
             "--signature", str(tmp_path / "signature.txt"),
-            "--registry", ASSOCIATION["ri"], "--nonce-dir", str(nonce_dir),
+            "--registry", ASSOCIATION["ri"], "--nonce-head-dir", str(nonce_head), "--nonce-name", "issuer",
             "--out", str(output)]
 
 
@@ -111,9 +112,9 @@ def test_cli_challenge_and_signature_finalize_before_issuance(tmp_path, nonce_le
 
 
 def test_consumed_nonce_survives_reopen(tmp_path):
-    with NonceLedger(tmp_path / "nonces") as ledger:
+    with dbing.openLMDB(cls=NonceLedger, name="issuer", headDirPath=tmp_path, temp=False) as ledger:
         assert ledger.claim(issuer="issuer", nonce=" exact nonce ")
-    with NonceLedger(tmp_path / "nonces") as ledger:
+    with dbing.openLMDB(cls=NonceLedger, name="issuer", headDirPath=tmp_path, temp=False) as ledger:
         assert not ledger.claim(issuer="issuer", nonce=" exact nonce ")
         assert ledger.claim(issuer="another issuer", nonce=" exact nonce ")
 
@@ -246,3 +247,25 @@ def test_nonce_is_never_normalized(tmp_path, nonce_ledger, nonces):
         assert result.sad["u"] == nonce
         saids.append(result.said)
     assert len(set(saids)) == len(nonces)
+
+
+def test_cli_selects_the_standard_persistent_namespace(tmp_path):
+    head = tmp_path / "selected"
+    args = command(tmp_path, head, tmp_path / "association.json") + ["--nonce-base", "tenant"]
+    result = subprocess.run(args, capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    assert (head / "vlei-oracle/nonces/tenant/issuer/data.mdb").is_file()
+    with dbing.openLMDB(cls=NonceLedger, name="issuer", base="tenant", headDirPath=head, temp=False) as ledger:
+        assert not ledger.claim(issuer=ASSOCIATION["i"], nonce=" exact nonce ")
+
+
+@pytest.mark.parametrize("extra,code,reason", [
+    (["--nonce-dir", "retired"], 2, "unrecognized arguments"),
+    (["--nonce-name", "/not-relative"], 1, "Not relative"),
+])
+def test_cli_has_no_path_alias_or_implicit_store_selection(tmp_path, extra, code, reason):
+    head, output = tmp_path / "selected", tmp_path / "association.json"
+    result = subprocess.run(command(tmp_path, head, output) + extra, capture_output=True, text=True)
+    assert result.returncode == code and reason in result.stderr
+    assert "Traceback" not in result.stderr
+    assert not head.exists() and not output.exists()
