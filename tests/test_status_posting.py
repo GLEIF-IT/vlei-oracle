@@ -152,36 +152,69 @@ def test_lost_broadcast_response_is_pending_until_confirmed(peers, deployment):
     drive(poster.effects, workflow)
 
 
-def test_rpc_tls_failure_keeps_signed_ack_available(peers, caplog):
-    """After a real RPC TLS failure, the composed service still ACKs an HTTP duplicate."""
+@pytest.mark.parametrize("failure", ["tls", "chunk-size", "null", "missing-result"])
+def test_bad_rpc_response_preserves_pending_intent_and_signed_ack(
+    peers, deployment, caplog, failure
+):
+    """RPC failures preserve a real signed intent while the receiver ACKs duplicate delivery."""
     import json
     import socket
     from hio.base import doing
     from hio.core import http, tcp
 
-    class PlaintextPeer(tcp.ServerDoer):
-        """Trigger a terminal HIO TLS error by answering ClientHello in plaintext."""
+    rpc_clients = []
+
+    class BadResponsePeer(tcp.ServerDoer):
+        """Reply over real TCP with the selected malformed RPC transport/envelope."""
 
         def recur(self, tyme):
+            """Wait for a request or TLS hello, capture its client and send the bad response."""
             super().recur(tyme)
             for peer in self.server.ixes.values():
                 if peer.rxbs:
+                    rpc_clients.extend(
+                        d.client for d in poster.effects.doers if isinstance(d, http.ClientDoer)
+                    )
                     peer.rxbs.clear()
-                    peer.tx(b"HTTP/1.1 400 Bad Request\r\n\r\n")
+                    if failure == "tls":
+                        response = b"HTTP/1.1 400 Bad Request\r\n\r\n"
+                    elif failure == "chunk-size":
+                        response = b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\nZ\r\n"
+                    else:
+                        body = b"null" if failure == "null" else b'{"jsonrpc":"2.0","id":1}'
+                        response = (
+                            b"HTTP/1.1 200 OK\r\nContent-Length: "
+                            + str(len(body)).encode() + b"\r\n\r\n" + body
+                        )
+                    peer.tx(response)
 
     with socket.socket() as port_probe:
         port_probe.bind(("127.0.0.1", 0))
         port = port_probe.getsockname()[1]
     server = tcp.Server(host="127.0.0.1", port=port)
-    server_doer = PlaintextPeer(server=server)
+    server_doer = BadResponsePeer(server=server)
+    body = event_body(peers, "rpc-retry", 50)
+    assert post(peers, body).status_code == 200
+    initial_poster = poster_for(peers, deployment)
+
+    def submit(effects):
+        """Create a real signed/submitted intent, leaving receipt processing for a later cycle."""
+        yield from initial_poster.cycle()
+        return True
+
+    drive(initial_poster.effects, submit)
+    intent = peers.inbox.unfinished_transaction()
+    assert intent is not None
+    # Switch only the RPC peer; retain the deployment/writer and signed journal.
+    _, addresses = deployment
     config = replace(
-        peers.config, rpc_url=f"https://127.0.0.1:{server.ha[1]}", posting_key=KEY,
-        endorsement_registry="0x" + "22" * 20,
-        identity_registry="0x" + "33" * 20,
+        peers.config,
+        rpc_url=f"{'https' if failure == 'tls' else 'http'}://127.0.0.1:{server.ha[1]}",
+        posting_key=KEY, endorsement_registry=addresses["oracleRegistry"],
+        identity_registry=addresses["identityRegistry"],
     )
     receiver = StatusReceiver(config, hby=peers.oracle, baser=peers.inbox)
-    body = event_body(peers, "tls-retry", 50)
-    assert post(peers, body).status_code == 200  # Give the poster durable selected work.
+    poster = next(d for d in receiver.doers if isinstance(d, StatusPoster))
     client = http.Client(path=config.webhook_url)
     client_doer = http.ClientDoer(client=client)
     responses = []
@@ -189,7 +222,7 @@ def test_rpc_tls_failure_keeps_signed_ack_available(peers, caplog):
     def probe(tymth, tock=0.0, **opts):
         """Wait for the posting error, then exercise receipt over a real signed connection."""
         yield tock
-        while not any("transport failed" in record.getMessage() for record in caplog.records):
+        while not any("contract posting failed:" in record.getMessage() for record in caplog.records):
             yield 0.01
         headers, sent = peers.auth.sign(
             method="POST", target=config.webhook_url, action="status", body=body,
@@ -211,4 +244,10 @@ def test_rpc_tls_failure_keeps_signed_ack_available(peers, caplog):
     assert parent.done and responses[0]["status"] == 200
     assert json.loads(responses[0]["body"])["stored"] is True
     assert peers.inbox.selected_association("eip155:31337:0x" + "11" * 20) is not None
-    assert peers.inbox.transactions.cntAll() == 0  # No fabricated submission on failure.
+    assert rpc_clients and all(not client.connector.opened for client in rpc_clients)
+    assert peers.inbox.unfinished_transaction() == intent
+    assert peers.inbox.transactions.cntAll() == 1  # Failure cannot allocate another nonce.
+    # Durable recovery still has exactly the original signed attempt after reopen.
+    peers.inbox.close()
+    peers.inbox.reopen()
+    assert peers.inbox.unfinished_transaction() == intent

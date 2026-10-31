@@ -124,6 +124,9 @@ another action. Duplicates do not require another send when the mapping agrees.
 The worker never calls EOA Verifier, checks observation age or repeats account or
 credential verification. RPC errors are logged; pre-submission errors retry on
 later cycles. Reverts are recorded and current desired actions can retry.
+Malformed HTTP chunks, non-object JSON-RPC envelopes and missing `result` fields
+fail the RPC operation while signed status receipt remains available. The affected
+client closes, and an existing pending signed transaction stays in the journal.
 
 An uncertain broadcast keeps its hash and failure reason pending across restart.
 The worker polls receipts and does not allocate another nonce until it resolves.
