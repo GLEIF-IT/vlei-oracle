@@ -23,7 +23,7 @@ uv pip install --python .venv/bin/python -e '.[dev]' -r scripts/protocol/require
 ```
 
 The preparer checks out the pinned public vLEI schemas. Python uses PyPI's
-`gleif_keri==1.2.18`. The exercise starts its own Anvil and HIO/Falcon server on local
+`gleif_keri==1.2.19`. The exercise starts its own Anvil and HIO/Falcon server on local
 ephemeral ports, starts one KERI witness, and closes its temporary KERI
 stores and processes on exit.
 

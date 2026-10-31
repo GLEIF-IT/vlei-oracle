@@ -45,7 +45,13 @@ Test logs and stores live beneath pytest's temporary directory; the fixture stop
 only its own subprocesses. On macOS hosts with LMDB vnode exhaustion, copy the
 inputs into a Linux container with no host bind mounts and run there.
 
-The producer is pinned in `tests/requirements.txt` as a test dependency, not an
+The producer is pinned to merged verifier revision
+`0a19c0b19608088af6c23e6cdf3ef1481a8cd5e2` in `tests/requirements.txt`, not as an
 oracle runtime import. Existing status-posting tests establish old-observation
 acceptance and failure handling without the verifier. The paired comply launcher invokes this same scenario; it does not copy the
 KERIpy issuance or process-ownership code.
+
+Both applications use GLEIF KERI 1.2.19 and HIO 0.6.22. This qualification uses
+merged application behavior: the closed ingress and replay-pruning candidates are
+excluded. The known KERIpy receipt-couple shortage limitation remains unresolved;
+a passing valid-stream workflow does not establish liveness for that malformed input.
