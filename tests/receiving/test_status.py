@@ -80,3 +80,54 @@ def test_missing_facts_cannot_displace_owner(peers):
 
     assert status.identityRef == "0x" + keccak(text=peers.hab.pre).hex()
     assert not list(peers.inbox.transactions.getItemIter())
+
+
+def test_selection_and_serialization_finish_before_write_transaction(peers):
+    """Receipt policy and serialization run outside even a short LMDB writer."""
+    from contextlib import contextmanager
+    from unittest.mock import patch
+
+    from vlei_oracle.receiving import receipt
+
+    env = peers.inbox.env
+    active = False
+    selected_outside_write = False
+    serialized_outside_write = False
+    select = receipt.update_selection
+    serialize = peers.inbox.statuses.serializer
+
+    class ObservedEnvironment:
+        """Observe real transaction lifetimes without replacing LMDB operations."""
+
+        def __getattr__(self, name):
+            return getattr(env, name)
+
+        @contextmanager
+        def begin(self, *args, **kwargs):
+            nonlocal active
+            with env.begin(*args, **kwargs) as txn:
+                active = kwargs.get("write", False)
+                try:
+                    yield txn
+                finally:
+                    active = False
+
+    def select_without_writer(*args, **kwargs):
+        nonlocal selected_outside_write
+        assert not active
+        selected_outside_write = True
+        return select(*args, **kwargs)
+
+    def serialize_without_writer(value):
+        nonlocal serialized_outside_write
+        assert not active
+        serialized_outside_write = True
+        return serialize(value)
+
+    with (
+        patch.object(peers.inbox, "env", ObservedEnvironment()),
+        patch.object(receipt, "update_selection", select_without_writer),
+        patch.object(peers.inbox.statuses, "serializer", serialize_without_writer),
+    ):
+        assert post(peers, event_body(peers, "outside-writer", 10)).status_code == 200
+    assert selected_outside_write and serialized_outside_write

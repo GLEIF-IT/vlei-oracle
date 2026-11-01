@@ -12,8 +12,8 @@ from vlei_oracle.receiving.authing import AuthenticationError
 class StatusEnd:
     """Borrow transport authentication and storage; ACK only committed events."""
 
-    def __init__(self, *, auth, baser, target, chain_id):
-        self.auth, self.baser = auth, baser
+    def __init__(self, *, auth, service, target, chain_id):
+        self.auth, self.service = auth, service
         self.target, self.chain_id = target, chain_id
         parts = urlsplit(target)
         self.relative_uri = parts.path + ("?" + parts.query if parts.query else "")
@@ -49,7 +49,7 @@ class StatusEnd:
         except ValueError as exc:
             raise falcon.HTTPBadRequest(description=str(exc)) from exc
         try:
-            self.baser.receive_status(event, status)
+            self.service.receive_status(event, status)
         except ValueError as exc:
             raise falcon.HTTPConflict(description=str(exc)) from exc
 

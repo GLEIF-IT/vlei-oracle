@@ -7,7 +7,6 @@ from typing import Any
 from keri.db import dbing, koming
 
 from vlei_oracle.associations.records import AssociationStatus, StatusEvent, WalletClaim
-from vlei_oracle.associations.selecting import update_selection
 
 from .records import (
     InboxScope,
@@ -76,92 +75,6 @@ class OracleBaser(dbing.LMDBer):
     def claim_nonce(self, peer, nonce, expires_at):
         """Claim an authenticated attempt once; persistent claims reject replay."""
         return self.replay_claims.put(keys=(peer, nonce), val=ReplayClaim(expires_at))
-
-    def receive_status(self, event, status):
-        """Commit event receipt, monotonic status and ownership selection before ACK.
-
-        Exact redelivery and older revisions are acknowledged without changing
-        current status. Conflicting bytes/revisions or issuance facts are rejected.
-        Revocation is terminal for this SAID; another SAID may later replace it.
-        Selection uses trusted issuance history only; no contract effect occurs.
-        """
-        event_key, status_key = event.eventId.encode(), status.associationSaid.encode()
-        with self.env.begin(write=True) as txn:
-            prior = self.inbox.deserializer(txn.get(event_key, db=self.inbox.sdb))
-            if prior is not None:
-                if prior.body != event.body:
-                    raise ValueError("conflicting event revision")
-                return
-            current = self.statuses.deserializer(
-                txn.get(status_key, db=self.statuses.sdb)
-            )
-            if current is not None:
-                if current.association != status.association:
-                    raise ValueError("association facts cannot change")
-                if (
-                    current.status == "revoked"
-                    and status.status != "revoked"
-                    and status.statusRevision > current.statusRevision
-                ):
-                    raise ValueError("revoked association cannot be reaccepted")
-                if (
-                    current.status == "accepted"
-                    and status.status == "revoked"
-                    and status.statusRevision < current.statusRevision
-                ):
-                    raise ValueError("revocation revision precedes acceptance")
-            if current is None or status.statusRevision > current.statusRevision:
-                if current is not None:
-                    status.selection = current.selection
-                self._apply_status(txn, status)
-                sequence = (
-                    self.sequence.deserializer(txn.get(b"writer", db=self.sequence.sdb))
-                    or PostingSequence()
-                )
-                sequence.next += 1
-                event.operationId = f"{sequence.next:016x}"
-                postingOperation = PostingOperation(
-                    event.operationId,
-                    event.eventId,
-                    status.associationSaid,
-                    status.wallet,
-                )
-                txn.put(
-                    event.operationId.encode(),
-                    self.queued.serializer(postingOperation),
-                    db=self.queued.sdb,
-                )
-                txn.put(
-                    b"writer", self.sequence.serializer(sequence), db=self.sequence.sdb
-                )
-            txn.put(event_key, self.inbox.serializer(event), db=self.inbox.sdb)
-
-    def _apply_status(self, txn, status):
-        """Apply selection and persist all changed records inside the receipt transaction."""
-        key = status.association["extId"].encode()
-        claim = (
-            self.claims.deserializer(txn.get(key, db=self.claims.sdb)) or WalletClaim()
-        )
-        current = (
-            self.statuses.deserializer(
-                txn.get(claim.currentSaid.encode(), db=self.statuses.sdb)
-            )
-            if claim.currentSaid
-            else None
-        )
-        update_selection(status, current=current, claim=claim)
-        if current is not None and current.associationSaid != status.associationSaid:
-            txn.put(
-                current.associationSaid.encode(),
-                self.statuses.serializer(current),
-                db=self.statuses.sdb,
-            )
-        txn.put(
-            status.associationSaid.encode(),
-            self.statuses.serializer(status),
-            db=self.statuses.sdb,
-        )
-        txn.put(key, self.claims.serializer(claim), db=self.claims.sdb)
 
     def selected_association(self, ext_id):
         """Read the current selected status for a canonical chain/address, without RPC."""

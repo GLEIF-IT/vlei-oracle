@@ -11,6 +11,9 @@ from keri.end import ending
 
 from vlei_oracle.endorsement.resources import EndorsementEnd
 from vlei_oracle.persistence.basing import OracleBaser
+from vlei_oracle.persistence.reading import OracleReader
+from vlei_oracle.persistence.writing import OracleWriter
+from vlei_oracle.receiving.receipt import ReceiptService
 from vlei_oracle.persistence.records import InboxScope
 from vlei_oracle.receiving.authing import ServiceAuthenticator
 from vlei_oracle.receiving.status import StatusEnd
@@ -42,7 +45,7 @@ class StatusReceiver(doing.DoDoer):
             "/v1/status-events",
             StatusEnd(
                 auth=auth,
-                baser=baser,
+                service=ReceiptService(OracleReader(baser), OracleWriter(baser)),
                 target=config.webhook_url,
                 chain_id=config.chain_id,
             ),
