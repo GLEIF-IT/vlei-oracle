@@ -3,7 +3,7 @@
 import falcon
 from hio.base import doing
 from hio.core import http
-from keri.app import configing, habbing, httping, keeping, oobiing
+from keri.app import configing, habbing, keeping, oobiing
 from keri.db import basing, dbing
 from keri.end import ending
 
@@ -17,7 +17,7 @@ from vlei_oracle.persistence.scope import ScopeStore
 from vlei_oracle.persistence.status_events import StatusEventWriter
 from vlei_oracle.receiving.authing import HttpSignatures
 from vlei_oracle.receiving.keys import ServiceKeys
-from vlei_oracle.receiving.oobing import VerifierOobi
+from vlei_oracle.receiving.oobing import OobiClienter, VerifierOobi
 from vlei_oracle.receiving.status import StatusEnd
 from vlei_oracle.receiving.status_events import StatusEventService
 from vlei_oracle.runtime.identity import incept_if_new
@@ -40,7 +40,7 @@ class StatusReceiver(doing.DoDoer):
         self.verifier_oobi = VerifierOobi(
             hby, config.verifier_oobi, config.verifier_aid
         )
-        self.oobiery = oobiing.Oobiery(hby=hby, clienter=httping.Clienter())
+        self.oobiery = oobiing.Oobiery(hby=hby, clienter=OobiClienter())
         associations = AssociationReader(baser)
         posting = PostingReader(baser)
         posting_writer = PostingWriter(baser)

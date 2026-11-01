@@ -84,6 +84,15 @@ def test_bad_rpc_response_preserves_pending_transaction_and_signed_ack(
         identity_registry=addresses["identityRegistry"],
     )
     receiver = StatusReceiver(config, hby=peers.oracle, baser=peers.inbox)
+    from tests.support.oobis import resolve_peer
+
+    resolve_peer(
+        peers.oracle,
+        config.verifier_oobi,
+        peers.producer,
+        peers.producer_port,
+        resolver=receiver.oobiery,
+    )
     postingService = next(
         d for d in receiver.doers if isinstance(d, PostingDoer)
     ).service
