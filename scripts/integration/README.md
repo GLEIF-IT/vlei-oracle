@@ -29,7 +29,7 @@ initializes recorded Solidity submodules and builds fresh application wheels.
 Verifier preparation owns real witnessed GEDA/QVI/LE source issuance and exact
 installed schema hosting; Oracle starts Anvil, invokes Comply's local deploy
 command, funds/authorizes a distinct posting writer, then starts the installed
-Oracle and Verifier CLIs with explicit peer KELs and addresses. It also starts an
+Oracle and Verifier CLIs with explicit peer OOBI URLs and addresses. It also starts an
 isolated HTTP proxy that drops only the first successful post-commit ACK. This
 fault fixture journals exact forwarded bytes; it supplies no acceptance results.
 

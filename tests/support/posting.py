@@ -21,6 +21,15 @@ def posting_service_for(peers, deployment):
         confirmations=1,
     )
     receiver = StatusReceiver(config, hby=peers.oracle, baser=peers.inbox)
+    from tests.support.oobis import resolve_peer
+
+    resolve_peer(
+        peers.oracle,
+        config.verifier_oobi,
+        peers.producer,
+        peers.producer_port,
+        resolver=receiver.oobiery,
+    )
     return next(
         doer for doer in receiver.doers if isinstance(doer, PostingDoer)
     ).service

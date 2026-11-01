@@ -50,16 +50,23 @@ def test_signed_duplicate_and_bad_event_leave_no_new_status(peers):
 
 
 def test_peer_rotation_requires_keripy_key_state_update(peers):
-    """A newly signed duplicate is accepted only after KERIpy KEL rotation is imported."""
+    """A newly signed duplicate is accepted only after its OOBI resolves the validated rotation."""
     body = peers.event.body.encode()
     assert post(peers, body).status_code == 200
-    rotation = peers.hab.rotate()
+    peers.hab.rotate()
     assert post(peers, body).status_code == 401
-    # Operators supply the updated KERIpy stream; existing state accepts its successor.
-    from pathlib import Path
+    # Reopening refreshes the same OOBI using the peer's current validated KEL.
+    from tests.support.oobis import resolve_peer
 
-    Path(peers.config.verifier_kel).write_bytes(rotation)
     peers.receiver = StatusReceiver(peers.config, hby=peers.oracle, baser=peers.inbox)
+    assert post(peers, body).status_code == 503
+    resolve_peer(
+        peers.oracle,
+        peers.config.verifier_oobi,
+        peers.producer,
+        peers.producer_port,
+        resolver=peers.receiver.oobiery,
+    )
     assert post(peers, body).status_code == 200
     assert len(list(peers.inbox.inbox.getItemIter())) == 1
     assert peers.inbox.queued.cntAll() == 1

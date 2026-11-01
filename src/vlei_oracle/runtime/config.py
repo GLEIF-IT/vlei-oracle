@@ -14,7 +14,7 @@ class ReceiverConfig:
     verifier_aid: str
     chain_id: int
     webhook_url: str
-    verifier_kel: str = ""
+    verifier_oobi: str
     name: str = "vlei-oracle-inbox"
     base: str = ""
     alias: str = "oracle"
@@ -52,6 +52,15 @@ class ReceiverConfig:
                 )
             ):
                 raise ValueError("confirmations and posting interval must be positive")
+        oobi = urlsplit(self.verifier_oobi)
+        if (
+            oobi.scheme not in ("http", "https")
+            or not oobi.netloc
+            or oobi.fragment
+            or oobi.username
+            or oobi.password
+        ):
+            raise ValueError("verifier OOBI must be an absolute HTTP(S) URL")
         parts = urlsplit(self.webhook_url)
         if (
             parts.scheme not in ("http", "https")

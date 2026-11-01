@@ -10,7 +10,7 @@ A storage ACK does not mean selection or confirmed publication.
 
 ```sh
 vlei-oracle server receive \
-  --verifier-aid "$VERIFIER_AID" --verifier-kel verifier.cesr \
+  --verifier-aid "$VERIFIER_AID" --verifier-oobi "$VERIFIER_OOBI" \
   --chain-id 31337 --webhook-url http://localhost:9723/v1/status-events
 ```
 
@@ -21,13 +21,22 @@ as its webhook peer, and configure the same exact destination URL on both sides,
 including any query string. Behind a proxy, use the external URL and preserve the
 request path/query and signed headers. Use TLS at the deployment boundary.
 
-`--verifier-kel` contains CESR key events and their required attachments,
-not a public key copied from a request header. KERI validation must accept
-the configured verifier's key state before startup succeeds. Once stored, the
-file is optional on restart. For rotation, supply the updated stream and restart;
-there is no background key discovery. Service signatures support one transferable
-Ed25519 key at threshold one. The KERIpy `/oobi/{aid}` route exports this receiver's
-identity for introduction to the verifier. Use fresh application stores for
+`--verifier-oobi` is the operator-selected HTTP(S) introduction URL. Oracle
+starts its listener and native KERIpy resolver without importing a KEL file.
+`POST /v1/status-events` returns HTTP 503 with Retry-After while resolution is
+unfinished, failed, or resolves an AID other than `--verifier-aid`. A resolved
+marker or response header alone cannot authorize a producer: its expected AID
+must have KERIpy-accepted key state. No event or posting work is stored while
+this introduction is unavailable. Existing posting obligations remain durable.
+
+Every startup refreshes the same OOBI using the retained KERI store. After producer
+rotation, restart Oracle to resolve current key events; no CESR file exchange is
+needed. Correct failed/unavailable introductions and restart; KERIpy owns its
+normal OOBI retry/escrow behavior. There is no background key discovery from request
+headers and no periodic refresh of a completed OOBI. Signatures support one
+transferable Ed25519 key at threshold one. `/oobi/{aid}` exports Oracle's public
+introduction; configure that URL as Verifier's optional `--webhook-oobi`.
+Use fresh application stores for
 demonstrations and preserve existing operator data separately. There are no
 storage migrations or previous-format readers.
 
@@ -36,7 +45,7 @@ storage migrations or previous-format readers.
 ```sh
 export VLEI_ORACLE_POSTING_KEY=<dedicated-Ethereum-writer-key>
 vlei-oracle server start \
-  --verifier-aid "$VERIFIER_AID" --verifier-kel verifier.cesr \
+  --verifier-aid "$VERIFIER_AID" --verifier-oobi "$VERIFIER_OOBI" \
   --chain-id 31337 --webhook-url http://localhost:9723/v1/status-events \
   --rpc-url http://localhost:8545 \
   --endorsement-registry "$ORACLE_REGISTRY" --identity-registry "$IDENTITY_REGISTRY"
@@ -191,13 +200,13 @@ Python API aliases. See the [implementation plan](plans/application-persistence-
 ## Request verification and optional signed responses
 
 Oracle opts into verifying every incoming webhook and authorizes only
-`--verifier-aid`, using locally accepted KERI key state from `--verifier-kel`.
-It signs its storage response after commit. Verifier needs Oracle's accepted KEL
-to verify that signature, but no destination-AID setting. Other webhook targets
+`--verifier-aid`, using KERIpy-validated key state from `--verifier-oobi`.
+It signs its storage response after commit. Verifier resolves Oracle's OOBI with `--webhook-oobi`
+to verify that signature, without a destination-AID setting. Other webhook targets
 can return unsigned success without any KERI identity or state exchange.
 
 Duplicate status events are handled by durable event ID/body and revision rules,
-not transport nonces. Keep Oracle's signing identity and update imported KEL after
+not transport nonces. Keep Oracle's signing identity and restart to refresh the configured OOBI after
 rotation. HTTP success, durable Oracle storage, selection and confirmed Ethereum
 publication remain distinct. Use HTTPS; the signature profile covers method/path
 and body digest, not HTTP status, origin/query or per-attempt freshness.

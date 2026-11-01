@@ -109,13 +109,13 @@ finalization or association-nonce store. No transport nonce ledger is needed. Et
 ## Request verification and optional signed responses
 
 Oracle opts into verifying every incoming webhook and authorizes only
-`--verifier-aid`, using locally accepted KERI key state from `--verifier-kel`.
-It signs its storage response after commit. Verifier needs Oracle's accepted KEL
-to verify that signature, but no destination-AID setting. Other webhook targets
+`--verifier-aid`, using KERIpy-validated key state from `--verifier-oobi`.
+It signs its storage response after commit. Verifier resolves Oracle's OOBI with `--webhook-oobi`
+to verify that signature, without a destination-AID setting. Other webhook targets
 can return unsigned success without any KERI identity or state exchange.
 
 Duplicate status events are handled by durable event ID/body and revision rules,
-not transport nonces. Keep Oracle's signing identity and update imported KEL after
+not transport nonces. Keep Oracle's signing identity and restart to refresh the configured OOBI after
 rotation. HTTP success, durable Oracle storage, selection and confirmed Ethereum
 publication remain distinct. Use HTTPS; the signature profile covers method/path
 and body digest, not HTTP status, origin/query or per-attempt freshness.

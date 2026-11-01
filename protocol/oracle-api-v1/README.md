@@ -35,6 +35,7 @@ Credential, proof and account verification are trusted producer responsibilities
 | Exact duplicate | 200, signed storage result | No repeated selection/effect |
 | Valid older revision | 200, signed storage result | Status event retained; newer status preserved |
 | Wrong path/query or malformed/unsupported event | 400 | No status-event storage |
+| Verifier OOBI has not resolved the authorized AID | 503, Retry-After | No status-event storage |
 | Invalid/missing signature or untrusted signer | 401 | No status-event storage |
 | Conflicting bytes at an event revision, changed association facts, reacceptance after revocation, or revocation revision before accepted revision | 409 | Application transaction aborts |
 
@@ -47,7 +48,7 @@ conflicting event body still fails.
 Sign the JSON storage result only after the LMDB commit. A crash or response loss
 is safe to redeliver. Verifier checks supplied response signatures but also works
 with targets returning ordinary unsigned 2xx responses. Oracle keeps its signing
-AID and KEL export for receivers opting into verification. **Storage success does
+AID and OOBI export for receivers opting into verification. **Storage success does
 not mean selected ownership or confirmed endorsement.**
 
 ## Selection and replacement
