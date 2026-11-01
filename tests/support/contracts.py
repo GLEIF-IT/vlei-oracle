@@ -96,14 +96,14 @@ def drive(effects, workflow):
     return results[0]
 
 
-def signed_intent(tx, *, said="association", action="publishEndorsement"):
+def signed_transaction(tx, *, said="association", functionName="publishEndorsement"):
     signed = Account.from_key(KEY).sign_transaction(tx)
     return TransactionRecord(
         txHash=Web3.to_hex(signed.hash),
         rawTransaction=Web3.to_hex(signed.raw_transaction),
         nonce=tx["nonce"],
         associationSaid=said,
-        action=action,
+        functionName=functionName,
     )
 
 
@@ -131,24 +131,28 @@ def observe(effects, wallet):
     return "0x" + identity.hex(), ("0x" + entity.hex(), said)
 
 
-def persist_intent(store, intent):
+def persist_transaction(store, txRecord):
     """Set up a signed pending phase through the same atomic transition as posting."""
     from vlei_oracle.persistence.records import PostingOperation
 
-    work = PostingOperation(
+    postingOperation = PostingOperation(
         "0000000000000001",
         "event",
-        intent.associationSaid,
+        txRecord.associationSaid,
         WALLET,
-        action=intent.action,
-        txHash=intent.txHash,
+        functionName=txRecord.functionName,
+        txHash=txRecord.txHash,
     )
-    store.preparing.pin(keys=("writer",), val=work)
-    store.move_operation(work, "preparing", "pending", intent=intent)
-    return intent
+    store.preparing.pin(keys=("writer",), val=postingOperation)
+    store.move_operation(postingOperation, "preparing", "pending", txRecord=txRecord)
+    return txRecord
 
 
-def pending_intent(store):
+def pending_transaction(store):
     """Read the pending operation's journal entry without history scans."""
-    work = store.pending.get(keys=("writer",))
-    return store.transactions.get(keys=(work.txHash,)) if work else None
+    postingOperation = store.pending.get(keys=("writer",))
+    return (
+        store.transactions.get(keys=(postingOperation.txHash,))
+        if postingOperation
+        else None
+    )

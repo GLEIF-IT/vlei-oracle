@@ -4,7 +4,7 @@ from dataclasses import asdict
 
 import falcon
 
-from vlei_oracle.persistence.records import AppliedWallet, PostingSequence
+from vlei_oracle.persistence.records import WalletEffects, PostingSequence
 
 
 class EndorsementEnd:
@@ -19,20 +19,25 @@ class EndorsementEnd:
         confirmedEffect describes this writer's last confirmed wallet effects,
         not current chain truth. Public responses omit signed transaction bytes.
         """
-        status = self.baser.statuses.get(keys=(said,))
-        if status is None:
+        associationStatus = self.baser.statuses.get(keys=(said,))
+        if associationStatus is None:
             raise falcon.HTTPNotFound(title="Unknown endorsement")
-        phase, work = self.baser.operation_for(f"{said}:{status.statusRevision}")
-        applied = self.baser.applied.get(keys=(status.wallet,)) or AppliedWallet()
+        phase, postingOperation = self.baser.operation_for(
+            f"{said}:{associationStatus.statusRevision}"
+        )
+        walletEffects = (
+            self.baser.walletEffects.get(keys=(associationStatus.wallet,))
+            or WalletEffects()
+        )
         sequence = self.baser.sequence.get(keys=("writer",)) or PostingSequence()
         rep.media = {
             "associationSaid": said,
-            "wallet": status.wallet,
-            "verifierStatus": status.status,
-            "selection": status.selection,
+            "wallet": associationStatus.wallet,
+            "verifierStatus": associationStatus.status,
+            "selection": associationStatus.selection,
             "phase": phase,
-            "operation": asdict(work) if work else None,
-            "confirmedEffect": asdict(applied),
+            "operation": asdict(postingOperation) if postingOperation else None,
+            "confirmedEffect": asdict(walletEffects),
             "writerBlockedBy": sequence.blockedBy or None,
         }
         rep.set_header("Cache-Control", "no-store")

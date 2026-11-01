@@ -139,7 +139,7 @@ def retry_handler(args):
     """Move a corrected dead letter back to its phase using native LMDB ownership.
 
     Stop the service first: this is a local operator command, not a second writer.
-    An unresolved signed intent keeps its bytes and nonce; no fresh intent is made.
+    An unresolved signed transaction keeps its bytes and nonce; no new transaction is signed.
     """
     from keri.db import dbing
 

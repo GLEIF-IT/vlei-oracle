@@ -104,7 +104,7 @@ expiry, nonce replacement/cancellation or comprehensive reorg recovery.
 404 for an unknown SAID. It needs no service signature and makes no RPC calls.
 The representation contains `associationSaid`, `wallet`, `verifierStatus`,
 `selection`, `phase`, `operation`, `confirmedEffect` and `writerBlockedBy`.
-`operation` includes its ID/event ID, current action, attempt counts, pending
+`operation` includes its ID/event ID, contract `functionName`, attempt counts, pending
 transaction hash, last resolved transaction hash, failure reason and terminal
 outcome. `phase` is `queued`, `preparing`, `pending`, `completed` or `dead`.
 `confirmedEffect` is this writer's last confirmed wallet identity and endorsement;

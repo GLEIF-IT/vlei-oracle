@@ -35,7 +35,7 @@ class StatusEnd:
             )
         body = req.bounded_stream.read()
         try:
-            received = self.auth.verify(
+            requestAuth = self.auth.verify(
                 method=req.method,
                 target=self.target,
                 action="status",
@@ -60,7 +60,7 @@ class StatusEnd:
             target=self.target,
             action="ack",
             body=ack,
-            request=received.reference,
+            request=requestAuth.reference,
             status=200,
         )
         rep.status, rep.data = falcon.HTTP_200, ack

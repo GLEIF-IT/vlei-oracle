@@ -47,17 +47,17 @@ class USDCScenario:
         yield tock
         yield from self.prepare_wallets()
         first = self.issue()
-        accepted = yield from self.status(first["said"], "accepted")
-        assert accepted["association"]["issuerAid"] == first["issuerAid"]
-        assert accepted["accountObservation"]["chainId"] == 31337
+        associationStatus = yield from self.status(first["said"], "accepted")
+        assert associationStatus["association"]["issuerAid"] == first["issuerAid"]
+        assert associationStatus["accountObservation"]["chainId"] == 31337
         yield from self.mapping(first["said"])
         yield from self.reject_nonce_reuse(first)
         beneficiary = self.issue(wallet=2)
         yield from self.status(beneficiary["said"], "accepted")
         yield from self.mapping(beneficiary["said"], self.recipient)
         yield from self.transfer(expected=True)
-        self.assert_retry(first, accepted)
-        yield from self.reopen(first, accepted)
+        self.assert_retry(first, associationStatus)
+        yield from self.reopen(first, associationStatus)
         second = self.issue()
         yield from self.status(second["said"], "accepted")
         yield from self.mapping(second["said"])
@@ -68,7 +68,7 @@ class USDCScenario:
                 "first": first,
                 "second": second,
                 "beneficiary": beneficiary,
-                "accountObservation": accepted["accountObservation"],
+                "accountObservation": associationStatus["accountObservation"],
             },
         )
         self.finished = True
@@ -197,18 +197,18 @@ class USDCScenario:
             [self.recipient, 1000000],
             self.keys[1],
         )
-        received = 0 if initial else 1000000
+        expectedRecipientBalance = 0 if initial else 1000000
         assert (
             yield from read(self.effects, self.token, "balanceOf", [self.recipient])
-        ) == (received,)
+        ) == (expectedRecipientBalance,)
         assert (
             yield from read(self.effects, self.token, "balanceOf", [self.wallet])
-        ) == (100000000 - received,)
+        ) == (100000000 - expectedRecipientBalance,)
 
-    def assert_retry(self, first, accepted):
+    def assert_retry(self, first, associationStatus):
         """Loss after Oracle commit retries the identical event with no new identity."""
         assert (self.root / "dropped-ack").exists()
-        assert accepted["delivery"]["attempts"] >= 2
+        assert associationStatus["delivery"]["attempts"] >= 2
         initial = [
             body
             for body in self.events()
@@ -216,7 +216,7 @@ class USDCScenario:
         ]
         assert len(initial) >= 2 and len(set(initial)) == 1
 
-    def reopen(self, first, accepted):
+    def reopen(self, first, associationStatus):
         """Reopen Oracle with Verifier offline, then verify durable producer state."""
         call_verifier(self.root, "stop", "--service", "verifier")
         stop(self.root, "oracle")
@@ -224,19 +224,19 @@ class USDCScenario:
         yield from self.mapping(first["said"])
         start_verifier(self.root, self.configuration)
         reopened = yield from self.status(first["said"], "accepted")
-        assert reopened["accountObservation"] == accepted["accountObservation"]
+        assert reopened["accountObservation"] == associationStatus["accountObservation"]
         call_verifier(self.root, "present", "--said", first["said"])
         assert (yield from self.status(first["said"], "accepted"))[
             "eventId"
-        ] == accepted["eventId"]
+        ] == associationStatus["eventId"]
 
     def retire(self, first, second, beneficiary):
         """Old revocation preserves replacement; current revocation removes only it."""
         for descriptor, expected in ((first, second["said"]), (second, "")):
             call_verifier(self.root, "revoke", "--said", descriptor["said"])
             call_verifier(self.root, "present", "--said", descriptor["said"])
-            retired = yield from self.status(descriptor["said"], "revoked")
-            assert retired["delivery"]["eventId"] == f"{descriptor['said']}:2"
+            revokedStatus = yield from self.status(descriptor["said"], "revoked")
+            assert revokedStatus["delivery"]["eventId"] == f"{descriptor['said']}:2"
             yield from self.mapping(expected)
             yield from self.endorsement(descriptor["said"], expected="revoked")
         yield from self.mapping(beneficiary["said"], self.recipient)
