@@ -153,10 +153,23 @@ class USDCScenario:
                 f"/v1/endorsements/{said}",
             )
             value = json.loads(body)
-            if code == 200 and value["phase"] == "completed":
-                assert value["verifierStatus"] == expected
-                assert value["operation"]["error"] == ""
-                assert value["writerBlockedBy"] is None
+            if code == 200 and value["deliveryStatus"] == "completed":
+                assert set(value) == {
+                    "associationSaid",
+                    "wallet",
+                    "publicationStatus",
+                    "action",
+                    "deliveryStatus",
+                    "error",
+                }
+                assert value["associationSaid"] == said
+                assert value["action"] == (
+                    "publish" if expected == "accepted" else "withdraw"
+                )
+                assert value["publicationStatus"] == (
+                    "published" if expected == "accepted" else "not_published"
+                )
+                assert value["error"] == ""
                 return value
             assert self.workflow.tyme < deadline, value
             yield 0.05

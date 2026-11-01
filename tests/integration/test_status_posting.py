@@ -50,6 +50,14 @@ def test_accepted_replaced_and_revoked_status_changes_real_mapping(peers, deploy
     """Publish once, replace by issuance, ignore old revocation, then withdraw the exact current SAID."""
     postingService = posting_service_for(peers, deployment)
     wallet = "0x" + "11" * 20
+    from falcon import testing
+    from vlei_oracle.persistence.records import PostingSequence
+
+    client = testing.TestClient(peers.receiver.app)
+
+    def endorsement_response(label):
+        return client.simulate_get(f"/v1/endorsements/{said(label)}").json
+
     older = event_body(peers, "published-old", 10)
     assert post(peers, older).status_code == 200
 
@@ -65,6 +73,35 @@ def test_accepted_replaced_and_revoked_status_changes_real_mapping(peers, deploy
 
         assert post(peers, event_body(peers, "published-new", 11)).status_code == 200
         yield from settle(postingService, wallet, said("published-new"))
+        predecessor = endorsement_response("published-old")
+        successor = endorsement_response("published-new")
+        assert predecessor["publicationStatus"] == "not_published"
+        assert predecessor["deliveryStatus"] == "superseded"
+        assert successor["publicationStatus"] == "published"
+        assert successor["deliveryStatus"] == "completed"
+        assert (
+            set(predecessor)
+            == set(successor)
+            == {
+                "associationSaid",
+                "wallet",
+                "publicationStatus",
+                "action",
+                "deliveryStatus",
+                "error",
+            }
+        )
+        # A global unresolved transaction must not alter either association's response.
+        sequence = peers.inbox.sequence.get(keys=("writer",))
+        peers.inbox.sequence.pin(
+            keys=("writer",), val=PostingSequence(sequence.next, "unrelated")
+        )
+        try:
+            assert endorsement_response("published-old") == predecessor
+            assert endorsement_response("published-new") == successor
+        finally:
+            peers.inbox.sequence.pin(keys=("writer",), val=sequence)
+
         assert (
             post(
                 peers, event_body(peers, "published-old", 10, revoked=True)
@@ -79,7 +116,15 @@ def test_accepted_replaced_and_revoked_status_changes_real_mapping(peers, deploy
             ).status_code
             == 200
         )
+        withdrawing = endorsement_response("published-new")
+        assert withdrawing["action"] == "withdraw"
+        assert withdrawing["deliveryStatus"] == "queued"
+        assert withdrawing["publicationStatus"] == "published"
         yield from settle(postingService, wallet, "")
+        withdrawn = endorsement_response("published-new")
+        assert withdrawn["action"] == "withdraw"
+        assert withdrawn["deliveryStatus"] == "completed"
+        assert withdrawn["publicationStatus"] == "not_published"
         return True
 
     drive(postingService.effects, workflow)
@@ -365,17 +410,22 @@ def test_completed_delivery_is_idle_even_after_external_chain_change(peers, depl
     assert post(peers, event_body(peers, "idle", 70)).status_code == 200
     client = testing.TestClient(peers.receiver.app)
     assert (
-        client.simulate_get(f"/v1/endorsements/{association}").json["phase"] == "queued"
+        client.simulate_get(f"/v1/endorsements/{association}").json["deliveryStatus"]
+        == "queued"
     )
     assert client.simulate_get("/v1/endorsements/unknown").status_code == 404
 
     def workflow(effects):
         yield from settle(postingService, wallet, association)
         response = client.simulate_get(f"/v1/endorsements/{association}")
-        assert response.json["phase"] == "completed"
-        assert response.json["operation"]["functionName"] == "publishEndorsement"
-        assert "action" not in response.json["operation"]
-        assert response.json["confirmedEffect"]["associationSaid"] == association
+        assert response.json == {
+            "associationSaid": association,
+            "wallet": wallet,
+            "publicationStatus": "published",
+            "action": "publish",
+            "deliveryStatus": "completed",
+            "error": "",
+        }
         yield from send(
             effects,
             effects.contracts["endorsement"],
@@ -421,10 +471,16 @@ def test_reverts_exhaust_budget_then_require_explicit_retry(peers, deployment):
             .simulate_get(f"/v1/endorsements/{association}")
             .json
         )
-        assert state["phase"] == "dead" and state["operation"]["attempts"] == 3
-        assert "reverted" in state["operation"]["error"]
-        assert state["verifierStatus"] == "accepted"
-        assert state["confirmedEffect"]["identityRef"] == ""
+        phase, postingOperation = OracleReader(peers.inbox).operation_for(
+            f"{association}:1"
+        )
+        assert phase == "dead" and postingOperation.attempts == 3
+        assert state["deliveryStatus"] == "failed"
+        assert "reverted" in state["error"]
+        assert state["action"] == "publish"
+        assert state["publicationStatus"] == "not_published"
+        assert peers.inbox.statuses.get(keys=(association,)).status == "accepted"
+        assert OracleReader(peers.inbox).wallet_effects("0x" + "11" * 20) is None
         assert peers.inbox.transactions.cntAll() == 3
         with patch.object(
             effects, "request", side_effect=AssertionError("dead letter retried")
@@ -434,7 +490,7 @@ def test_reverts_exhaust_budget_then_require_explicit_retry(peers, deployment):
         peers.inbox.reopen()
         RecoveryService(
             OracleReader(peers.inbox), OracleWriter(peers.inbox)
-        ).retry_operation(state["operation"]["operationId"])
+        ).retry_operation(postingOperation.operationId)
         yield from settle(postingService, "0x" + "11" * 20, association)
         return True
 
@@ -571,11 +627,23 @@ def test_preparation_errors_stop_in_dead_letter(peers, deployment):
                     .simulate_get(f"/v1/endorsements/{association}")
                     .json
                 )
-                assert state["operation"]["attempts"] == attempt + 1
-                assert state["phase"] == ("dead" if attempt == 2 else "preparing")
-                assert "unavailable" in state["operation"]["error"]
+                phase, postingOperation = OracleReader(peers.inbox).operation_for(
+                    f"{association}:1"
+                )
+                assert postingOperation.attempts == attempt + 1
+                assert phase == ("dead" if attempt == 2 else "preparing")
+                assert state["deliveryStatus"] == (
+                    "failed" if attempt == 2 else "in_progress"
+                )
+                assert "unavailable" in state["error"]
+        associationStatus = OracleReader(peers.inbox).association(association)
         assert (
-            state["verifierStatus"] == "accepted" and state["selection"] == "selected"
+            associationStatus.status == "accepted"
+            and associationStatus.selection == "selected"
+        )
+        assert (
+            state["action"] == "publish"
+            and state["publicationStatus"] == "not_published"
         )
         assert peers.inbox.transactions.cntAll() == 0
         with patch.object(
