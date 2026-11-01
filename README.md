@@ -94,7 +94,7 @@ using the deployed infrastructure, see
 ```sh
 python3 -m venv .venv
 .venv/bin/python -m pip install --upgrade pip setuptools wheel
-.venv/bin/python -m pip install -e . -e ../../../core/python/keripy -e ../../../credentials/schema-tools/vLEI
+.venv/bin/python -m pip install -e . -e ../../../core/python/wot-upstream/keripy -e ../../../credentials/schema-tools/vLEI
 ```
 
 The e2e expects usable demo witness ports (`5642`, `5643`, `5644`) and a vLEI
