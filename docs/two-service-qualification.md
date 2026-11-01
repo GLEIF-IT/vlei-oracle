@@ -35,8 +35,8 @@ focused policy/transport tests; this is not a second fault-matrix suite.
 
 Install the oracle wheel and `tests/requirements.txt` in a fresh Python 3.12
 environment. Put Foundry 1.5.1 on PATH and set `VLEI_COMPLY_DIR` to comply revision
-`aeba4883dadb30e06a0316d93394b08ff9a9e97d` with submodules and built contracts.
-From a directory containing the copied `tests`, `scripts` and `protocol` trees:
+`9efde5e3db818cf3129e89c9fd08c0f5c0f8dee1` with submodules and built contracts.
+From a directory containing the copied `tests` tree and `pytest.ini`:
 
 ```sh
 python -m pytest -q tests/qualification/test_two_services.py
@@ -47,28 +47,22 @@ Test logs and stores live beneath pytest's temporary directory; the fixture stop
 only its own subprocesses. On macOS hosts with LMDB vnode exhaustion, copy the
 inputs into a Linux container with no host bind mounts and run there.
 
-The producer is pinned to verifier companion revision
-`895713e66e6057590cf8247f8e8c1829371c6c71` in `tests/requirements.txt`, not as an
-oracle runtime import. Merge the verifier acceptance-policy companion before
-this oracle schema/vector companion PR. Its source matches the qualified verifier wheel.
-Existing status-posting tests establish old-observation
-acceptance and failure handling without the verifier. The paired comply launcher invokes this same scenario; it does not copy the
-KERIpy issuance or process-ownership code.
-
-Both applications use GLEIF KERI 1.2.19 and HIO 0.6.22. This qualification uses
-the coordinated nonce-policy candidate wheels; the closed ingress and
-replay-pruning candidates remain excluded. The known KERIpy receipt-couple shortage limitation remains unresolved;
-a passing valid-stream workflow does not establish liveness for that malformed input.
+The producer revision is pinned in `tests/requirements.txt`, only for testing.
+CI's contract checkout and the demo manifest pin compatible contract revisions.
+Both applications use GLEIF KERI 1.2.19 and HIO 0.6.22. Valid-stream qualification
+does not resolve the producer's known native receipt-couple shortage limitation.
+The paired Comply launcher invokes this scenario without copying its issuance or
+process-ownership code.
 
 ## Qualify local application changes
 
 To qualify unmerged verifier/oracle changes, build wheels from clean temporary
 copies of both working trees and install both wheels into the same fresh Python
-3.12 environment with pytest and `scripts/protocol/requirements.txt`. Omit
+3.12 environment with pytest. Omit
 `tests/requirements.txt` for this run: its Git requirement deliberately installs
 the merged verifier and would replace the candidate being qualified.
 
-Copy the oracle's `tests`, `scripts` and `protocol` trees plus `pytest.ini` outside the checkouts,
+Copy the oracle's `tests` tree plus `pytest.ini` outside the checkouts,
 then use the same pinned comply revision and Foundry version documented above:
 
 ```sh
@@ -81,7 +75,3 @@ The paired test verifies the installed CLIs and wire/resource compatibility.
 `tests/receiving/test_status.py` additionally exercises Python imports from the installed
 producer through its `delivery`/`persistence` components. These imports require
 the reorganized producer revision pinned in `tests/requirements.txt`.
-
-The current schema restricts association nonces to 1–128 ASCII characters from
-`[A-Za-z0-9_-]`; the verifier uses direct issuer/nonce Komer keys. The reference
-ACDC, schema SAID and endorsement fixture have been regenerated together.

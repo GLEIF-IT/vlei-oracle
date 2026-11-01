@@ -18,7 +18,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: GLEIF-IT/vlei-comply
-          ref: aeba4883dadb30e06a0316d93394b08ff9a9e97d
+          ref: 9efde5e3db818cf3129e89c9fd08c0f5c0f8dee1
           path: comply
           ssh-key: ${{ secrets.VLEI_COMPLY_READ_KEY }}
           persist-credentials: false
@@ -33,13 +33,13 @@ jobs:
         run: |
           python -m pip wheel --no-deps --wheel-dir dist .
           python -m venv "$RUNNER_TEMP/oracle-tests"
-          "$RUNNER_TEMP/oracle-tests/bin/python" -m pip install dist/*.whl -r tests/requirements.txt -r scripts/protocol/requirements.txt
+          "$RUNNER_TEMP/oracle-tests/bin/python" -m pip install dist/*.whl -r tests/requirements.txt
       - name: Test installed packages outside checkout
         env:
           VLEI_COMPLY_DIR: ${{ github.workspace }}/comply
         run: |
           mkdir "$RUNNER_TEMP/qualification"
-          cp -R tests scripts protocol "$RUNNER_TEMP/qualification/"
+          cp -R tests scripts "$RUNNER_TEMP/qualification/"
           cp pytest.ini "$RUNNER_TEMP/qualification/"
           cd "$RUNNER_TEMP/qualification"
           "$RUNNER_TEMP/oracle-tests/bin/vlei-oracle" server receive --help

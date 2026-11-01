@@ -6,8 +6,8 @@ event storage and publishes or withdraws the selected association mapping as an 
 runs the same inbox without contract posting. Initial credential, wallet and
 account verification belongs to EOA Verifier; the oracle does not repeat it.
 
-Accepted associations remain valid until their association credential is revoked
-or a newer same-LE issuance supersedes them. Revocation withdraws only the matching
+Verifier acceptance persists until verified association revocation. Oracle selection
+can supersede an older same-LE issuance without changing that upstream acceptance. Revocation withdraws only the matching
 association SAID. Storage ACKs do not mean an on-chain transaction has succeeded. The
 [two-service qualification](docs/two-service-qualification.md) exercises the installed
 applications with witnessed KEL/TEL evidence, signed HTTP and Anvil.
@@ -29,10 +29,9 @@ See the [testing guide](docs/testing.md) for module/class/function lookup and pa
 qualification. Initializers contain no import facades; the root package retains
 only its literal version metadata.
 
-The [architecture cleanup plan](docs/architecture-cleanup-plan.md) sequences the
-remaining cross-repository removals and operating fixes. This application has
-one service model: authenticated verifier status followed by local selection and
-optional contract posting. Credential evidence is delivered to EOA Verifier.
+The [Oracle API](protocol/oracle-api-v1/README.md) defines receipt, selection and
+publication. The [selection ADR](adrs/0001-wallet-association-selection.md) explains
+the rationale. Credential evidence is delivered to EOA Verifier.
 
 ## Install
 
@@ -41,7 +40,7 @@ import paths and must not share an environment with upstream distributions.
 
 ```sh
 uv venv --python 3.12 .venv
-uv pip install --python .venv/bin/python -e '.[dev]' -r tests/requirements.txt -r scripts/protocol/requirements.txt
+uv pip install --python .venv/bin/python -e '.[dev]' -r tests/requirements.txt
 .venv/bin/python scripts/dev/prepare-demo.py --schemas-only
 # For the full suite, first prepare Foundry/comply as described below.
 .venv/bin/python -m pytest -q
@@ -67,8 +66,7 @@ no identities. Existing mismatched/dirty dependency checkouts are never reset;
 choose a new directory when changing pins. Install Foundry 1.5.1 separately, then
 follow the prepared comply checkout's `docs/gl1-vlei-local-infra-setup.md` for
 service configuration. Run its `scripts/dev/init-local-vlei-fixture.sh` with these
-exports for the witnessed two-wallet test; keep this prepared environment rather than
-reinstalling the guide's earlier qualification snapshot.
+exports for the witnessed two-wallet test; keep this prepared environment with the selected compatible revisions.
 
 The schema-server tool `vlei` still declares upstream `keri`/`hio` distribution
 names. The preparer installs it with `--no-deps` into the GLEIF demo environment;
@@ -76,17 +74,16 @@ names. The preparer installs it with `--no-deps` into the GLEIF demo environment
 install the overlapping upstream packages to silence them. This exception belongs
 to demo schema tooling, not either application wheel.
 
-## Association issuance boundary
+## Protocol ownership
 
-The oracle has no wallet challenge, signing, credential finalization or association
-nonce store. Issuers present their credentials and supporting witnessed KEL/TEL
-evidence to EOA Verifier. The verifier consumes an exact issuer/nonce only on
-application acceptance, atomically with status and optional webhook delivery.
-Association nonces contain 1–128 ASCII letters, digits, underscores or hyphens
-(`[A-Za-z0-9_-]`); the verifier stores ordinary `issuer.nonce` Komer keys.
-A different credential reusing that pair is rejected, even after revocation.
+[EOA Verifier](https://github.com/GLEIF-IT/eoa-verifier/tree/master/protocol) owns
+external-association-v1, its packaged schema/proof vectors, and verifier-api-v1
+including shared webhook authentication/ACKs. Oracle owns only
+[oracle-api-v1](protocol/oracle-api-v1/README.md).
+[Comply](https://github.com/GLEIF-IT/vlei-comply/blob/main/docs/oracle-registry.md)
+owns registry methods, identity encoding, ABI and calldata fixtures.
 
-The canonical profile and reference vectors remain under `protocol/`. Issuance
-assembly in `tests/support/issuers.py` belongs only to qualification; these helpers are
-not installed oracle APIs or an operational issuer tool. The oracle retains
-signed-webhook replay protection and Ethereum transaction nonce recovery.
+Issuance assembly in `tests/support/issuers.py` serves the maintained paired
+qualification; it is not an installed Oracle issuance API. Oracle has no wallet
+challenge, credential finalization or association-nonce store. Transport replay
+claims and Ethereum transaction nonces remain separate concerns.

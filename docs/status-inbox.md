@@ -1,9 +1,10 @@
-# Trusted verifier status and contract posting
+# Operate the trusted-status Oracle
 
-`vlei-oracle server receive` accepts EOA Verifier webhooks and signs ACKs after
-committing receipt, verifier status and ownership selection to LMDB.
-`server start` adds trusted-status contract posting. Initial credential, proof and
-account verification belongs exclusively to EOA Verifier.
+Oracle authenticates Verifier status, commits receipt/selection, then optionally
+publishes or withdraws contract endorsements. [Oracle API v1](../protocol/oracle-api-v1/README.md)
+owns validation/errors, duplicate handling and selection. The shared delivery
+profile belongs to [Verifier API v1](https://github.com/GLEIF-IT/eoa-verifier/blob/master/protocol/verifier-api-v1/README.md).
+A storage ACK does not mean selection or confirmed publication.
 
 ## Start
 
@@ -30,81 +31,6 @@ identity for introduction to the verifier. Do not change a store's trusted
 verifier or chain; use another store for a different trust scope. Use fresh
 application stores for demonstrations and preserve existing operator data
 separately. There are no storage migrations or previous-format readers.
-
-## Status delivery and acknowledgment
-
-POST the verifier's ordinary v1 JSON object to `/v1/status-events`. The
-[producer's API note](https://github.com/GLEIF-IT/eoa-verifier/blob/895713e66e6057590cf8247f8e8c1829371c6c71/adrs/0002-verifier-result-object.md)
-defines acceptance and retirement. The receiver supports these two states:
-
-- `status: "accepted"`: initially verified and accepted association.
-- `status: "revoked", reasonCode: "REVOKED"`: verified association revocation.
-  Retain the same `associationSaid` and `association` facts, increase `statusRevision`,
-  and set `eventId` to `associationSaid:statusRevision`.
-
-The oracle trusts the configured verifier's authenticated facts. It checks the
-object's identifiers, revision and configured chain, derives the wallet from
-`extId` and `identityRef` as Keccak-256 of the issuer AID's UTF-8 bytes. It does
-not reverify the ACDC, wallet proof or account. `accountObservation` is informational and
-not required by the receiver; age never invalidates accepted status.
-
-The inbox preserves immutable event bytes. Event receipt, the newest stored
-status and selection commit in one transaction. Reordered older events and exact duplicates
-are ACKed without replacing newer state. Revocation is terminal for that SAID.
-Conflicting bytes at a revision or changed association facts return HTTP 409.
-Selection policy may decline ownership while retaining and acknowledging the
-verifier's accepted status; it does not declare the credential cryptographically invalid.
-
-HTTP 200 carries the signed body `{"eventId":"<said>:<statusRevision>","stored":true}`.
-It acknowledges durable receipt, **not ownership approval or an on-chain endorsement**. KERI
-signatures cover the exact body digest, method/path, destination, audience,
-action, nonce and expiry. The ACK additionally binds the request attempt and HTTP
-status. Transport nonces are persisted separately from application event IDs.
-A retry uses the same event bytes with a new signature/nonce. A crash after commit
-but before either side records the ACK is safe to redeliver. Invalid signatures
-or replay return 401; malformed/unsupported events return 400. No error completes
-delivery. Authentication expiry does not expire association validity.
-
-The v1 object now uses `status`, `statusRevision`, `accountObservation` and
-`association.issuanceAnchor`. Deploy this consumer with the pinned verifier on
-fresh PoC application stores and contracts. There are no old-shape readers,
-aliases or migrations; preserve existing stores separately. The replay table
-uses `replay_claims` records with `expiresAt`. HTTP signature `expires` remains
-a transport parameter and does not expire associations.
-
-EOA Verifier owns association-nonce acceptance policy. It permanently binds each
-exact issuer/nonce to one accepted SAID and rejects a different SAID reusing that
-pair, including after revocation. The nonce is not added to this status wire
-contract. The oracle has no issuance nonce ledger or credential finalization API;
-its webhook replay claims and signed Ethereum transaction nonces remain separate.
-Association nonces contain 1–128 ASCII characters from `[A-Za-z0-9_-]`. The
-verifier stores ordinary `issuer.nonce` Komer keys under policy
-`issuer-nonce-ascii-v1`. Use fresh verifier stores; no issuer-ledger or digest-key
-migration exists.
-
-## Ownership selection
-
-`selecting.py` applies [ADR 0001](https://github.com/GLEIF-IT/eoa-verifier/blob/895713e66e6057590cf8247f8e8c1829371c6c71/adrs/0001-eoa-association-ownership-and-replacement.md)
-to trusted facts. One canonical `extId` (chain/address) has one current association:
-
-- Same LE holder AID: a strictly higher issuer-KEL issuance sequence supersedes
-  the predecessor. LE credential SAIDs, status revisions and arrival times
-  do not establish priority. Never compare different issuers' sequence numbers.
-- Another LE: reject the competing claim while the current claim is active.
-  Verified current-SAID revocation releases it. Previously rejected associations do
-  not activate automatically or on duplicate delivery; a new association is required.
-- Old-SAID revocation cannot release its successor. Issuance history survives
-  release, transfer and restart, so a superseded predecessor cannot return.
-  A newer same-LE retirement arriving before its acceptance still supersedes the
-  older claim; replaying either acceptance cannot restore it.
-
-`statuses` retains verifier `status` separately from local `selection`:
-`selected`, `superseded`, `rejected` or `revoked`. `claims` retains the current SAID
-and highest known issuance sequence per issuer for that chain/address.
-`OracleBaser.selected_association(ext_id)` reads the selected stored facts without
-RPC or credential checks.
-No background selection worker is needed. Same-anchor
-multiple-association detection remains deferred as described in the ADR appendix.
 
 ## Contract posting
 
@@ -144,25 +70,17 @@ rebroadcast, cancellation, nonce reconciliation and reorg recovery are outside t
 runtime. Never share its writer with another process. Use fresh demonstration
 stores. Changing chain, writer or contract addresses requires another store.
 
-## Checks
+## Tests and limitations
 
-Install the test-only sender with `pip install -r tests/requirements.txt`. CI tests
-installed wheels against Foundry 1.5.1 and comply revision
-`aeba4883dadb30e06a0316d93394b08ff9a9e97d`. For local contract tests, set
-`VLEI_COMPLY_DIR` to that checkout with its submodules and put `forge`/`anvil` on PATH.
-Missing prerequisites fail the contract suite. `test_status_posting.py` covers
-accepted-to-published, replacement, exact withdrawal, duplicate receipt, pending
-and uncertain sends, restart and a replacement during RPC preparation. Its facts
-start after upstream initial verification. The [two-service qualification](two-service-qualification.md)
-additionally runs witnessed credential issuance through two installed CLI processes.
+Install test-only producer requirements from `tests/requirements.txt`; this is not
+an Oracle runtime dependency. Contract/CI and demo revisions are explicit in
+`.github/workflows/tests.yml` and `scripts/dev/demo-dependencies.json`. Use the
+qualified checkout with submodules and Foundry 1.5.1 on PATH as `VLEI_COMPLY_DIR`.
+See [testing](testing.md) and [two-service qualification](two-service-qualification.md).
 
-The signature adapter matches the merged verifier's profile without importing
-that application at runtime. Interoperability tests guard this intentional small
-cross-application duplication. KERI 1.2.19 and HIO 0.6.22 match that producer's pins;
-KERI 1.2.19 requires HIO 0.6.22 exactly; do not override the resolver.
-
-
-The separately identified KERIpy receipt-couple shortage parser limitation remains
-unresolved in the producer dependency. This naming rollout does not establish
-intake liveness for that malformed stream; see the pinned verifier's
-[operations note](https://github.com/GLEIF-IT/eoa-verifier/blob/895713e66e6057590cf8247f8e8c1829371c6c71/docs/operations.md).
+Transport interoperability is tested against the installed producer while the
+small adapters remain independent. Both applications pin GLEIF KERI 1.2.19 and
+HIO 0.6.22. Keep those package pins; do not install overlapping upstream keri/hio
+distributions. The known KERIpy receipt-couple shortage can monopolize producer
+intake on malformed evidence; a valid-stream qualification does not establish
+malformed-stream liveness. See [Verifier operations](https://github.com/GLEIF-IT/eoa-verifier/blob/master/docs/operations.md).
