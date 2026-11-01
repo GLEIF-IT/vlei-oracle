@@ -179,7 +179,7 @@ def test_lost_broadcast_response_is_pending_until_confirmed(peers, deployment):
 
 
 @pytest.mark.parametrize("failure", ["tls", "chunk-size", "null", "missing-result"])
-def test_bad_rpc_response_preserves_pending_intent_and_signed_ack(
+def test_bad_rpc_response_preserves_pending_transaction_and_signed_ack(
     peers, deployment, caplog, failure
 ):
     """RPC failures preserve a real signed transaction while the receiver ACKs duplicate delivery."""
