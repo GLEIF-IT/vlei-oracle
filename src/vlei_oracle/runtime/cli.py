@@ -8,8 +8,6 @@ import sys
 
 from keri import kering
 
-from . import deploy_log
-
 
 def main(argv: list[str] | None = None) -> int:
     """Parse arguments, dispatch a registered command, and normalize errors."""
@@ -17,7 +15,6 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="vlei-oracle")
     subparsers = parser.add_subparsers(dest="command", required=True)
     add_parser(subparsers)
-    deploy_log.add_parser(subparsers)
     args = parser.parse_args(argv)
 
     try:

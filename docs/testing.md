@@ -7,7 +7,8 @@ tests is an explicit package. No PYTHONPATH/sys.path workarounds are required.
 |---|---|
 | runtime/cli.py | tests/runtime/test_cli.py |
 | Runtime identity/config/composition | tests/runtime/test_serving.py |
-| Demo checkout tool | tests/runtime/test_demo_checkout.py |
+| Exact dependency checkout | tests/integration/test_checkouts.py |
+| Environment lifecycle/preflight | tests/integration/test_environment.py |
 | StatusEnd.on_post | python -m pytest tests/receiving/test_status.py |
 | receiving/authing.py | tests/receiving/test_authing.py |
 | update_selection | python -m pytest tests/associations/test_selecting.py -k same_le |
@@ -18,16 +19,20 @@ tests is an explicit package. No PYTHONPATH/sys.path workarounds are required.
 | Both services, witnessed issuers and real transfers | tests/qualification/test_two_services.py |
 
 Use ::test_function_name for one function or -k expression for a class/method.
-Named support modules are tests/support/issuers.py, contracts.py, processes.py and
+Named support modules are tests/support/contracts.py, processes.py and
 status_events.py. Shared peer/deployment fixtures retain function/module scope in
 conftest. No test imports another test module. Proof/schema conformance belongs to Verifier; Oracle retains mapping/ABI
-integration and the maintained paired scenario. Collection is 61 cases.
+integration and the maintained paired scenario. Producer completion-gap tests belong to Verifier; Oracle signs its own focused
+post-verification fixtures.
 
 Run python -m pytest for the full suite. Full tests need
-Foundry 1.5.1 and VLEI_COMPLY_DIR pointing to the qualified checkout. CI installs
-fresh wheels and copies tests, scripts and pytest.ini outside checkout.
+Foundry 1.5.1, jq, ORACLE_WHEEL and VLEI_COMPLY_DIR pointing to the qualified
+checkout. See [installed-wheel qualification](two-service-qualification.md). CI
+installs fresh wheels and copies tests, scripts, protocol fixtures and pytest.ini
+outside checkout.
 Support is excluded from wheels. Run one repository's test package per invocation.
 
-The qualification file is the only maintained paired scenario. The comply
-launcher changes to the selected oracle root and invokes that exact file with
-its installed Python, preserving witnesses, actors, stores and process boundaries.
+The qualification file is the only maintained paired scenario. Oracle
+`python -m scripts.integration.env flow --run-dir RUN` invokes that exact file
+against its started environment. Verifier commands own witnessed issuer work;
+Comply commands own deployment. No cross-repository Python internals are imported.

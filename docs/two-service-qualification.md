@@ -2,8 +2,8 @@
 
 `tests/qualification/test_two_services.py` runs the installed `eoa-verifier` and `vlei-oracle`
 CLIs as separate processes with independent KERI identities and persistent
-stores. It reuses the witnessed GEDA/QVI/LE issuer helpers and deploys the pinned
-comply contracts on a test-owned Anvil chain. It never injects accepted results.
+stores. It invokes Verifier-owned witnessed GEDA/QVI/LE fixture commands and deploys the pinned
+Comply contracts on a test-owned Anvil chain. It never injects accepted results.
 
 The test follows these boundaries:
 
@@ -31,47 +31,51 @@ TEL and witnessed KEL anchor. Authenticated storage ACK, application status and 
 are asserted separately. Detailed ownership and delivery edge cases remain in the
 focused policy/transport tests; this is not a second fault-matrix suite.
 
-## Run
-
-Install the oracle wheel and `tests/requirements.txt` in a fresh Python 3.12
-environment. Put Foundry 1.5.1 on PATH and set `VLEI_COMPLY_DIR` to comply revision
-`9efde5e3db818cf3129e89c9fd08c0f5c0f8dee1` with submodules and built contracts.
-From a directory containing the copied `tests` tree and `pytest.ini`:
+## Run the environment
 
 ```sh
-python -m pytest -q tests/qualification/test_two_services.py
+python -m scripts.integration.env qualify --run-dir /tmp/fresh-oracle-run
 ```
 
-CI runs this with the full installed-wheel suite. Missing prerequisites fail.
-Test logs and stores live beneath pytest's temporary directory; the fixture stops
-only its own subprocesses. On macOS hosts with LMDB vnode exhaustion, copy the
-inputs into a Linux container with no host bind mounts and run there.
+Use Python 3.12.6+, Foundry 1.5.1 and jq. Exact tool/contract revisions are recorded
+in `scripts/integration/dependencies.json`; CI reads that same manifest. Prepare
+creates a fresh run-owned environment with installed application wheels. The
+scenario exchanges public commands/artifacts, CESR HTTP, signed webhook bytes,
+public status and real contract reads. No Verifier implementation imports or
+acceptance injection are used.
 
-The producer revision is pinned in `tests/requirements.txt`, only for testing.
-CI's contract checkout and the demo manifest pin compatible contract revisions.
-Both applications use GLEIF KERI 1.2.19 and HIO 0.6.22. Valid-stream qualification
-does not resolve the producer's known native receipt-couple shortage limitation.
-The paired Comply launcher invokes this scenario without copying its issuance or
-process-ownership code.
+For candidate work add `--verifier-source PATH --comply-source PATH` and optional
+`--oracle-source PATH` on prepare/qualify. Git-inventoried source snapshots exclude
+ignored state and Git internals. Local changes are retained in the original
+checkout; source revision/content and wheel hashes identify the selected inputs.
+Use a new run when changing inputs.
 
-## Qualify local application changes
+## Full installed-wheel suite
 
-To qualify unmerged verifier/oracle changes, build wheels from clean temporary
-copies of both working trees and install both wheels into the same fresh Python
-3.12 environment with pytest. Omit
-`tests/requirements.txt` for this run: its Git requirement deliberately installs
-the merged verifier and would replace the candidate being qualified.
-
-Copy the oracle's `tests` tree plus `pytest.ini` outside the checkouts,
-then use the same pinned comply revision and Foundry version documented above:
+Build the Oracle wheel, install it with `[dev]` into a fresh environment, and copy
+`tests`, `scripts`, `protocol`, `pytest.ini` and `README.md` outside the checkout.
+Set `ORACLE_WHEEL` to that wheel and `GITHUB_SHA` to its exact tooling revision.
+Optionally select explicit compatible `VERIFIER_TOOL_SOURCE` and `VLEI_COMPLY_DIR`
+checkouts; otherwise preparation fetches the manifest pins. Run:
 
 ```sh
-VLEI_COMPLY_DIR=/path/to/pinned/comply \
-  /path/to/qualification/venv/bin/python -m pytest -q \
-  tests/qualification/test_two_services.py tests/receiving/test_status.py
+python -m pytest -q tests
 ```
 
-The paired test verifies the installed CLIs and wire/resource compatibility.
-`tests/receiving/test_status.py` additionally exercises Python imports from the installed
-producer through its `delivery`/`persistence` components. These imports require
-the reorganized producer revision pinned in `tests/requirements.txt`.
+The paired fixture creates/stops its own environment and retains logs/native
+stores on failure. Contract-effect tests also require the explicit
+`VLEI_COMPLY_DIR` with initialized submodules. Application code is installed,
+never editable or imported through source-path injection. The base Oracle test
+environment requires no Verifier package: the paired environment installs each
+application wheel itself. Missing prerequisites fail.
+
+A started operator run can execute the same scenario with `flow --run-dir RUN`.
+`ORACLE_INTEGRATION_RUN` is the explicit test attachment used internally by that
+command. The caller then owns stopping the run. Full flow is a fresh-scenario
+operation; repeated flow does not reset acceptance, mappings or token history.
+
+The focused producer completion-gap tests now belong to Verifier delivery tests;
+Oracle keeps receiver ordering, selection and publication assertions. Both use
+GLEIF KERI 1.2.19/HIO 0.6.22. Valid-stream qualification does not resolve the known
+native receipt-couple shortage limitation. See the
+[environment guide](../scripts/integration/README.md) for stop/start and clean.

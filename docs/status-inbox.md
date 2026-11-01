@@ -74,7 +74,7 @@ stores. Changing chain, writer or contract addresses requires another store.
 
 Install test-only producer requirements from `tests/requirements.txt`; this is not
 an Oracle runtime dependency. Contract/CI and demo revisions are explicit in
-`.github/workflows/tests.yml` and `scripts/dev/demo-dependencies.json`. Use the
+`scripts/integration/dependencies.json`, consumed by `.github/workflows/tests.yml`. Use the
 qualified checkout with submodules and Foundry 1.5.1 on PATH as `VLEI_COMPLY_DIR`.
 See [testing](testing.md) and [two-service qualification](two-service-qualification.md).
 

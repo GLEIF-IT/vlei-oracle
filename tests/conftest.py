@@ -1,28 +1,25 @@
 """conftest.py."""
 
 import os
+import json
 import shutil
 import socket
-import subprocess
-import time
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from eoa_verifier.delivery.authing import ServiceAuthenticator as SenderAuthenticator
-from eoa_verifier.persistence.basing import VerifierBaser
-from eoa_verifier.persistence.records import PendingVerification, VerificationResult
+from vlei_oracle.receiving.authing import ServiceAuthenticator as SenderAuthenticator
 from eth_account import Account
 from falcon import testing
 from keri.app import habbing
 from keri.db import dbing
 
-from tests.support.contracts import KEY, drive
+from tests.support.contracts import KEY
 from tests.support.status_events import said
-from vlei_oracle.endorsement.effects import ContractEffects
 from vlei_oracle.persistence.basing import OracleBaser
 from vlei_oracle.runtime.config import ReceiverConfig
-from vlei_oracle.runtime.deploy_log import parse_deploy_log
+from scripts.integration.artifacts import source_revision
+from scripts.integration.contracts import deploy
 from vlei_oracle.runtime.serving import StatusReceiver
 
 WALLET = Account.from_key("0x" + "0" * 63 + "1").address
@@ -37,7 +34,7 @@ def peers(tmp_path):
         habbing.openHby(name="producer", temp=True) as producer,
         habbing.openHby(name="oracle", temp=True) as oracle,
         dbing.openLMDB(
-            cls=VerifierBaser, name="producer", headDirPath=str(tmp_path), temp=False
+            cls=OracleBaser, name="producer", headDirPath=str(tmp_path), temp=False
         ) as outbox,
         dbing.openLMDB(
             cls=OracleBaser, name="oracle", headDirPath=str(tmp_path), temp=False
@@ -71,25 +68,24 @@ def peers(tmp_path):
             "issuanceAnchor": {"sequenceNumber": 3, "said": said("issuanceAnchor")},
         }
         association = said("association")
-        outbox.enqueue(PendingVerification(association, said("grant")))
-        outbox.finish(
-            VerificationResult(
-                association,
-                "verified",
-                eoaResult={
-                    "wallet": "0x" + "11" * 20,
-                    "accountObservation": {"observedAt": "2000-01-01T00:00:00Z"},
-                },
-            )
+        event = SimpleNamespace(
+            eventId=f"{association}:1",
+            associationSaid=association,
+            body=json.dumps(
+                {
+                    "version": "1",
+                    "eventId": f"{association}:1",
+                    "associationSaid": association,
+                    "statusRevision": 1,
+                    "status": "accepted",
+                    "association": facts,
+                    "accountObservation": {
+                        "chainId": 31337,
+                        "observedAt": "2000-01-01T00:00:00Z",
+                    },
+                }
+            ),
         )
-        accepted = outbox.accept(
-            association,
-            association=facts,
-            nonce="inbox-fixture",
-            destination=config.webhook_url,
-            peer_aid=receiver.hab.pre,
-        )
-        event = outbox.outbox.get(keys=(accepted.eventId,))
         yield SimpleNamespace(
             config=config,
             receiver=receiver,
@@ -106,61 +102,88 @@ def peers(tmp_path):
 
 
 @pytest.fixture(scope="module")
-def deployment():
-    """Deploy the pinned comply contracts on a test-owned Anvil process."""
-    comply = Path(
-        os.getenv(
-            "VLEI_COMPLY_DIR", Path(__file__).resolve().parents[2] / "vlei-comply"
+def comply_checkout(tmp_path_factory):
+    """Expose the isolated contract inputs and outputs used by the deployment."""
+    from scripts.integration.artifacts import snapshot_source
+
+    selected = os.getenv("VLEI_COMPLY_DIR")
+    assert selected, "Set VLEI_COMPLY_DIR to the exact qualified contract checkout"
+    source = Path(selected).resolve()
+    assert (source / "script/DeployAll.s.sol").is_file()
+    isolated = tmp_path_factory.mktemp("contract-source") / "comply"
+    snapshot_source(source, isolated)
+    return isolated
+
+
+@pytest.fixture(scope="module")
+def deployment(tmp_path_factory, comply_checkout):
+    """Own Anvil and build/deploy the shared isolated Comply fixture checkout."""
+    from scripts.integration.environment import start_chain
+    from scripts.integration.processes import free_port, stop
+
+    anvil = shutil.which("anvil")
+    assert anvil and shutil.which("forge"), "Foundry 1.5.1 is required"
+    root = tmp_path_factory.mktemp("contracts").resolve()
+    (root / "logs").mkdir()
+    port = free_port()
+    configuration = {
+        "anvil": anvil,
+        "rpcPort": port,
+        "rpcUrl": f"http://127.0.0.1:{port}",
+    }
+    try:
+        start_chain(root, configuration)
+        yield (
+            configuration["rpcUrl"],
+            deploy(
+                comply_checkout, configuration["rpcUrl"], root / "contracts.json", KEY
+            ),
         )
+    finally:
+        stop(root)
+
+
+@pytest.fixture
+def integration_run(tmp_path):
+    """Attach an explicit started run, or own a fresh installed-wheel stack.
+
+    The external run is managed by the operator command. A pytest-created run
+    closes all child processes even when qualification fails, retaining evidence.
+    """
+    from scripts.integration.environment import (
+        prepare_run,
+        start_run,
+        stop_run,
+        load_run,
     )
-    forge, anvil = shutil.which("forge"), shutil.which("anvil")
-    if not forge or not anvil or not (comply / "script/DeployAll.s.sol").is_file():
-        pytest.fail("contract tests require Foundry and VLEI_COMPLY_DIR")
-    with socket.socket() as sock:
-        sock.bind(("127.0.0.1", 0))
-        port = sock.getsockname()[1]
-    rpc = f"http://127.0.0.1:{port}"
-    process = subprocess.Popen(
-        [anvil, "--host", "127.0.0.1", "--port", str(port), "--silent"],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+
+    selected = os.getenv("ORACLE_INTEGRATION_RUN")
+    if selected:
+        root = Path(selected).resolve()
+        load_run(root)
+        yield root
+        return
+    wheel = os.environ.get("ORACLE_WHEEL")
+    assert wheel and Path(wheel).is_file(), (
+        "Set ORACLE_WHEEL to the fresh qualified wheel"
+    )
+    root = (tmp_path / "stack").resolve()
+    source = Path(__file__).resolve().parents[1]
+    prepare_run(
+        root,
+        source,
+        verifier_source=Path(os.environ["VERIFIER_TOOL_SOURCE"])
+        if os.getenv("VERIFIER_TOOL_SOURCE")
+        else None,
+        comply_source=Path(os.environ["VLEI_COMPLY_DIR"])
+        if os.getenv("VLEI_COMPLY_DIR")
+        else None,
+        witness_count=1,
+        wheel=Path(wheel),
+        tool_revision=os.getenv("GITHUB_SHA") or source_revision(source),
     )
     try:
-        deadline = time.monotonic() + 10
-        while True:
-            try:
-                with socket.create_connection(("127.0.0.1", port), timeout=0.1):
-                    break
-            except OSError:
-                if process.poll() is not None or time.monotonic() >= deadline:
-                    pytest.fail("Anvil did not open its RPC listener")
-                time.sleep(0.02)
-        readiness = ContractEffects(
-            rpc_url=rpc,
-            chain_id=31337,
-            writer=Account.from_key(KEY).address,
-            endorsement=WALLET,
-            identity=WALLET,
-        )
-        drive(readiness, lambda effects: effects.check_chain())
-        deployed = subprocess.run(
-            [
-                forge,
-                "script",
-                "script/DeployAll.s.sol",
-                "--rpc-url",
-                rpc,
-                "--broadcast",
-                "--non-interactive",
-            ],
-            cwd=comply,
-            env={**os.environ, "PRIVATE_KEY": KEY},
-            capture_output=True,
-            text=True,
-            timeout=90,
-        )
-        assert deployed.returncode == 0, deployed.stdout + deployed.stderr
-        yield rpc, parse_deploy_log(deployed.stdout)
+        start_run(root, load_run(root))
+        yield root
     finally:
-        process.terminate()
-        process.wait(timeout=10)
+        stop_run(root)

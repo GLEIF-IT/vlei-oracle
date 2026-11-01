@@ -1,423 +1,232 @@
-"""qualification/test_two_services.py."""
+"""Real witnessed two-service qualification and the maintained local USDC flow.
+
+The Verifier's public fixture CLI owns issuance/presentation. This scenario owns
+only contract setup and assertions against public HTTP and mined chain state.
+"""
 
 import json
-import os
-import sys
-from contextlib import ExitStack
-from importlib.resources import files
 from pathlib import Path
 from uuid import uuid4
 
-from eoa_verifier.verification.constants import LE_SCHEMA, QVI_SCHEMA
-from eoa_verifier.verification.eoa import build_challenge
 from eth_account import Account
-from eth_account.messages import encode_typed_data
 from hio.base import doing
-from keri.app import habbing, httping, indirecting, oobiing
-from keri.core import coring, scheming
-from keri.db import basing
-from keri.help import helping
 
+from scripts.integration.artifacts import load_json, save_json
+from scripts.integration.environment import (
+    call_verifier,
+    restart_oracle,
+    start_verifier,
+)
+from scripts.integration.processes import stop
 from tests.support.contracts import KEY, contract, effects_for, read, send
-from tests.support.issuers import (
-    IssuerEscrows,
-    anchor,
-    approve_qvi,
-    association_from_challenge,
-    grant,
-    issue_credential,
-    open_issuers,
-    receive,
-    replay,
-    revoke_credential,
-    rules,
-)
-from tests.support.processes import (
-    free_port,
-    identity,
-    launch,
-    lost_ack_proxy,
-    ready,
-    request,
-    stop,
-)
+from tests.support.processes import request
 
 
-def test_two_installed_services_publish_replace_and_retire(tmp_path, deployment):
-    """Qualify witnessed KERI trust, two-wallet USDC transfer, lost ACK, restart and exact retirement.
+class USDCScenario:
+    """Borrow one started run and its HIO contract client for a fresh USDC flow."""
 
-    Issuers/witness use KERIpy fixture stores; both applications own independent
-    persistent stores. Only CESR HTTP, signed webhooks, public status and contract
-    reads cross process boundaries. No acceptance/result records are injected.
-    """
-    schemas = [
-        scheming.Schemer(raw=p.read_bytes())
-        for p in files("eoa_verifier.verification").joinpath("schema_data").iterdir()
-    ]
-    by_said = {schema.said: schema for schema in schemas}
-    rpc, addresses = deployment
-    verifier_port, oracle_port, witness_port = free_port(), free_port(), free_port()
-    root = tmp_path / "services"
-    verifier_aid, verifier_kel = identity(root, "verifier", "verifier")
-    oracle_aid, oracle_kel = identity(root, "oracle", "oracle")
-    assert verifier_aid != oracle_aid
-    kel_path = tmp_path / "verifier.cesr"
-    kel_path.write_bytes(verifier_kel)
-    effects = effects_for(deployment)
-    wallet_key = "0x" + "0" * 63 + "1"
-    wallet = Account.from_key(wallet_key).address
-    recipient_key = "0x" + "0" * 63 + "2"
-    recipient = Account.from_key(recipient_key).address
-    posting_key = "0x" + "0" * 63 + "3"
-    posting_wallet = Account.from_key(posting_key).address
-    comply = Path(os.environ["VLEI_COMPLY_DIR"])
-    admin = contract(comply, "AdminControls", addresses["adminControls"])
-    token = contract(comply, "USDC", addresses["usdcToken"])
-    wrapper = contract(comply, "wUSDC", addresses["wrapper"])
-    finished = []
+    def __init__(self, root: Path):
+        """Bind explicit run artifacts, public fixture wallets and contract ABIs."""
+        self.root = root
+        self.configuration = load_json(root / "run.json")
+        self.verifier = load_json(root / "verifier/run.json")
+        self.addresses = self.configuration["contracts"]
+        self.effects = effects_for((self.configuration["rpcUrl"], self.addresses))
+        comply = Path(self.configuration["comply"])
+        self.admin = contract(comply, "AdminControls", self.addresses["adminControls"])
+        self.token = contract(comply, "USDC", self.addresses["usdcToken"])
+        self.wrapper = contract(comply, "wUSDC", self.addresses["wrapper"])
+        self.keys = {n: "0x" + "0" * 63 + str(n) for n in (1, 2, 3)}
+        self.wallet = Account.from_key(self.keys[1]).address
+        self.recipient = Account.from_key(self.keys[2]).address
+        self.finished = False
+        self.workflow = doing.DoDoer(doers=[self.effects, doing.doify(self.run)])
 
-    with ExitStack() as stack:
-        witness_hby = stack.enter_context(habbing.openHby(name="witness", temp=True))
-        witness_doers = indirecting.setupWitness(
-            hby=witness_hby,
-            alias="witness",
-            tcpPort=None,
-            httpPort=witness_port,
+    def run(self, tymth, tock=0.0, **kwargs):
+        """Sequence independent setup, acceptance, restart and retirement phases."""
+        yield tock
+        yield from self.prepare_wallets()
+        first = self.issue()
+        accepted = yield from self.status(first["said"], "accepted")
+        assert accepted["association"]["issuerAid"] == first["issuerAid"]
+        assert accepted["accountObservation"]["chainId"] == 31337
+        yield from self.mapping(first["said"])
+        yield from self.reject_nonce_reuse(first)
+        beneficiary = self.issue(wallet=2)
+        yield from self.status(beneficiary["said"], "accepted")
+        yield from self.mapping(beneficiary["said"], self.recipient)
+        yield from self.transfer(expected=True)
+        self.assert_retry(first, accepted)
+        yield from self.reopen(first, accepted)
+        second = self.issue()
+        yield from self.status(second["said"], "accepted")
+        yield from self.mapping(second["said"])
+        yield from self.retire(first, second, beneficiary)
+        save_json(
+            self.root / "flow.json",
+            {
+                "first": first,
+                "second": second,
+                "beneficiary": beneficiary,
+                "accountObservation": accepted["accountObservation"],
+            },
         )
-        witness = witness_hby.habByName("witness")
-        witness_url = f"http://127.0.0.1:{witness_port}"
-        witness_hby.psr.parse(ims=witness.makeEndRole(eid=witness.pre))
-        witness_hby.psr.parse(ims=witness.makeLocScheme(url=witness_url))
-        actors, issuers = open_issuers(
-            stack, schemas, base="", temp=True, witness=witness
+        self.finished = True
+        self.workflow.remove([self.effects])
+
+    def prepare_wallets(self):
+        """Use a separate administrator; prove no transfer before both endorsements."""
+        yield from self.effects.request(
+            "anvil_setBalance", [self.wallet, "0x56bc75e2d63100000"]
         )
-        oobi = f"{witness_url}/oobi/{witness.pre}/controller"
-        resolvers = []
-        for hby, _, _ in actors.values():
-            hby.db.oobis.pin(
-                keys=(oobi,), val=basing.OobiRecord(date=helping.nowIso8601())
-            )
-            resolvers.append(oobiing.Oobiery(hby=hby, clienter=httping.Clienter()))
-        _, geda, _ = actors["geda"]
-        _, qvi, _ = actors["qvi"]
-        _, le, le_rgy = actors["le"]
-        proxy = lost_ack_proxy(stack, oracle_port)
-        destination = f"http://127.0.0.1:{proxy.server_port}/v1/status-events"
-        verifier_command = [
-            str(Path(sys.executable).with_name("eoa-verifier")),
-            "server",
-            "start",
-            "--name",
-            "verifier",
-            "--head-dir",
-            str(root),
-            "--http-port",
-            str(verifier_port),
-            "--trusted-geda-aid",
-            geda.pre,
-            "--rpc-url",
-            rpc,
-            "--chain-id",
-            "31337",
-            "--webhook-url",
-            destination,
-            "--webhook-aid",
-            oracle_aid,
-            "--webhook-timeout",
-            "1",
-            "--webhook-interval",
-            "0.1",
-            "--webhook-backoff-base",
-            "0.1",
-            "--webhook-backoff-cap",
-            "0.2",
-        ]
-        oracle_command = [
-            str(Path(sys.executable).with_name("vlei-oracle")),
-            "server",
-            "start",
-            "--name",
-            "oracle",
-            "--head-dir",
-            str(root),
-            "--http-port",
-            str(oracle_port),
-            "--host",
-            "127.0.0.1",
-            "--verifier-aid",
-            verifier_aid,
-            "--verifier-kel",
-            str(kel_path),
-            "--chain-id",
-            "31337",
-            "--webhook-url",
-            destination,
-            "--rpc-url",
-            rpc,
-            "--endorsement-registry",
-            addresses["oracleRegistry"],
-            "--identity-registry",
-            addresses["identityRegistry"],
-            "--confirmations",
-            "1",
-            "--posting-interval",
-            "0.1",
-        ]
-        environment = {
-            **os.environ,
-            "VLEI_ORACLE_POSTING_KEY": posting_key,
-            "PYTHONUNBUFFERED": "1",
-        }
-        verifier_log, oracle_log = tmp_path / "verifier.log", tmp_path / "oracle.log"
-        verifier = launch(stack, verifier_command, verifier_log)
-        oracle = launch(stack, oracle_command, oracle_log, env=environment)
-        registries, credentials, streams = {}, {}, {}
+        posting_wallet = Account.from_key(self.keys[3]).address
+        role = self.effects.web3.keccak(text="COMPLIANCE_ADMIN_ROLE")
+        assert (
+            yield from read(self.effects, self.admin, "hasRole", [role, posting_wallet])
+        ) == (True,)
+        yield from send(self.effects, self.token, "mint", [self.wallet, 100000000], KEY)
+        yield from send(
+            self.effects,
+            self.token,
+            "approve",
+            [self.wrapper.address, 100000000],
+            self.keys[1],
+        )
+        yield from self.transfer(expected=False, initial=True)
 
-        def deliver(stream):
-            """PUT a finite CESR stream; transport acceptance is not credential acceptance."""
-            code, _ = yield from request(
-                workflow, verifier_port, "/", method="PUT", body=stream
-            )
-            assert code == 204
+    def issue(self, *, wallet=1, nonce=None):
+        """Issue and present real witnessed bytes using the supported fixture CLI."""
+        descriptor = call_verifier(
+            self.root,
+            "issue",
+            "--wallet",
+            str(wallet),
+            "--nonce",
+            nonce or str(uuid4()),
+            descriptor=True,
+        )
+        call_verifier(self.root, "present", "--said", descriptor["said"])
+        return descriptor
 
-        def status(said, expected):
-            """Wait for the public stored state and authenticated delivery completion."""
-            deadline = workflow.tyme + 15
-            while True:
-                code, body = yield from request(
-                    workflow, verifier_port, f"/v1/associations/{said}/status"
-                )
-                value = json.loads(body)
-                if (
-                    code == 200
-                    and value["status"] == expected
-                    and value.get("delivery", {}).get("acknowledged")
-                ):
-                    return value
-                assert workflow.tyme < deadline, (
-                    value,
-                    verifier_log.read_text(),
-                    oracle_log.read_text(),
-                )
-                yield 0.05
-
-        def mapping(said, address=wallet):
-            """Require actual registry state, not an HTTP ACK or submitted transaction hash."""
-            deadline = workflow.tyme + 15
-            while True:
-                _, current = yield from effects.observe(address)
-                if current[1] == said:
-                    return current
-                assert workflow.tyme < deadline, (current, oracle_log.read_text())
-                yield 0.05
-
-        def association(key=wallet_key, nonce=None):
-            """Issue a real wallet-signed association at a new witnessed LE KEL event."""
-            challenge = build_challenge(
-                issuer_aid=le.pre,
-                le_vlei_said=credentials["qvi"].said,
-                ext_id=f"eip155:31337:{Account.from_key(key).address.lower()}",
-                nonce=nonce if nonce is not None else str(uuid4()),
+    def status(self, said, expected):
+        """Wait for stored public status and its own authenticated ACK when emitted."""
+        deadline = self.workflow.tyme + 25
+        while True:
+            code, body = yield from request(
+                self.workflow,
+                self.verifier["verifierPort"],
+                f"/v1/associations/{said}/status",
             )
-            sig = Account.sign_message(
-                encode_typed_data(full_message=challenge), key
-            ).signature
-            creder = association_from_challenge(
-                challenge, "0x" + sig.hex(), registries["le"].regk
-            )
-            yield from issue_credential(issuers["le"], registries["le"], creder)
-            stream = replay(le, le_rgy, registries["le"], creder) + grant(
-                le, le_rgy, creder, verifier_aid
-            )
-            return creder, stream
-
-        def run(tymth, tock=0.0, **opts):
-            """Follow the production success path, then exercise only the important delivery/lifecycle faults."""
-            nonlocal verifier, oracle
-            yield tock
-            yield from ready(verifier, verifier_port, verifier_log, workflow)
-            yield from ready(oracle, oracle_port, oracle_log, workflow)
-            yield from deliver(oracle_kel)
-            # Admin setup and oracle posting use different nonce streams.
-            for address in (wallet, posting_wallet):
-                yield from effects.request(
-                    "anvil_setBalance", [address, "0x56bc75e2d63100000"]
-                )
-            role = effects.web3.keccak(text="COMPLIANCE_ADMIN_ROLE")
-            yield from send(effects, admin, "grantRole", [role, posting_wallet], KEY)
-            assert (
-                yield from read(effects, admin, "hasRole", [role, posting_wallet])
-            ) == (True,)
-            yield from send(effects, token, "mint", [wallet, 100000000], KEY)
-            yield from send(
-                effects, token, "approve", [wrapper.address, 100000000], wallet_key
-            )
-            assert (
-                yield from read(
-                    effects, wrapper, "transfer", [recipient, 1000000], sender=wallet
-                )
-            ) == (False,)
-            yield from send(
-                effects, wrapper, "transfer", [recipient, 1000000], wallet_key
-            )
-            assert (yield from read(effects, token, "balanceOf", [recipient])) == (0,)
-            for hby, _, _ in actors.values():
-                while hby.db.roobi.get(keys=(oobi,)) is None:
-                    yield 0.01
-                assert hby.db.roobi.get(keys=(oobi,)).state == oobiing.Result.resolved
-            yield from approve_qvi(actors, issuers)
-            for name, (_, hab, rgy) in actors.items():
-                registry = rgy.makeRegistry(name=name, prefix=hab.pre, noBackers=True)
-                issuers[name].registrar.incept(registry.vcp, anchor(hab, registry.vcp))
-                while not issuers[name].registrar.complete(registry.regk):
-                    yield 0.01
-                registries[name] = registry
-            # Establish the actual GEDA -> QVI -> LE chain before presenting the association.
-            for name, holder, schema in (
-                ("geda", qvi, QVI_SCHEMA),
-                ("qvi", le, LE_SCHEMA),
+            value = json.loads(body)
+            delivery = value.get("delivery")
+            if (
+                code == 200
+                and value["status"] == expected
+                and (expected == "rejected" or (delivery and delivery["acknowledged"]))
             ):
-                source = (
-                    None
-                    if name == "geda"
-                    else coring.Saider.saidify(
-                        sad={
-                            "d": "",
-                            "qvi": {"n": credentials["geda"].said, "s": QVI_SCHEMA},
-                        }
-                    )[1]
-                )
-                creder = issuers[name].create(
-                    regname=name,
-                    recp=holder.pre,
-                    schema=schema,
-                    source=source,
-                    rules=rules(by_said[schema]),
-                    data={"LEI": "5493001KJTIIGC8Y1R12"},
-                )
-                yield from issue_credential(issuers[name], registries[name], creder)
-                credentials[name] = creder
-                streams[name] = replay(
-                    registries[name].hab, issuers[name].rgy, registries[name], creder
-                )
-                hby, _, rgy = actors["qvi" if name == "geda" else "le"]
-                receive(
-                    hby,
-                    rgy,
-                    streams["geda"] + (streams["qvi"] if name == "qvi" else b""),
-                )
-                assert rgy.reger.saved.get(keys=(creder.said,))
-            first, first_stream = yield from association()
-            yield from deliver(streams["geda"] + streams["qvi"] + first_stream)
-            accepted = yield from status(first.said, "accepted")
-            assert accepted["association"]["issuerAid"] == le.pre
-            assert accepted["accountObservation"]["chainId"] == 31337
-            yield from mapping(first.said)
-            duplicate, duplicate_stream = yield from association(
-                recipient_key, first.sad["u"]
-            )
-            assert duplicate.said != first.said
-            yield from deliver(duplicate_stream)
-            deadline = workflow.tyme + 15
-            while True:
-                code, body = yield from request(
-                    workflow, verifier_port, f"/v1/associations/{duplicate.said}/status"
-                )
-                rejected = json.loads(body)
-                if code == 200 and rejected["status"] == "rejected":
-                    break
-                assert workflow.tyme < deadline, (rejected, verifier_log.read_text())
-                yield 0.05
-            assert rejected["reason"] == "NONCE_REUSED" and rejected["delivery"] is None
-            assert not any(
-                json.loads(body)["associationSaid"] == duplicate.said
-                for body in proxy.events
-            )
-            yield from mapping(first.said)
-            beneficiary, beneficiary_stream = yield from association(recipient_key)
-            yield from deliver(beneficiary_stream)
-            yield from status(beneficiary.said, "accepted")
-            yield from mapping(beneficiary.said, recipient)
-            # Both exact wallets must be endorsed; a mined receipt alone proves no transfer.
-            yield from send(
-                effects, wrapper, "transfer", [recipient, 1000000], wallet_key
-            )
-            assert (yield from read(effects, token, "balanceOf", [recipient])) == (
-                1000000,
-            )
-            assert (yield from read(effects, token, "balanceOf", [wallet])) == (
-                99000000,
-            )
-            assert proxy.dropped and accepted["delivery"]["attempts"] >= 2
-            initial = [
-                body
-                for body in proxy.events
-                if json.loads(body)["eventId"] == f"{first.said}:1"
-            ]
-            assert len(initial) >= 2 and len(set(initial)) == 1
+                return value
+            assert self.workflow.tyme < deadline, (value, str(self.root / "logs"))
+            yield 0.05
 
-            # Reopen both independent applications; no new Grant or account observation is needed.
-            stop(verifier)
-            stop(oracle)
-            oracle = launch(stack, oracle_command, oracle_log, env=environment)
-            yield from ready(oracle, oracle_port, oracle_log, workflow)
-            yield from mapping(first.said)  # The verifier remains offline.
-            verifier = launch(stack, verifier_command, verifier_log)
-            yield from ready(verifier, verifier_port, verifier_log, workflow)
-            reopened = yield from status(first.said, "accepted")
-            assert reopened["accountObservation"] == accepted["accountObservation"]
-            yield from deliver(
-                first_stream
-            )  # Duplicate presentation has no new application effects.
-            assert (yield from status(first.said, "accepted"))["eventId"] == accepted[
-                "eventId"
-            ]
+    def mapping(self, said, address=None):
+        """Require actual canonical registry state, beyond an HTTP ACK or tx hash."""
+        deadline = self.workflow.tyme + 25
+        while True:
+            _, current = yield from self.effects.observe(address or self.wallet)
+            if current[1] == said:
+                return current
+            assert self.workflow.tyme < deadline, (
+                current,
+                str(self.root / "logs/oracle.log"),
+            )
+            yield 0.05
 
-            second, second_stream = yield from association()
-            yield from deliver(second_stream)
-            yield from status(second.said, "accepted")
-            yield from mapping(second.said)
-            # A Grant still carries issuance. Retirement requires verified revocation TEL and its anchor.
-            yield from revoke_credential(issuers["le"], registries["le"], first)
-            yield from deliver(
-                grant(le, le_rgy, first, verifier_aid)
-                + replay(le, le_rgy, registries["le"], first)
-            )
-            yield from status(first.said, "revoked")
-            yield from mapping(second.said)
-            yield from revoke_credential(issuers["le"], registries["le"], second)
-            yield from deliver(
-                grant(le, le_rgy, second, verifier_aid)
-                + replay(le, le_rgy, registries["le"], second)
-            )
-            retired = yield from status(second.said, "revoked")
-            assert retired["delivery"]["eventId"] == f"{second.said}:2"
-            yield from mapping("")
-            yield from mapping(beneficiary.said, recipient)
-            assert (
-                yield from read(
-                    effects, wrapper, "transfer", [recipient, 1000000], sender=wallet
-                )
-            ) == (False,)
-            yield from send(
-                effects, wrapper, "transfer", [recipient, 1000000], wallet_key
-            )
-            assert (yield from read(effects, token, "balanceOf", [recipient])) == (
-                1000000,
-            )
-            assert (yield from read(effects, token, "balanceOf", [wallet])) == (
-                99000000,
-            )
-            finished.append(True)
-            workflow.remove(list(workflow.doers[:-1]))
-
-        doers = [
-            *witness_doers,
-            *(d for r in resolvers for d in r.doers),
-            *(d for i in issuers.values() for d in (i.registrar, i)),
-            IssuerEscrows(list(issuers.values())),
-            effects,
+    def events(self):
+        """Read exact forwarded bytes retained by the isolated lost-ACK fixture."""
+        return [
+            json.loads(line)["body"]
+            for line in (self.root / "proxy-events.jsonl").read_text().splitlines()
         ]
-        workflow = doing.DoDoer(doers=[*doers, doing.doify(run)])
-        doing.Doist(real=True, tock=0.01, limit=90).do(doers=[workflow])
-        assert finished, (verifier_log.read_text(), oracle_log.read_text())
+
+    def reject_nonce_reuse(self, first):
+        """A valid second wallet reusing the accepted nonce creates no Oracle effect."""
+        duplicate = self.issue(wallet=2, nonce=first["nonce"])
+        assert duplicate["said"] != first["said"]
+        rejected = yield from self.status(duplicate["said"], "rejected")
+        assert rejected["reason"] == "NONCE_REUSED" and rejected["delivery"] is None
+        assert not any(
+            json.loads(body)["associationSaid"] == duplicate["said"]
+            for body in self.events()
+        )
+        yield from self.mapping(first["said"])
+
+    def transfer(self, *, expected, initial=False):
+        """Check return value, mined execution and exact underlying USDC balances."""
+        result = yield from read(
+            self.effects,
+            self.wrapper,
+            "transfer",
+            [self.recipient, 1000000],
+            sender=self.wallet,
+        )
+        assert result == (expected,)
+        yield from send(
+            self.effects,
+            self.wrapper,
+            "transfer",
+            [self.recipient, 1000000],
+            self.keys[1],
+        )
+        received = 0 if initial else 1000000
+        assert (
+            yield from read(self.effects, self.token, "balanceOf", [self.recipient])
+        ) == (received,)
+        assert (
+            yield from read(self.effects, self.token, "balanceOf", [self.wallet])
+        ) == (100000000 - received,)
+
+    def assert_retry(self, first, accepted):
+        """Loss after Oracle commit retries the identical event with no new identity."""
+        assert (self.root / "dropped-ack").exists()
+        assert accepted["delivery"]["attempts"] >= 2
+        initial = [
+            body
+            for body in self.events()
+            if json.loads(body)["eventId"] == f"{first['said']}:1"
+        ]
+        assert len(initial) >= 2 and len(set(initial)) == 1
+
+    def reopen(self, first, accepted):
+        """Reopen Oracle with Verifier offline, then verify durable producer state."""
+        call_verifier(self.root, "stop", "--service", "verifier")
+        stop(self.root, "oracle")
+        restart_oracle(self.root, self.configuration)
+        yield from self.mapping(first["said"])
+        start_verifier(self.root, self.configuration)
+        reopened = yield from self.status(first["said"], "accepted")
+        assert reopened["accountObservation"] == accepted["accountObservation"]
+        call_verifier(self.root, "present", "--said", first["said"])
+        assert (yield from self.status(first["said"], "accepted"))[
+            "eventId"
+        ] == accepted["eventId"]
+
+    def retire(self, first, second, beneficiary):
+        """Old revocation preserves replacement; current revocation removes only it."""
+        for descriptor, expected in ((first, second["said"]), (second, "")):
+            call_verifier(self.root, "revoke", "--said", descriptor["said"])
+            call_verifier(self.root, "present", "--said", descriptor["said"])
+            retired = yield from self.status(descriptor["said"], "revoked")
+            assert retired["delivery"]["eventId"] == f"{descriptor['said']}:2"
+            yield from self.mapping(expected)
+        yield from self.mapping(beneficiary["said"], self.recipient)
+        yield from self.transfer(expected=False)
+
+
+def test_two_installed_services_publish_replace_and_retire(integration_run):
+    """Keep the full witnessed, two-wallet, lost-ACK and restart qualification."""
+    marker = integration_run / "flow-started"
+    with marker.open("x") as stream:
+        stream.write("A full flow requires fresh scenario state.\n")
+    scenario = USDCScenario(integration_run)
+    doing.Doist(real=True, tock=0.01, limit=180).do(doers=[scenario.workflow])
+    assert scenario.finished, str(integration_run / "logs")

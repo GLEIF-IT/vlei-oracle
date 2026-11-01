@@ -40,39 +40,32 @@ import paths and must not share an environment with upstream distributions.
 
 ```sh
 uv venv --python 3.12 .venv
-uv pip install --python .venv/bin/python -e '.[dev]' -r tests/requirements.txt
-.venv/bin/python scripts/dev/prepare-demo.py --schemas-only
-# For the full suite, first prepare Foundry/comply as described below.
-.venv/bin/python -m pytest -q
+uv pip install --python .venv/bin/python '.[dev]'
 ```
 
-For standalone installation, build a wheel with `python -m pip wheel --no-deps
---wheel-dir dist .` and install it into a fresh environment. The oracle wheel does
-not depend on or import EOA Verifier. See the [operator guide](docs/status-inbox.md)
-for explicit trust, chain, contract and writer settings.
+For standalone installation, build and install a wheel in a fresh environment.
+See the [operator guide](docs/status-inbox.md) for explicit trust, chain, contract
+and writer settings. The Oracle wheel does not depend on EOA Verifier.
 
-For both applications and the local launcher, prepare one isolated demo directory:
+## Local integration environment
+
+With Python 3.12.6+, Foundry 1.5.1 and jq on PATH:
 
 ```sh
-python3.12 scripts/dev/prepare-demo.py --directory .demo-paired
-source .demo-paired/demo.env
+python -m scripts.integration.env prepare --run-dir /tmp/oracle-demo
+python -m scripts.integration.env start --run-dir /tmp/oracle-demo
+python -m scripts.integration.env flow --run-dir /tmp/oracle-demo
+python -m scripts.integration.env stop --run-dir /tmp/oracle-demo
 ```
 
-This installs the invoking oracle source, the merged verifier pinned in
-`tests/requirements.txt`, and the KERIpy/HIO versions declared by the package.
-The manifest pins KERI demo assets, vLEI schemas and the comply launcher/contracts.
-It exports both executables and checkout paths; it starts no services and creates
-no identities. Existing mismatched/dirty dependency checkouts are never reset;
-choose a new directory when changing pins. Install Foundry 1.5.1 separately, then
-follow the prepared comply checkout's `docs/gl1-vlei-local-infra-setup.md` for
-service configuration. Run its `scripts/dev/init-local-vlei-fixture.sh` with these
-exports for the witnessed two-wallet test; keep this prepared environment with the selected compatible revisions.
-
-The schema-server tool `vlei` still declares upstream `keri`/`hio` distribution
-names. The preparer installs it with `--no-deps` into the GLEIF demo environment;
-`pip check` therefore reports those two metadata requirements as missing. Do not
-install the overlapping upstream packages to silence them. This exception belongs
-to demo schema tooling, not either application wheel.
+Oracle owns the full stack and the sole maintained USDC scenario. Preparation
+selects exact dependencies, installs fresh application wheels and creates native
+witnessed source credentials. The Verifier fixture CLI owns issuance; Comply's
+deploy command owns constructors and structured artifacts. No external schema
+package or overlapping upstream KERI/HIO distribution is installed.
+See [environment commands](scripts/integration/README.md) for lifecycle,
+candidate-source selection and retained artifacts, and
+[qualification](docs/two-service-qualification.md) for the installed-wheel suite.
 
 ## Protocol ownership
 
@@ -83,7 +76,7 @@ including shared webhook authentication/ACKs. Oracle owns only
 [Comply](https://github.com/GLEIF-IT/vlei-comply/blob/main/docs/oracle-registry.md)
 owns registry methods, identity encoding, ABI and calldata fixtures.
 
-Issuance assembly in `tests/support/issuers.py` serves the maintained paired
-qualification; it is not an installed Oracle issuance API. Oracle has no wallet
-challenge, credential finalization or association-nonce store. Transport replay
-claims and Ethereum transaction nonces remain separate concerns.
+Oracle uses the Verifier-owned fixture CLI for qualification issuance, not an
+installed Oracle issuance API. Oracle has no wallet challenge, credential
+finalization or association-nonce store. Transport replay claims and Ethereum
+transaction nonces remain separate concerns.
