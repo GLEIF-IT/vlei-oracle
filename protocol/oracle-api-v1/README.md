@@ -7,9 +7,8 @@ wallet proofs or consume association nonces.
 ## Dependencies and trust
 
 [Verifier API v1](https://github.com/GLEIF-IT/eoa-verifier/blob/master/protocol/verifier-api-v1/README.md)
-is authoritative for event fields/vocabulary and the shared authenticated webhook
-and ACK profile, including context strings, header coverage, signatures, replay
-claims and request correlation. Oracle implements that profile without importing
+is authoritative for event fields/vocabulary and the shared HTTP signature
+profile, including method/path and exact body-digest coverage. Oracle implements that profile without importing
 Verifier at runtime. [External association v1](https://github.com/GLEIF-IT/eoa-verifier/blob/master/protocol/external-association-v1/README.md)
 is owned by Verifier. [Comply's registry](https://github.com/GLEIF-IT/vlei-comply/blob/main/docs/oracle-registry.md)
 owns methods, roles, events and mapping encoding.
@@ -32,19 +31,24 @@ Credential, proof and account verification are trusted producer responsibilities
 
 | Result | HTTP response | Durable application effect |
 | --- | --- | --- |
-| Valid new event | 200, authenticated producer-profile ACK | Status event, newest status, selection and queued work commit together |
-| Exact duplicate | 200, newly authenticated ACK | No repeated selection/effect |
-| Valid older revision | 200, authenticated ACK | Status event retained; newer status preserved |
+| Valid new event | 200, signed storage result | Status event, newest status, selection and queued work commit together |
+| Exact duplicate | 200, signed storage result | No repeated selection/effect |
+| Valid older revision | 200, signed storage result | Status event retained; newer status preserved |
 | Wrong path/query or malformed/unsupported event | 400 | No status-event storage |
-| Invalid/missing signature, wrong peer or replay | 401 | No status-event storage |
+| Invalid/missing signature or untrusted signer | 401 | No status-event storage |
 | Conflicting bytes at an event revision, changed association facts, reacceptance after revocation, or revocation revision before accepted revision | 409 | Application transaction aborts |
 
-Authentication claims a transport nonce before decoding or application event storage.
-Thus a validly signed malformed/conflicting event may consume that attempt nonce;
-retry with fresh transport authentication. Error responses never complete delivery.
-Sign the success ACK only after LMDB commit. A crash/signing failure after commit
-is safe to redeliver. **ACK means durable status-event storage, not selected ownership or
-confirmed endorsement.**
+Oracle requires a valid request signature from its configured Verifier AID.
+The [shared signature profile](https://github.com/GLEIF-IT/eoa-verifier/blob/master/protocol/verifier-api-v1/README.md#transport-signature-profile)
+covers method, path and exact body digest. No transport nonce is consumed. An
+exact signed duplicate can succeed after restart without repeated effects; a
+conflicting event body still fails.
+
+Sign the JSON storage result only after the LMDB commit. A crash or response loss
+is safe to redeliver. Verifier checks supplied response signatures but also works
+with targets returning ordinary unsigned 2xx responses. Oracle keeps its signing
+AID and KEL export for receivers opting into verification. **Storage success does
+not mean selected ownership or confirmed endorsement.**
 
 ## Selection and replacement
 

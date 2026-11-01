@@ -1,4 +1,4 @@
-"""Durable journal, deployment scope and transport replay records."""
+"""Durable journal, deployment scope and posting records."""
 
 from __future__ import annotations
 
@@ -25,13 +25,6 @@ class TransactionRecord:
     associationSaid: str
     functionName: str
     state: str = "pending"
-
-
-@dataclass
-class ReplayClaim:
-    """Authenticated transport nonce lifetime, independent of event deduplication."""
-
-    expiresAt: int
 
 
 @dataclass

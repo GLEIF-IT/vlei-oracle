@@ -8,13 +8,13 @@ contract construction. The maintained Oracle pytest scenario owns USDC assertion
 import hashlib
 import json
 import os
-from pathlib import Path
 import shutil
 import subprocess
 import sys
+from pathlib import Path
 from urllib.request import Request, urlopen
 
-from .artifacts import load_json, save_json, snapshot_source, copy_tool_inputs
+from .artifacts import copy_tool_inputs, load_json, save_json, snapshot_source
 from .checkouts import fetch_checkout
 from .contracts import deploy
 from .processes import is_running, launch, process_records, stop, wait_ready
@@ -235,8 +235,9 @@ def _install_oracle(root: Path, source: Path, python: str, wheel: Path | None) -
 
 def initialize_identity(root: Path, configuration: dict) -> None:
     """Prepare Oracle's own AID and public KEL before either service opens stores."""
-    from keri.app import habbing
     from importlib.metadata import version
+
+    from keri.app import habbing
 
     configuration["versions"] = {
         "python": sys.version.split()[0],
@@ -496,8 +497,6 @@ def start_verifier(root: Path, configuration: dict) -> None:
         configuration["rpcUrl"],
         "--webhook-url",
         configuration["webhookUrl"],
-        "--webhook-aid",
-        configuration["oracleAid"],
         "--peer-kel",
         str(root / "oracle.cesr"),
     )

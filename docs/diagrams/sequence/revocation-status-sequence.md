@@ -20,7 +20,7 @@ sequenceDiagram
     V->>V: Record revoked association status and its own delivery event
     V->>O: Authenticated revoked event
     O->>O: Commit status event, selection and queued withdrawal
-    O-->>V: Authenticated ACK for this event/attempt
+    O-->>V: Signed storage result for this event
     O->>C: Withdraw exact association SAID
     alt Current mapping still names revoked SAID
         C->>C: Clear endorsement and emit withdrawal

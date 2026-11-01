@@ -16,10 +16,9 @@ def said(label):
 def post(peers, body, *, auth=None, headers=None):
     """Send exact bytes through Falcon, signing each application retry anew."""
     if headers is None:
-        headers, _ = (auth or peers.auth).sign(
+        headers = (auth or peers.auth).sign(
             method="POST",
             target=peers.config.webhook_url,
-            action="status",
             body=body,
         )
     return testing.TestClient(peers.receiver.app).simulate_post(

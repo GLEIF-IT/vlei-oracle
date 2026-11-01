@@ -4,7 +4,6 @@ import json
 import os
 import shutil
 import socket
-from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -19,8 +18,8 @@ from scripts.integration.contracts import deploy
 from tests.support.contracts import KEY
 from tests.support.status_events import said
 from vlei_oracle.persistence.basing import OracleBaser
-from vlei_oracle.persistence.transport import claim_nonce
-from vlei_oracle.receiving.authing import ServiceAuthenticator as SenderAuthenticator
+from vlei_oracle.receiving.authing import HttpSignatures as SenderAuthenticator
+from vlei_oracle.receiving.keys import ServiceKeys
 from vlei_oracle.runtime.config import ReceiverConfig
 from vlei_oracle.runtime.serving import StatusReceiver
 
@@ -35,9 +34,6 @@ def peers(tmp_path):
     with (
         habbing.openHby(name="producer", temp=True) as producer,
         habbing.openHby(name="oracle", temp=True) as oracle,
-        dbing.openLMDB(
-            cls=OracleBaser, name="producer", headDirPath=str(tmp_path), temp=False
-        ) as outbox,
         dbing.openLMDB(
             cls=OracleBaser, name="oracle", headDirPath=str(tmp_path), temp=False
         ) as inbox,
@@ -95,12 +91,9 @@ def peers(tmp_path):
             producer=producer,
             hab=producer_hab,
             inbox=inbox,
-            outbox=outbox,
             event=event,
             auth=SenderAuthenticator(
-                hab=producer_hab,
-                claim_nonce=partial(claim_nonce, outbox),
-                peer_aid=receiver.hab.pre,
+                keys=ServiceKeys(producer_hab),
             ),
         )
 

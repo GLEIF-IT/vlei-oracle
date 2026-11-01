@@ -1,30 +1,27 @@
 """receiving/test_authing.py."""
 
 import json
-from functools import partial
 
+import pytest
 from keri.app import habbing
 
 from tests.support.status_events import post
-from vlei_oracle.persistence.transport import claim_nonce
-from vlei_oracle.receiving.authing import ServiceAuthenticator as SenderAuthenticator
+from vlei_oracle.receiving.authing import HttpSignatures as SenderAuthenticator
+from vlei_oracle.receiving.keys import ServiceKeys
 from vlei_oracle.runtime.serving import StatusReceiver
 
 
-def test_authentication_replay_and_bad_event_leave_no_new_status(peers):
-    """Altered bytes, an unknown signer and replay cannot create inbox effects."""
+def test_signed_duplicate_and_bad_event_leave_no_new_status(peers):
+    """Altered bytes and unknown signers fail; exact duplicates do not repeat effects."""
     body = peers.event.body.encode()
-    headers, _ = peers.auth.sign(
-        method="POST", target=peers.config.webhook_url, action="status", body=body
-    )
+    headers = peers.auth.sign(method="POST", target=peers.config.webhook_url, body=body)
     assert post(peers, body + b" ", headers=headers).status_code == 401
     with habbing.openHby(name="stranger", temp=True) as hby:
         hab = hby.makeHab(name="stranger")
         stranger = SenderAuthenticator(
-            hab=hab,
-            claim_nonce=partial(claim_nonce, peers.outbox),
-            peer_aid=peers.receiver.hab.pre,
+            keys=ServiceKeys(hab),
         )
+        peers.oracle.psr.parse(ims=bytearray(hab.makeOwnEvent(sn=0)))
         assert post(peers, body, auth=stranger).status_code == 401
     assert not list(peers.inbox.inbox.getItemIter())
     assert post(peers, b"{}").status_code == 400
@@ -36,10 +33,20 @@ def test_authentication_replay_and_bad_event_leave_no_new_status(peers):
     response = post(peers, body, headers=headers)
     assert response.status_code == 200
     assert response.json == {"eventId": peers.event.eventId, "stored": True}
+    assert (
+        peers.auth.verify_optional(
+            method="POST",
+            target=peers.config.webhook_url,
+            body=response.content,
+            headers=response.headers,
+        )
+        == peers.receiver.hab.pre
+    )
     peers.inbox.close()
     peers.inbox.reopen()
-    assert post(peers, body, headers=headers).status_code == 401
+    assert post(peers, body, headers=headers).status_code == 200
     assert len(list(peers.inbox.inbox.getItemIter())) == 1
+    assert peers.inbox.queued.cntAll() == 1
 
 
 def test_peer_rotation_requires_keripy_key_state_update(peers):
@@ -55,3 +62,14 @@ def test_peer_rotation_requires_keripy_key_state_update(peers):
     peers.receiver = StatusReceiver(peers.config, hby=peers.oracle, baser=peers.inbox)
     assert post(peers, body).status_code == 200
     assert len(list(peers.inbox.inbox.getItemIter())) == 1
+    assert peers.inbox.queued.cntAll() == 1
+
+
+@pytest.mark.parametrize(
+    "headers", [{}, {"signature": "invalid"}, {"signature-input": "invalid"}]
+)
+def test_oracle_requires_valid_request_signatures(peers, headers):
+    """Oracle opts into producer authentication even though generic targets need not."""
+    assert post(peers, peers.event.body.encode(), headers=headers).status_code == 401
+    assert peers.inbox.inbox.cntAll() == 0
+    assert peers.inbox.queued.cntAll() == 0

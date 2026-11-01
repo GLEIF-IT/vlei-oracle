@@ -122,7 +122,7 @@ class USDCScenario:
             if (
                 code == 200
                 and value["status"] == expected
-                and (expected == "rejected" or (delivery and delivery["acknowledged"]))
+                and (expected == "rejected" or (delivery and delivery["delivered"]))
             ):
                 return value
             assert self.workflow.tyme < deadline, (value, str(self.root / "logs"))
