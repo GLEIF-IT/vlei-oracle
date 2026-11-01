@@ -1,4 +1,4 @@
-"""Durable journal, deployment scope and transport replay records."""
+"""Durable journal, deployment scope and posting records."""
 
 from __future__ import annotations
 
