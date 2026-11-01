@@ -2,7 +2,7 @@
 
 import json
 
-from eoa_verifier.delivery.authing import ServiceAuthenticator as SenderAuthenticator
+from vlei_oracle.receiving.authing import ServiceAuthenticator as SenderAuthenticator
 from keri.app import habbing
 
 from tests.support.status_events import post
