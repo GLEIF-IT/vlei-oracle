@@ -480,7 +480,7 @@ def test_revocation_during_pending_publication_is_followed_by_withdrawal(
 ):
     """Resolve the signed publish, then honor the new off-chain revocation in order."""
     poster = poster_for(peers, deployment)
-    assert post(peers, event_body(peers, "retire-pending", 100)).status_code == 200
+    assert post(peers, event_body(peers, "revocation-pending", 100)).status_code == 200
 
     def workflow(effects):
         for _ in range(3):
@@ -493,7 +493,7 @@ def test_revocation_during_pending_publication_is_followed_by_withdrawal(
             assert txRecord.functionName == "publishEndorsement"
             assert (
                 post(
-                    peers, event_body(peers, "retire-pending", 100, revoked=True)
+                    peers, event_body(peers, "revocation-pending", 100, revoked=True)
                 ).status_code
                 == 200
             )
@@ -511,8 +511,8 @@ def test_revocation_during_pending_publication_is_followed_by_withdrawal(
     drive(poster.effects, workflow)
 
 
-def test_newer_retirement_withdraws_published_predecessor(peers, deployment):
-    """A retirement received before its acceptance still releases the older claim."""
+def test_newer_revocation_withdraws_published_predecessor(peers, deployment):
+    """A revocation received before its acceptance still releases the older claim."""
     poster = poster_for(peers, deployment)
     wallet = "0x" + "11" * 20
     assert post(peers, event_body(peers, "predecessor", 110)).status_code == 200
@@ -521,7 +521,7 @@ def test_newer_retirement_withdraws_published_predecessor(peers, deployment):
         yield from settle(poster, wallet, said("predecessor"))
         assert (
             post(
-                peers, event_body(peers, "already-retired", 111, revoked=True)
+                peers, event_body(peers, "already-revoked", 111, revoked=True)
             ).status_code
             == 200
         )

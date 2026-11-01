@@ -1,6 +1,6 @@
 # Verified revocation and exact withdrawal
 
-Only verified revocation retires upstream acceptance. Replacement selection does not.
+The issuer issues credential TEL revocation. Verifier records revoked association status only after KERIpy validates it. Oracle withdraws the corresponding endorsement; replacement selection only supersedes associations.
 
 ![Verified revocation and exact withdrawal](revocation-status-sequence.svg)
 
@@ -11,13 +11,13 @@ Only verified revocation retires upstream acceptance. Replacement selection does
 %%{init: {"theme":"base","themeVariables":{"actorBkg":"#003336","actorTextColor":"#FFFFFF","signalColor":"#003336","signalTextColor":"#003336","noteBkgColor":"#E5DCE6","noteTextColor":"#003336","loopTextColor":"#003336","labelTextColor":"#003336","labelBoxBkgColor":"#DFFBC0","labelBoxBorderColor":"#6A7B7F","actorLineColor":"#6A7B7F","lineColor":"#6A7B7F"},"sequence":{"mirrorActors":true,"wrap":true}}}%%
 sequenceDiagram
     autonumber
-    participant E as KERI evidence
+    participant E as Issuer / KERI evidence
     participant V as EOA Verifier
     participant O as Oracle
     participant C as Contract registry
     E->>V: Revocation TEL and witnessed issuer KEL anchor
-    V->>V: Native validation accepts revocation
-    V->>V: Atomically retire SAID and create its own delivery event
+    V->>V: KERIpy validates credential TEL revocation
+    V->>V: Record revoked association status and its own delivery event
     V->>O: Authenticated revoked event
     O->>O: Commit receipt, selection and queued withdrawal
     O-->>V: Authenticated ACK for this event/attempt

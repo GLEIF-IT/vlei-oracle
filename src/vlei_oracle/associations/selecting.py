@@ -20,7 +20,7 @@ def update_selection(status, *, current, claim):
         return
 
     # A known newer issuance supersedes the same LE's predecessor even if its
-    # retirement arrived before its acceptance event. Never compare different KELs.
+    # revocation arrived before its acceptance event. Never compare different KELs.
     if (
         current is not None
         and current.association["issuerAid"] == issuer

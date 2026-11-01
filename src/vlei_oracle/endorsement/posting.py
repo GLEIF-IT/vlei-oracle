@@ -86,8 +86,8 @@ class StatusPoster(doing.DoDoer):
             and selectedStatus.associationSaid == associationStatus.associationSaid
         )
         if selectedStatus is None and walletEffects.associationSaid:
-            # A newer retirement can supersede an older published claim before
-            # its acceptance arrives. Release the wallet's own recorded effect.
+            # Revoked status for a newer issuance can arrive before acceptance.
+            # Selection already superseded the predecessor; withdraw its recorded effect.
             return (
                 "endorsement",
                 "withdrawEndorsement",
