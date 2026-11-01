@@ -1,14 +1,14 @@
-"""Select the next contract action from an association mapping and observed chain state.
+"""Select the next contract action from an association mapping and confirmed effects of this writer.
 
 This boundary has no RPC, signing, persistence, or scheduler effects. The caller
-supplies current trusted-status selection and chain scope before acting.
+supplies current trusted-status selection and deployment scope before acting.
 """
 
 ZERO_IDENTITY = "0x" + "00" * 32
 
 
 def next_action(association_mapping, *, identity, endorsement, valid):
-    """Return (contract, function, arguments), or None when already reconciled.
+    """Return (contract, function, arguments), or None when this delivery needs no further action.
 
     The wallet identity registry is a policy input hint. Change it only after
     clearing a different entity's old endorsement, and publish only after the

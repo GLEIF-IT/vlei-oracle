@@ -9,6 +9,7 @@ class StatusEvent:
 
     eventId: str
     body: str
+    operationId: str = ""
 
 
 @dataclass

@@ -56,7 +56,17 @@ def add_parser(subparsers) -> None:
     start.add_argument("--posting-key-env", default="VLEI_ORACLE_POSTING_KEY")
     start.add_argument("--confirmations", type=int, default=2)
     start.add_argument("--posting-interval", type=float, default=1.0)
+    start.add_argument("--max-attempts", type=int, default=3)
+    start.add_argument("--pending-timeout", type=float, default=120.0)
     start.set_defaults(handler=receive_handler)
+    retry = subparsers.add_parser(
+        "retry", help="Retry one dead letter with the service stopped"
+    )
+    retry.add_argument("operation_id")
+    retry.add_argument("--name", default="vlei-oracle-inbox")
+    retry.add_argument("--base", default="")
+    retry.add_argument("--head-dir")
+    retry.set_defaults(handler=retry_handler)
 
 
 def _receiver_arguments(receive):
@@ -96,6 +106,8 @@ def receive_handler(args):
                 "identity_registry",
                 "confirmations",
                 "posting_interval",
+                "max_attempts",
+                "pending_timeout",
             )
         }
         posting["posting_key"] = os.getenv(args.posting_key_env, "")
@@ -121,6 +133,26 @@ def receive_handler(args):
             },
         )
     )
+
+
+def retry_handler(args):
+    """Move a corrected dead letter back to its phase using native LMDB ownership.
+
+    Stop the service first: this is a local operator command, not a second writer.
+    An unresolved signed intent keeps its bytes and nonce; no fresh intent is made.
+    """
+    from keri.db import dbing
+
+    from vlei_oracle.persistence.basing import OracleBaser
+
+    with dbing.openLMDB(
+        cls=OracleBaser,
+        name=args.name,
+        base=args.base,
+        headDirPath=args.head_dir,
+        temp=False,
+    ) as baser:
+        baser.retry_operation(args.operation_id)
 
 
 if __name__ == "__main__":

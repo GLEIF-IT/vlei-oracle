@@ -17,18 +17,21 @@ sequenceDiagram
     participant C as Ethereum registries
     V->>O: Authenticated immutable status event
     O->>O: Validate trusted sender, event identifiers and chain
-    O->>O: Atomically commit receipt, newest status and selection
+    O->>O: Commit receipt, selection and queued operation
     O-->>V: Authenticated durable-storage ACK
     Note over V,O: ACK does not mean selected or published
-    alt Selected accepted association
-        P->>P: Read desired action, prepare RPC effect
-        P->>P: Recheck durable selection, journal signed intent
-        P->>C: Submit registration / exact-wallet endorsement
-        C-->>P: Receipt and observed registry state
-        P->>P: Record confirmation, reconcile next desired action
-    else Rejected or superseded selection
-        P->>P: Do not publish this claim
+    P->>P: Claim one queued operation into preparing
+    P->>P: Prepare action from local confirmed effects
+    P->>P: Recheck selection and persist signature in pending
+    P->>C: Submit the persisted transaction
+    alt Confirmed success
+        C-->>P: Receipt for this transaction
+        P->>P: Commit effect and prepare next step or complete
+    else Retry budget or receipt deadline exhausted
+        P->>P: Move to dead letter for manual intervention
+        Note over P,C: An unresolved signature blocks later sends
     end
+    Note over P,C: Completed work makes no further RPC calls
 ```
 
 </details>

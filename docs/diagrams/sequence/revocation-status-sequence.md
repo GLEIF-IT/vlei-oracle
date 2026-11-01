@@ -19,7 +19,7 @@ sequenceDiagram
     V->>V: Native validation accepts revocation
     V->>V: Atomically retire SAID and create its own delivery event
     V->>O: Authenticated revoked event
-    O->>O: Commit receipt, terminal status and selection update
+    O->>O: Commit receipt, selection and queued withdrawal
     O-->>V: Authenticated ACK for this event/attempt
     O->>C: Withdraw exact association SAID
     alt Current mapping still names revoked SAID
@@ -27,7 +27,7 @@ sequenceDiagram
     else A successor is already mapped
         C->>C: Preserve successor, return false
     end
-    C-->>O: Receipt / actual state
+    C-->>O: Transaction receipt
     Note over V,C: Outages and latency can leave on-chain authority until withdrawal
 ```
 

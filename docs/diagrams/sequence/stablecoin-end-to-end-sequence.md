@@ -19,16 +19,16 @@ sequenceDiagram
     I->>V: Source chain and association proof over IPEX / CESR
     V->>V: Initial validation, account observation and acceptance-time nonce claim
     V->>O: Signed accepted status
-    O->>O: Durable receipt and wallet selection
+    O->>O: Commit receipt, selection and queued operation
     O-->>V: Signed ACK (drop once, retry exact event)
     O->>C: Publish selected exact-wallet mapping
-    C-->>O: Confirm receipt and actual mapping
+    C-->>O: Confirm transaction receipt
     U->>C: Approve underlying USDC to wUSDC
     U->>C: Owner calls wrapper transfer
     C->>C: Evaluate both wallet endorsements, move USDC on Pass
     Note over U,C: Check actual sender/recipient balances
     V->>V: Restart from preserved store without another Grant
-    O->>O: Restart independently, retain selection and journal
+    O->>O: Resume durable phases after independent restart
     I->>V: Higher-issuance same-LE replacement
     V->>O: Accepted replacement status
     O->>C: Replace selected endorsement
