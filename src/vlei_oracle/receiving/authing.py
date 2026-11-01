@@ -7,6 +7,8 @@ This is transport authentication only. Callers retain exact body bytes and suppl
 trusted expected HTTP context; authentication does not commit application effects.
 """
 
+from vlei_oracle.persistence.writing import OracleWriter
+
 import base64
 import hashlib
 import secrets
@@ -234,7 +236,7 @@ class ServiceAuthenticator:
                 raise AuthenticationError("signature does not verify")
         except (KeyError, TypeError, ValueError, kering.KeriError) as exc:
             raise AuthenticationError(str(exc)) from exc
-        if not self.baser.claim_nonce(self.peer_aid, inp.nonce, inp.expires):
+        if not OracleWriter(self.baser).claim_nonce(self.peer_aid, inp.nonce, inp.expires):
             raise AuthenticationError("message replay")
         return AuthenticatedMessage(
             self.peer_aid, inp.nonce, expected["content-digest"]

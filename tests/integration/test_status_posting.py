@@ -1,5 +1,7 @@
 """integration/test_status_posting.py."""
 
+from vlei_oracle.persistence.reading import OracleReader
+
 from dataclasses import replace
 from unittest.mock import patch
 
@@ -292,7 +294,10 @@ def test_bad_rpc_response_preserves_pending_transaction_and_signed_ack(
     doing.Doist(real=True, tock=0.01, limit=3).do(doers=[parent])
     assert parent.done and responses[0]["status"] == 200
     assert json.loads(responses[0]["body"])["stored"] is True
-    assert peers.inbox.selected_association("eip155:31337:0x" + "11" * 20) is not None
+    assert (
+        OracleReader(peers.inbox).selected_association("eip155:31337:0x" + "11" * 20)
+        is not None
+    )
     assert rpc_clients and all(not client.connector.opened for client in rpc_clients)
     assert pending_transaction(peers.inbox) == txRecord
     assert (
@@ -447,7 +452,9 @@ def test_receipt_deadline_fences_writer_and_manual_retry_preserves_signature(
             yield from poster.cycle()  # Submit without mining.
             now[0] += 121
             yield from poster.cycle()
-            phase, postingOperation = peers.inbox.operation_for(f"{said('deadline')}:1")
+            phase, postingOperation = OracleReader(peers.inbox).operation_for(
+                f"{said('deadline')}:1"
+            )
             assert phase == "dead" and postingOperation.txHash == txRecord.txHash
             assert (
                 post(peers, event_body(peers, "after-deadline", 91)).status_code == 200
@@ -526,7 +533,10 @@ def test_newer_revocation_withdraws_published_predecessor(peers, deployment):
             == 200
         )
         yield from settle(poster, wallet, "")
-        assert peers.inbox.selected_association("eip155:31337:" + wallet) is None
+        assert (
+            OracleReader(peers.inbox).selected_association("eip155:31337:" + wallet)
+            is None
+        )
         return True
 
     drive(poster.effects, workflow)
@@ -586,7 +596,7 @@ def test_pending_rpc_errors_keep_signed_dead_letter(peers, deployment):
                 yield from poster.cycle()
         peers.inbox.close()
         peers.inbox.reopen()
-        phase, postingOperation = peers.inbox.operation_for(
+        phase, postingOperation = OracleReader(peers.inbox).operation_for(
             f"{said('pending-exhausted')}:1"
         )
         assert phase == "dead" and postingOperation.rpcFailures == 3

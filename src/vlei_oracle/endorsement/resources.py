@@ -1,5 +1,7 @@
 """Read-only REST representation of the Oracle's own endorsement delivery state."""
 
+from vlei_oracle.persistence.reading import OracleReader
+
 from dataclasses import asdict
 
 import falcon
@@ -22,7 +24,7 @@ class EndorsementEnd:
         associationStatus = self.baser.statuses.get(keys=(said,))
         if associationStatus is None:
             raise falcon.HTTPNotFound(title="Unknown endorsement")
-        phase, postingOperation = self.baser.operation_for(
+        phase, postingOperation = OracleReader(self.baser).operation_for(
             f"{said}:{associationStatus.statusRevision}"
         )
         walletEffects = (

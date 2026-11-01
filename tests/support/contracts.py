@@ -1,5 +1,7 @@
 """support/contracts.py."""
 
+from vlei_oracle.persistence.writing import OracleWriter
+
 import json
 from pathlib import Path
 
@@ -144,7 +146,7 @@ def persist_transaction(store, txRecord):
         txHash=txRecord.txHash,
     )
     store.preparing.pin(keys=("writer",), val=postingOperation)
-    store.preparing_to_pending(postingOperation, txRecord)
+    OracleWriter(store).preparing_to_pending(postingOperation, txRecord)
     return txRecord
 
 
