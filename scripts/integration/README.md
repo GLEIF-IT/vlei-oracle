@@ -67,3 +67,12 @@ change. Operators own compatibility with retained state; see the
 [configuration guidance](../../docs/status-inbox.md#configuration-changes-and-stored-state). Fixture manifests still select reproducible
 inputs: prepare a fresh run when changing its deployment or source inputs, and
 keep existing run directories for restart and diagnosis.
+
+## Tooling modules
+
+`preparing.py` selects sources and creates run artifacts; `builds.py` installs the
+Oracle wheel; `identity.py` initializes its AID. `chain.py` owns local chain and
+contract setup, `services.py` launches Oracle and the response-loss proxy, and
+`verifier.py` invokes the external Verifier fixture CLI. `environment.py` sequences
+start, stop, restart and qualification. `processes.py` owns child-process identity
+and cleanup, while `artifacts.py` validates ownership and records provenance.

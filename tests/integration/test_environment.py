@@ -106,8 +106,8 @@ def test_candidate_snapshot_preserves_work_and_excludes_ignored_stores(tmp_path)
 
 def test_relocated_cli_help_requires_no_application_or_neighbor_checkout(tmp_path):
     """Keep preflight usable before applications, identities or stores exist."""
-    from pathlib import Path
     import shutil
+    from pathlib import Path
 
     root = Path(__file__).resolve().parents[2]
     relocated = tmp_path / "a space's $literal; tooling"
@@ -174,7 +174,7 @@ def test_readiness_timeout_stops_only_owned_child_and_retains_logs(tmp_path):
 
 def test_missing_executable_fails_before_creating_state(tmp_path, monkeypatch):
     """Operator preflight cannot leave a partial run when Foundry is absent."""
-    from scripts.integration.environment import prepare_run
+    from scripts.integration.preparing import prepare_run
 
     monkeypatch.setenv("PATH", "")
     run = tmp_path / "absent"
