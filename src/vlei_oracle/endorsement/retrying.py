@@ -13,12 +13,12 @@ class RecoveryService:
 
     def retry_operation(self, operation_id):
         """Reset the attempt budget, retaining signed bytes and respecting writer fences."""
-        if self.reader.next_preparing() or self.reader.next_pending():
+        if self.reader.next_prep() or self.reader.next_pending():
             raise ValueError("writer already has active work")
-        sequence = self.reader.posting_sequence() or PostingSequence()
+        sequence = self.reader.seq() or PostingSequence()
         if sequence.blockedBy and sequence.blockedBy != operation_id:
             raise ValueError("another unresolved signed operation blocks the writer")
-        postingOperation = self.reader.dead_operation(operation_id)
+        postingOperation = self.reader.dead(operation_id)
         if postingOperation is None:
             raise ValueError("unknown dead-letter operation")
         postingOperation = replace(
@@ -33,4 +33,4 @@ class RecoveryService:
         if postingOperation.txHash:
             self.writer.dead_to_pending(postingOperation, sequence)
         else:
-            self.writer.dead_to_preparing(postingOperation, sequence)
+            self.writer.dead_to_prep(postingOperation, sequence)

@@ -74,13 +74,13 @@ class ServiceAuthenticator:
     supported. Rotation uses KERIpy key-state updates, never an arbitrary header key.
     """
 
-    def __init__(self, *, hab, writer, peer_aid, lifetime=60):
+    def __init__(self, *, hab, claim_nonce, peer_aid, lifetime=60):
         """Configure peer trust and maximum message lifetime in seconds.
 
-        writer persists durable transport replay claims. The lifetime is transport validity only;
+        claim_nonce persists only authenticated transport replay claims. The lifetime is transport validity only;
         it does not limit accepted associations. KERIpy time helpers supply wall time.
         """
-        self.hab, self.writer, self.peer_aid = hab, writer, peer_aid
+        self.hab, self.claim_nonce, self.peer_aid = hab, claim_nonce, peer_aid
         self.lifetime = lifetime
         if (
             coring.Prefixer(qb64=peer_aid).qb64 != peer_aid
@@ -234,7 +234,7 @@ class ServiceAuthenticator:
                 raise AuthenticationError("signature does not verify")
         except (KeyError, TypeError, ValueError, kering.KeriError) as exc:
             raise AuthenticationError(str(exc)) from exc
-        if not self.writer.claim_nonce(self.peer_aid, inp.nonce, inp.expires):
+        if not self.claim_nonce(self.peer_aid, inp.nonce, inp.expires):
             raise AuthenticationError("message replay")
         return AuthenticatedMessage(
             self.peer_aid, inp.nonce, expected["content-digest"]

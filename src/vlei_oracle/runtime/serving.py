@@ -1,5 +1,6 @@
 """HIO composition and shared KERIpy/LMDB resource lifetime."""
 
+from functools import partial
 from pathlib import Path
 
 import falcon
@@ -11,10 +12,13 @@ from keri.end import ending
 
 from vlei_oracle.endorsement.querying import EndorsementQuery
 from vlei_oracle.endorsement.resources import EndorsementEnd
+from vlei_oracle.persistence.associations import AssociationReader
 from vlei_oracle.persistence.basing import OracleBaser
-from vlei_oracle.persistence.reading import OracleReader
+from vlei_oracle.persistence.posting import PostingReader, PostingWriter
+from vlei_oracle.persistence.receipts import ReceiptWriter
 from vlei_oracle.persistence.records import InboxScope, PostingScope
-from vlei_oracle.persistence.writing import OracleWriter
+from vlei_oracle.persistence.scope import ScopeStore
+from vlei_oracle.persistence.transport import claim_nonce
 from vlei_oracle.receiving.authing import ServiceAuthenticator
 from vlei_oracle.receiving.receipt import ReceiptService
 from vlei_oracle.receiving.status import StatusEnd
@@ -38,24 +42,30 @@ class StatusReceiver(doing.DoDoer):
             hby.psr.parse(ims=bytearray(Path(config.verifier_kel).read_bytes()))
         if config.verifier_aid not in hby.kevers:
             raise ValueError("verifier key state unavailable; supply --verifier-kel")
-        reader, writer = OracleReader(baser), OracleWriter(baser)
-        scopes = ScopeService(reader, writer)
+        associations = AssociationReader(baser)
+        posting = PostingReader(baser)
+        posting_writer = PostingWriter(baser)
+        scope = ScopeStore(baser)
+        scopes = ScopeService(scope)
         scopes.bind_inbox(InboxScope(config.verifier_aid, config.chain_id))
         auth = ServiceAuthenticator(
-            hab=self.hab, writer=writer, peer_aid=config.verifier_aid
+            hab=self.hab,
+            claim_nonce=partial(claim_nonce, baser),
+            peer_aid=config.verifier_aid,
         )
         self.app = falcon.App()
         self.app.add_route(
             "/v1/status-events",
             StatusEnd(
                 auth=auth,
-                service=ReceiptService(reader, writer),
+                service=ReceiptService(associations, ReceiptWriter(baser), posting),
                 target=config.webhook_url,
                 chain_id=config.chain_id,
             ),
         )
         self.app.add_route(
-            "/v1/endorsements/{said}", EndorsementEnd(EndorsementQuery(reader))
+            "/v1/endorsements/{said}",
+            EndorsementEnd(EndorsementQuery(associations, posting)),
         )
         # KERIpy OOBI export lets the verifier learn this receiver's signing AID.
         self.app.add_route("/oobi/{aid}", ending.OOBIEnd(hby=hby))
@@ -86,8 +96,9 @@ class StatusReceiver(doing.DoDoer):
                 )
             )
             service = PostingService(
-                reader=reader,
-                writer=writer,
+                reader=posting,
+                associations=associations,
+                writer=posting_writer,
                 effects=effects,
                 account=account,
                 max_attempts=config.max_attempts,

@@ -32,6 +32,7 @@ class PostingService:
         self,
         *,
         reader,
+        associations,
         writer,
         effects,
         account,
@@ -40,6 +41,7 @@ class PostingService:
         clock=time.time,
     ):
         self.reader, self.writer, self.effects = reader, writer, effects
+        self.associations = associations
         self.account = account
         self.max_attempts = max_attempts
         self.pending_timeout, self.clock = pending_timeout, clock
@@ -50,12 +52,14 @@ class PostingService:
 
     def contract_call(self, postingOperation):
         """Choose from current off-chain selection and our own confirmed effects."""
-        associationStatus = self.reader.association(postingOperation.associationSaid)
-        selectedStatus = self.reader.selected_association(
+        associationStatus = self.associations.association(
+            postingOperation.associationSaid
+        )
+        selectedStatus = self.associations.selected(
             associationStatus.association["extId"]
         )
         walletEffects = (
-            self.reader.wallet_effects(postingOperation.wallet) or WalletEffects()
+            self.reader.effects(postingOperation.wallet) or WalletEffects()
         )
         valid = (
             associationStatus.status == "accepted"
@@ -86,22 +90,22 @@ class PostingService:
         if postingOperation is not None:
             yield from self.confirm(postingOperation)
             return
-        sequence = self.reader.posting_sequence() or PostingSequence()
+        sequence = self.reader.seq() or PostingSequence()
         if sequence.blockedBy:
             return
-        postingOperation = self.reader.next_preparing()
+        postingOperation = self.reader.next_prep()
         if postingOperation is None:
             postingOperation = self.reader.next_queued()
             if postingOperation is None:
                 return
-            self.writer.queued_to_preparing(postingOperation)
+            self.writer.queued_to_prep(postingOperation)
         yield from self.prepare(postingOperation)
 
     def prepare(self, postingOperation):
         """Prepare one selected operation and durably journal its signed transaction."""
         contractCall = self.contract_call(postingOperation)
         if contractCall is None:
-            associationStatus = self.reader.association(
+            associationStatus = self.associations.association(
                 postingOperation.associationSaid
             )
             postingOperation.outcome = (
@@ -109,25 +113,25 @@ class PostingService:
                 if associationStatus.selection == "selected"
                 else associationStatus.selection
             )
-            self.writer.preparing_to_completed(postingOperation)
+            self.writer.prep_to_completed(postingOperation)
             return
         if postingOperation.attempts >= self.max_attempts:
             postingOperation.error = (
                 postingOperation.error
                 or "preparation interrupted; attempt limit reached"
             )
-            self.writer.preparing_to_dead(postingOperation)
+            self.writer.prep_to_dead(postingOperation)
             return
         postingOperation.attempts += 1
         postingOperation.functionName = contractCall[1]
-        self.writer.record_preparing_progress(postingOperation)
+        self.writer.save_prep(postingOperation)
         try:
             unsignedTransaction = yield from self.effects.prepare(contractCall)
             if self.contract_call(postingOperation) != contractCall:
                 # No signature exists: a newer local event may safely suppress this step.
                 postingOperation.attempts = 0
                 postingOperation.error = ""
-                self.writer.record_preparing_progress(postingOperation)
+                self.writer.save_prep(postingOperation)
                 return
             signedTransaction = self.account.sign_transaction(unsignedTransaction)
         except (OSError, TimeoutError, ValueError) as error:
@@ -143,14 +147,14 @@ class PostingService:
             associationSaid=postingOperation.associationSaid,
             functionName=postingOperation.functionName,
         )
-        self.writer.preparing_to_pending(postingOperation, txRecord)
+        self.writer.prep_to_pending(postingOperation, txRecord)
 
     def confirm(self, postingOperation):
         """Observe only this signed transaction, submitting the same bytes if needed."""
-        txRecord = self.reader.transaction(postingOperation.txHash)
+        txRecord = self.reader.tx(postingOperation.txHash)
         if not postingOperation.signedAt:
             postingOperation.signedAt = self.clock()
-            self.writer.record_pending_progress(postingOperation)
+            self.writer.save_pending(postingOperation)
         try:
             yield from self.effects.check_chain()
             receipt = yield from self.effects.receipt(postingOperation.txHash)
@@ -169,7 +173,7 @@ class PostingService:
                 yield from self.effects.submit(txRecord.rawTransaction, txRecord.txHash)
                 postingOperation.submitted = True
                 postingOperation.error = ""
-                self.writer.record_pending_progress(postingOperation)
+                self.writer.save_pending(postingOperation)
         except (OSError, TimeoutError, ValueError) as error:
             self.fail_pending(postingOperation, error)
 
@@ -183,11 +187,11 @@ class PostingService:
         postingOperation.rpcFailures = 0
         walletEffects = None
         if succeeded:
-            associationStatus = self.reader.association(
+            associationStatus = self.associations.association(
                 postingOperation.associationSaid
             )
             walletEffects = (
-                self.reader.wallet_effects(postingOperation.wallet) or WalletEffects()
+                self.reader.effects(postingOperation.wallet) or WalletEffects()
             )
             if postingOperation.functionName == "registerIdentity":
                 walletEffects.identityRef = associationStatus.identityRef
@@ -207,11 +211,11 @@ class PostingService:
         if not succeeded and postingOperation.attempts >= self.max_attempts:
             self.stop_pending(postingOperation, txRecord=txRecord)
         else:
-            self.writer.pending_to_preparing(postingOperation, txRecord, walletEffects)
+            self.writer.pending_to_prep(postingOperation, txRecord, walletEffects)
 
     def stop_pending(self, postingOperation, *, txRecord=None):
         """Prepare a dead letter and fence later work only for an unresolved signature."""
-        sequence = self.reader.posting_sequence() or PostingSequence()
+        sequence = self.reader.seq() or PostingSequence()
         if postingOperation.txHash:
             sequence.blockedBy = postingOperation.operationId
         self.writer.pending_to_dead(postingOperation, sequence, txRecord)
@@ -221,9 +225,9 @@ class PostingService:
         postingOperation.error = str(error) or type(error).__name__
         logger.error("contract preparation failed: %s", postingOperation.error)
         if postingOperation.attempts >= self.max_attempts:
-            self.writer.preparing_to_dead(postingOperation)
+            self.writer.prep_to_dead(postingOperation)
         else:
-            self.writer.record_preparing_progress(postingOperation)
+            self.writer.save_prep(postingOperation)
 
     def fail_pending(self, postingOperation, error):
         """Retain the signed transaction for retry, or dead-letter and fence the writer."""
@@ -233,4 +237,4 @@ class PostingService:
         if postingOperation.rpcFailures >= self.max_attempts:
             self.stop_pending(postingOperation)
         else:
-            self.writer.record_pending_progress(postingOperation)
+            self.writer.save_pending(postingOperation)

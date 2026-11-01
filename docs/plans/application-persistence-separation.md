@@ -40,10 +40,10 @@ revision. Do not weaken assertions or change integration topology.
 
 ## Progress
 
-- Slice 1 implemented: ReceiptService owns preparation; OracleWriter commits the
+- Slice 1 implemented: ReceiptService owns preparation; ReceiptWriter commits the
   receipt/status/selection/queue records atomically. Validation recorded in its PR.
 - Slice 2 implemented: OracleBaser now only binds tables and owns lifecycle.
-  OracleReader returns detached bounded reads; OracleWriter owns explicit atomic
+  Feature readers return detached bounded reads; PostingWriter owns explicit atomic
   phase writes and integrity guards. ScopeService validates deployment bindings.
   Old Baser workflow methods are removed.
 - Slice 3 implemented: PostingService owns policy, PostingDoer schedules it,
@@ -63,3 +63,29 @@ revision. Do not weaken assertions or change integration topology.
   results, including maintained paired qualification. Full qualification is a
   merge gate for every slice. Exact Verifier and Comply pins remain unchanged;
   neither companion needs a source change for these internal Oracle APIs.
+
+
+## Feature persistence cohesion
+
+The earlier application-wide adapters are removed, not retained as facades.
+
+| Persistence unit | Consumers / atomic responsibility |
+|---|---|
+| AssociationReader | ReceiptService, PostingService and EndorsementQuery; event, status, claim and selected-association reads. |
+| ReceiptWriter | ReceiptService; old-event recording or one receipt/status/selection/queue/sequence commit. |
+| PostingReader / PostingWriter | PostingService and RecoveryService; explicit phases, signed journal, confirmed effects, progress and recovery fences. ReceiptService borrows sequence reads and EndorsementQuery borrows posting queries explicitly. |
+| ScopeStore | ScopeService deployment bindings only. |
+| transport.claim_nonce | A bound callable supplied to ServiceAuthenticator, not a posting writer. |
+
+No cross-feature atomic operation is split into independently committing calls.
+Queries retain bounded per-identifier phase lookups. The association-only public
+endorsement response, wire values, layout, one-item priority and retry behavior
+remain unchanged. ContractEffects remains a focused RPC adapter.
+
+Function names rely on feature context: AssociationReader.selected;
+ReceiptWriter.record_and_queue; PostingReader.seq / tx / effects; and
+PostingWriter.queued_to_prep / prep_to_pending / pending_to_prep.
+`prep` means the preparing phase, `tx` a signed transaction record, and `seq`
+the posting sequence and fence record. save_prep and save_pending persist
+progress within their named phase. ScopeStore.bind_inbox / bind_posting retain
+the existing deployment-binding semantics. No table or wire names change.

@@ -1,11 +1,12 @@
 """receiving/test_authing.py."""
 
 import json
+from functools import partial
 
 from keri.app import habbing
 
 from tests.support.status_events import post
-from vlei_oracle.persistence.writing import OracleWriter
+from vlei_oracle.persistence.transport import claim_nonce
 from vlei_oracle.receiving.authing import ServiceAuthenticator as SenderAuthenticator
 from vlei_oracle.runtime.serving import StatusReceiver
 
@@ -20,7 +21,9 @@ def test_authentication_replay_and_bad_event_leave_no_new_status(peers):
     with habbing.openHby(name="stranger", temp=True) as hby:
         hab = hby.makeHab(name="stranger")
         stranger = SenderAuthenticator(
-            hab=hab, writer=OracleWriter(peers.outbox), peer_aid=peers.receiver.hab.pre
+            hab=hab,
+            claim_nonce=partial(claim_nonce, peers.outbox),
+            peer_aid=peers.receiver.hab.pre,
         )
         assert post(peers, body, auth=stranger).status_code == 401
     assert not list(peers.inbox.inbox.getItemIter())

@@ -4,8 +4,9 @@
 class EndorsementQuery:
     """Return one association's result without exposing posting bookkeeping."""
 
-    def __init__(self, reader):
-        self.reader = reader
+    def __init__(self, associations, posting):
+        """Compose association and posting reads without a combined facade."""
+        self.associations, self.posting = associations, posting
 
     def endorsement(self, said):
         """Return publication state and latest request progress, or None if unknown.
@@ -14,13 +15,13 @@ class EndorsementQuery:
         supply evidence internally; neither their contents nor global posting
         state are returned. This is local knowledge, not a fresh Ethereum query.
         """
-        associationStatus = self.reader.association(said)
+        associationStatus = self.associations.association(said)
         if associationStatus is None:
             return None
-        phase, postingOperation = self.reader.operation_for(
+        phase, postingOperation = self.posting.operation_for(
             f"{said}:{associationStatus.statusRevision}"
         )
-        walletEffects = self.reader.wallet_effects(associationStatus.wallet)
+        walletEffects = self.posting.effects(associationStatus.wallet)
         published = walletEffects is not None and walletEffects.associationSaid == said
         action = "withdraw" if associationStatus.status == "revoked" else "publish"
         if phase == "dead":
