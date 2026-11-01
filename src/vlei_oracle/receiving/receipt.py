@@ -14,8 +14,10 @@ class ReceiptService:
     sharing a store. No database transaction encloses policy decisions.
     """
 
-    def __init__(self, reader, writer):
+    def __init__(self, reader, writer, posting_reader):
+        """Borrow association reads, atomic receipt writes and sequence reads."""
         self.reader, self.writer = reader, writer
+        self.posting_reader = posting_reader
 
     def receive_status(self, statusEvent, associationStatus):
         """Apply monotonic status and wallet selection, or acknowledge an old event.
@@ -63,7 +65,7 @@ class ReceiptService:
             and selectedStatus.associationSaid != associationStatus.associationSaid
             else None
         )
-        postingSequence = self.reader.posting_sequence() or PostingSequence()
+        postingSequence = self.posting_reader.posting_sequence() or PostingSequence()
         postingSequence.next += 1
         statusEvent.operationId = f"{postingSequence.next:016x}"
         postingOperation = PostingOperation(

@@ -1,7 +1,5 @@
 """support/contracts.py."""
 
-from vlei_oracle.persistence.writing import OracleWriter
-
 import json
 from pathlib import Path
 
@@ -10,6 +8,7 @@ from hio.base import doing
 from web3 import Web3
 
 from vlei_oracle.endorsement.effects import ContractEffects
+from vlei_oracle.persistence.posting import PostingWriter
 from vlei_oracle.persistence.records import TransactionRecord
 
 KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
@@ -146,7 +145,7 @@ def persist_transaction(store, txRecord):
         txHash=txRecord.txHash,
     )
     store.preparing.pin(keys=("writer",), val=postingOperation)
-    OracleWriter(store).preparing_to_pending(postingOperation, txRecord)
+    PostingWriter(store).preparing_to_pending(postingOperation, txRecord)
     return txRecord
 
 

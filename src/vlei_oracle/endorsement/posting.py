@@ -32,6 +32,7 @@ class PostingService:
         self,
         *,
         reader,
+        associations,
         writer,
         effects,
         account,
@@ -40,6 +41,7 @@ class PostingService:
         clock=time.time,
     ):
         self.reader, self.writer, self.effects = reader, writer, effects
+        self.associations = associations
         self.account = account
         self.max_attempts = max_attempts
         self.pending_timeout, self.clock = pending_timeout, clock
@@ -50,8 +52,10 @@ class PostingService:
 
     def contract_call(self, postingOperation):
         """Choose from current off-chain selection and our own confirmed effects."""
-        associationStatus = self.reader.association(postingOperation.associationSaid)
-        selectedStatus = self.reader.selected_association(
+        associationStatus = self.associations.association(
+            postingOperation.associationSaid
+        )
+        selectedStatus = self.associations.selected_association(
             associationStatus.association["extId"]
         )
         walletEffects = (
@@ -101,7 +105,7 @@ class PostingService:
         """Prepare one selected operation and durably journal its signed transaction."""
         contractCall = self.contract_call(postingOperation)
         if contractCall is None:
-            associationStatus = self.reader.association(
+            associationStatus = self.associations.association(
                 postingOperation.associationSaid
             )
             postingOperation.outcome = (
@@ -183,7 +187,7 @@ class PostingService:
         postingOperation.rpcFailures = 0
         walletEffects = None
         if succeeded:
-            associationStatus = self.reader.association(
+            associationStatus = self.associations.association(
                 postingOperation.associationSaid
             )
             walletEffects = (

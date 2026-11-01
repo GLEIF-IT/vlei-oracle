@@ -134,9 +134,9 @@ provided.
 
 ## Application and persistence boundaries
 
-`OracleBaser` owns only LMDB lifecycle and typed table bindings. `OracleReader`
-returns detached records from bounded lookups and closes every read transaction
-before returning. `OracleWriter` serializes prepared values before a short write
+`OracleBaser` owns only LMDB lifecycle and typed table bindings. Feature readers (`AssociationReader` and `PostingReader`)
+return detached records from bounded lookups and closes every read transaction
+before returning. `ReceiptWriter` and `PostingWriter` serialize prepared values before a short write
 transaction and exposes explicit source-to-destination transitions. Integrity
 checks inside those writes protect phase membership and immutable signed bytes;
 they do not select wallets, decide retries or perform RPC.
@@ -148,7 +148,7 @@ dead letters and confirmed effects. It never holds an LMDB transaction across
 RPC; after preparation yields, selection is checked again before signing.
 `PostingDoer` only schedules this service beside its RPC effect clients.
 `RecoveryService` prepares an explicit offline retry, and `EndorsementQuery`
-projects bounded local records for the thin HTTP resource. `ScopeService`
+projects bounded local records for the thin HTTP resource. `ScopeService` uses the focused `ScopeStore` and
 validates configuration against the persistent deployment binding at startup.
 
 Run one receiver/posting process per application store. The runtime uses one

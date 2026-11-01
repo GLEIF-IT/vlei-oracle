@@ -1,66 +1,73 @@
-"""Explicit atomic writes of prepared application records."""
-
-from vlei_oracle.persistence.records import ReplayClaim
+"""Posting persistence: bounded reads and explicit atomic writes."""
 
 
-class OracleWriter:
-    """Borrow an open store; serialize before opening short write transactions."""
+class PostingReader:
+    """Borrow the open store for posting persistence only."""
 
     def __init__(self, baser):
         self.baser = baser
 
-    def record_event(self, statusEvent):
-        """Record an older event without changing selection or creating posting work."""
-        db = self.baser
-        key, raw = statusEvent.eventId.encode(), db.inbox.serializer(statusEvent)
-        with db.env.begin(write=True) as txn:
-            txn.put(key, raw, db=db.inbox.sdb)
+    def posting_sequence(self):
+        """Return arrival order and the unresolved-signature fence, or None."""
+        return self.baser.sequence.get(keys=("writer",))
 
-    def record_status_and_queue(
-        self,
-        statusEvent,
-        associationStatus,
-        walletClaim,
-        previousStatus,
-        postingOperation,
-        postingSequence,
-    ):
-        """Commit receipt, selected records and one queued operation together.
+    def next_pending(self):
+        """Read the sole pending signed operation without changing its phase."""
+        return self.baser.pending.get(keys=("writer",))
 
-        All policy and record construction is complete before this call. The
-        receiver runs synchronously in the sole application writer; no yield or
-        external I/O separates its reads, preparation and this commit.
-        """
-        db = self.baser
-        eventKey, eventRaw = (
-            statusEvent.eventId.encode(),
-            db.inbox.serializer(statusEvent),
-        )
-        statusKey = associationStatus.associationSaid.encode()
-        statusRaw = db.statuses.serializer(associationStatus)
-        claimKey = associationStatus.association["extId"].encode()
-        claimRaw = db.claims.serializer(walletClaim)
-        previousKey = (
-            previousStatus.associationSaid.encode()
-            if previousStatus is not None
-            else None
-        )
-        previousRaw = (
-            db.statuses.serializer(previousStatus)
-            if previousStatus is not None
-            else None
-        )
-        operationKey = postingOperation.operationId.encode()
-        operationRaw = db.queued.serializer(postingOperation)
-        sequenceRaw = db.sequence.serializer(postingSequence)
-        with db.env.begin(write=True) as txn:
-            if previousKey is not None:
-                txn.put(previousKey, previousRaw, db=db.statuses.sdb)
-            txn.put(statusKey, statusRaw, db=db.statuses.sdb)
-            txn.put(claimKey, claimRaw, db=db.claims.sdb)
-            txn.put(operationKey, operationRaw, db=db.queued.sdb)
-            txn.put(b"writer", sequenceRaw, db=db.sequence.sdb)
-            txn.put(eventKey, eventRaw, db=db.inbox.sdb)
+    def next_preparing(self):
+        """Read interrupted preparation without consulting queued operations."""
+        return self.baser.preparing.get(keys=("writer",))
+
+    def next_queued(self):
+        """Detach the oldest queued operation and close its reader before returning."""
+        with (
+            self.baser.env.begin(db=self.baser.queued.sdb) as txn,
+            txn.cursor() as cursor,
+        ):
+            return (
+                self.baser.queued.deserializer(bytes(cursor.value()))
+                if cursor.first()
+                else None
+            )
+
+    def operation_for(self, event_id):
+        """Return a detached phase/record for one event, without history iteration."""
+        statusEvent = self.baser.inbox.get(keys=(event_id,))
+        if statusEvent is None or not statusEvent.operationId:
+            return None, None
+        for phase in ("queued", "preparing", "pending", "completed", "dead"):
+            key = (
+                "writer"
+                if phase in ("preparing", "pending")
+                else statusEvent.operationId
+            )
+            postingOperation = getattr(self.baser, phase).get(keys=(key,))
+            if (
+                postingOperation is not None
+                and postingOperation.operationId == statusEvent.operationId
+            ):
+                return phase, postingOperation
+        raise ValueError("stored event has no delivery phase")
+
+    def wallet_effects(self, wallet):
+        """Return only this writer's confirmed wallet effects."""
+        return self.baser.walletEffects.get(keys=(wallet,))
+
+    def transaction(self, txHash):
+        """Return one persisted signed transaction and its receipt state."""
+        return self.baser.transactions.get(keys=(txHash,))
+
+    def dead_operation(self, operationId):
+        """Return one dead letter by operation ID."""
+        return self.baser.dead.get(keys=(operationId,))
+
+
+class PostingWriter:
+    """Borrow the open store for posting persistence only."""
+
+    def __init__(self, baser):
+        self.baser = baser
 
     def queued_to_preparing(self, postingOperation):
         """Claim the selected queued operation in the sole preparation slot."""
@@ -237,20 +244,6 @@ class OracleWriter:
         ):
             raise ValueError("cannot change a persisted signed attempt")
         txn.put(key, raw, db=self.baser.transactions.sdb)
-
-    def record_inbox_scope(self, scope):
-        """Persist the prepared receiver deployment binding."""
-        self.baser.inbox_scope.put(keys=("receiver",), val=scope)
-
-    def record_posting_scope(self, scope):
-        """Persist the prepared posting deployment binding."""
-        self.baser.scope.pin(keys=("posting",), val=scope)
-
-    def claim_nonce(self, peer, nonce, expires_at):
-        """Insert one transport replay claim without overwriting a consumed key."""
-        return self.baser.replay_claims.put(
-            keys=(peer, nonce), val=ReplayClaim(expires_at)
-        )
 
     def record_preparing_progress(self, postingOperation):
         """Persist prepared preparing progress without changing phase."""

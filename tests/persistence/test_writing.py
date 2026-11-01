@@ -8,8 +8,7 @@ from eth_account import Account
 from tests.support.contracts import persist_transaction, signed_transaction
 from tests.support.status_events import event_body, post, said, selected
 from vlei_oracle.persistence.basing import OracleBaser
-from vlei_oracle.persistence.reading import OracleReader
-from vlei_oracle.persistence.writing import OracleWriter
+from vlei_oracle.persistence.posting import PostingReader, PostingWriter
 
 WALLET = Account.from_key("0x" + "0" * 63 + "1").address
 
@@ -67,16 +66,16 @@ def test_receipt_and_phase_transition_are_atomic(peers):
     assert post(peers, body).status_code == 200
     assert post(peers, body).status_code == 200
     assert peers.inbox.queued.cntAll() == 1
-    postingOperation = OracleReader(peers.inbox).next_queued()
+    postingOperation = PostingReader(peers.inbox).next_queued()
     assert peers.inbox.queued.cntAll() == 1
-    assert OracleReader(peers.inbox).next_preparing() is None
-    assert OracleReader(peers.inbox).next_pending() is None
-    OracleWriter(peers.inbox).queued_to_preparing(postingOperation)
+    assert PostingReader(peers.inbox).next_preparing() is None
+    assert PostingReader(peers.inbox).next_pending() is None
+    PostingWriter(peers.inbox).queued_to_preparing(postingOperation)
     with patch.object(
         peers.inbox.completed, "serializer", side_effect=RuntimeError("move failed")
     ):
         with pytest.raises(RuntimeError, match="move failed"):
-            OracleWriter(peers.inbox).preparing_to_completed(postingOperation)
+            PostingWriter(peers.inbox).preparing_to_completed(postingOperation)
     peers.inbox.close()
     peers.inbox.reopen()
     assert peers.inbox.preparing.get(keys=("writer",)) == postingOperation
@@ -109,7 +108,7 @@ def test_confirmation_rollback_retains_pending_transaction_and_previous_effects(
         )
         original = store.pending.get(keys=("writer",))
         resolved = replace(original, txHash="")
-        writer = OracleWriter(store)
+        writer = PostingWriter(store)
         put_transaction = writer._put_transaction
 
         def fail_after_journal_write(txn, record, raw):

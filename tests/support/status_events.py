@@ -1,11 +1,11 @@
 """support/status_events.py."""
 
-from vlei_oracle.persistence.reading import OracleReader
-
 import json
 
 from falcon import testing
 from keri.core import coring
+
+from vlei_oracle.persistence.associations import AssociationReader
 
 
 def said(label):
@@ -48,6 +48,6 @@ def event_body(peers, label, sequence, *, issuer=None, revoked=False):
 
 def selected(peers):
     """Read the selected association for the fixture's canonical chain/address."""
-    return OracleReader(peers.inbox).selected_association(
+    return AssociationReader(peers.inbox).selected_association(
         json.loads(peers.event.body)["association"]["extId"]
     )

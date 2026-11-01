@@ -9,8 +9,8 @@ from tests.support.contracts import KEY, drive, observe, pending_transaction
 from tests.support.status_events import event_body, post, said
 from vlei_oracle.endorsement.doing import PostingDoer
 from vlei_oracle.endorsement.retrying import RecoveryService
-from vlei_oracle.persistence.reading import OracleReader
-from vlei_oracle.persistence.writing import OracleWriter
+from vlei_oracle.persistence.associations import AssociationReader
+from vlei_oracle.persistence.posting import PostingReader, PostingWriter
 from vlei_oracle.runtime.serving import StatusReceiver
 
 
@@ -51,6 +51,7 @@ def test_accepted_replaced_and_revoked_status_changes_real_mapping(peers, deploy
     postingService = posting_service_for(peers, deployment)
     wallet = "0x" + "11" * 20
     from falcon import testing
+
     from vlei_oracle.persistence.records import PostingSequence
 
     client = testing.TestClient(peers.receiver.app)
@@ -344,7 +345,9 @@ def test_bad_rpc_response_preserves_pending_transaction_and_signed_ack(
     assert parent.done and responses[0]["status"] == 200
     assert json.loads(responses[0]["body"])["stored"] is True
     assert (
-        OracleReader(peers.inbox).selected_association("eip155:31337:0x" + "11" * 20)
+        AssociationReader(peers.inbox).selected_association(
+            "eip155:31337:0x" + "11" * 20
+        )
         is not None
     )
     assert rpc_clients and all(not client.connector.opened for client in rpc_clients)
@@ -471,7 +474,7 @@ def test_reverts_exhaust_budget_then_require_explicit_retry(peers, deployment):
             .simulate_get(f"/v1/endorsements/{association}")
             .json
         )
-        phase, postingOperation = OracleReader(peers.inbox).operation_for(
+        phase, postingOperation = PostingReader(peers.inbox).operation_for(
             f"{association}:1"
         )
         assert phase == "dead" and postingOperation.attempts == 3
@@ -480,7 +483,7 @@ def test_reverts_exhaust_budget_then_require_explicit_retry(peers, deployment):
         assert state["action"] == "publish"
         assert state["publicationStatus"] == "not_published"
         assert peers.inbox.statuses.get(keys=(association,)).status == "accepted"
-        assert OracleReader(peers.inbox).wallet_effects("0x" + "11" * 20) is None
+        assert PostingReader(peers.inbox).wallet_effects("0x" + "11" * 20) is None
         assert peers.inbox.transactions.cntAll() == 3
         with patch.object(
             effects, "request", side_effect=AssertionError("dead letter retried")
@@ -489,7 +492,7 @@ def test_reverts_exhaust_budget_then_require_explicit_retry(peers, deployment):
         peers.inbox.close()
         peers.inbox.reopen()
         RecoveryService(
-            OracleReader(peers.inbox), OracleWriter(peers.inbox)
+            PostingReader(peers.inbox), PostingWriter(peers.inbox)
         ).retry_operation(postingOperation.operationId)
         yield from settle(postingService, "0x" + "11" * 20, association)
         return True
@@ -514,7 +517,7 @@ def test_receipt_deadline_fences_writer_and_manual_retry_preserves_signature(
             yield from postingService.cycle()  # Submit without mining.
             now[0] += 121
             yield from postingService.cycle()
-            phase, postingOperation = OracleReader(peers.inbox).operation_for(
+            phase, postingOperation = PostingReader(peers.inbox).operation_for(
                 f"{said('deadline')}:1"
             )
             assert phase == "dead" and postingOperation.txHash == txRecord.txHash
@@ -529,7 +532,7 @@ def test_receipt_deadline_fences_writer_and_manual_retry_preserves_signature(
             peers.inbox.close()
             peers.inbox.reopen()
             RecoveryService(
-                OracleReader(peers.inbox), OracleWriter(peers.inbox)
+                PostingReader(peers.inbox), PostingWriter(peers.inbox)
             ).retry_operation(postingOperation.operationId)
             assert pending_transaction(peers.inbox) == txRecord
             yield from effects.request("evm_mine", [])
@@ -598,7 +601,9 @@ def test_newer_revocation_withdraws_published_predecessor(peers, deployment):
         )
         yield from settle(postingService, wallet, "")
         assert (
-            OracleReader(peers.inbox).selected_association("eip155:31337:" + wallet)
+            AssociationReader(peers.inbox).selected_association(
+                "eip155:31337:" + wallet
+            )
             is None
         )
         return True
@@ -627,7 +632,7 @@ def test_preparation_errors_stop_in_dead_letter(peers, deployment):
                     .simulate_get(f"/v1/endorsements/{association}")
                     .json
                 )
-                phase, postingOperation = OracleReader(peers.inbox).operation_for(
+                phase, postingOperation = PostingReader(peers.inbox).operation_for(
                     f"{association}:1"
                 )
                 assert postingOperation.attempts == attempt + 1
@@ -636,7 +641,7 @@ def test_preparation_errors_stop_in_dead_letter(peers, deployment):
                     "failed" if attempt == 2 else "in_progress"
                 )
                 assert "unavailable" in state["error"]
-        associationStatus = OracleReader(peers.inbox).association(association)
+        associationStatus = AssociationReader(peers.inbox).association(association)
         assert (
             associationStatus.status == "accepted"
             and associationStatus.selection == "selected"
@@ -672,7 +677,7 @@ def test_pending_rpc_errors_keep_signed_dead_letter(peers, deployment):
                 yield from postingService.cycle()
         peers.inbox.close()
         peers.inbox.reopen()
-        phase, postingOperation = OracleReader(peers.inbox).operation_for(
+        phase, postingOperation = PostingReader(peers.inbox).operation_for(
             f"{said('pending-exhausted')}:1"
         )
         assert phase == "dead" and postingOperation.rpcFailures == 3

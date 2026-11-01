@@ -14,7 +14,7 @@ tests is an explicit package. No PYTHONPATH/sys.path workarounds are required.
 | EndorsementQuery, HTTP resource and delivery phases | tests/integration/test_status_posting.py |
 | receiving/authing.py | tests/receiving/test_authing.py |
 | update_selection | python -m pytest tests/associations/test_selecting.py -k same_le |
-| OracleWriter atomic receipt/phase/effect writes | tests/persistence/test_writing.py |
+| ReceiptWriter / PostingWriter atomic writes | tests/persistence/test_writing.py |
 | endorsement/decisions.py | tests/endorsement/test_decisions.py |
 | ContractEffects, RPC and ABI | tests/endorsement/test_effects.py |
 | Signed ingress through real posting/recovery | tests/integration/test_status_posting.py |

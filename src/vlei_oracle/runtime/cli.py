@@ -8,6 +8,8 @@ import sys
 
 from keri import kering
 
+from vlei_oracle.persistence.posting import PostingReader, PostingWriter
+
 
 def main(argv: list[str] | None = None) -> int:
     """Parse arguments, dispatch a registered command, and normalize errors."""
@@ -145,8 +147,6 @@ def retry_handler(args):
 
     from vlei_oracle.endorsement.retrying import RecoveryService
     from vlei_oracle.persistence.basing import OracleBaser
-    from vlei_oracle.persistence.reading import OracleReader
-    from vlei_oracle.persistence.writing import OracleWriter
 
     with dbing.openLMDB(
         cls=OracleBaser,
@@ -155,7 +155,7 @@ def retry_handler(args):
         headDirPath=args.head_dir,
         temp=False,
     ) as baser:
-        RecoveryService(OracleReader(baser), OracleWriter(baser)).retry_operation(
+        RecoveryService(PostingReader(baser), PostingWriter(baser)).retry_operation(
             args.operation_id
         )
 
