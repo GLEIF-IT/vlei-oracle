@@ -17,13 +17,13 @@ class PostingScope:
 
 @dataclass
 class TransactionRecord:
-    """Durable intent and signed identity, written before any broadcast."""
+    """Signed transaction bytes and identity, persisted before any broadcast."""
 
     txHash: str
     rawTransaction: str
     nonce: int
     associationSaid: str
-    action: str
+    functionName: str
     state: str = "pending"
 
 
@@ -57,7 +57,7 @@ class PostingOperation:
     wallet: str
     attempts: int = 0
     rpcFailures: int = 0
-    action: str = ""
+    functionName: str = ""
     txHash: str = ""
     signedAt: float = 0.0
     lastTransactionHash: str = ""
@@ -67,7 +67,7 @@ class PostingOperation:
 
 
 @dataclass
-class AppliedWallet:
+class WalletEffects:
     """Only this writer's confirmed effects, never a refreshed chain-state cache."""
 
     identityRef: str = ""

@@ -2,7 +2,7 @@
 
 import pytest
 
-from vlei_oracle.endorsement.decisions import ZERO_IDENTITY, next_action
+from vlei_oracle.endorsement.decisions import ZERO_IDENTITY, next_contract_call
 
 WALLET = "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf"
 
@@ -55,7 +55,7 @@ ASSOCIATION_MAPPING = {
 )
 def test_reconcile_association_mapping_in_safe_order(identity, endorsement, expected):
     assert (
-        next_action(
+        next_contract_call(
             ASSOCIATION_MAPPING, identity=identity, endorsement=endorsement, valid=True
         )
         == expected
@@ -64,13 +64,13 @@ def test_reconcile_association_mapping_in_safe_order(identity, endorsement, expe
 
 @pytest.mark.parametrize("current", ["new", "replacement", ""])
 def test_unselected_status_withdraws_only_its_exact_association(current):
-    action = next_action(
+    contractCall = next_contract_call(
         ASSOCIATION_MAPPING,
         identity=IDENTITY,
         endorsement=(IDENTITY, current),
         valid=False,
     )
-    assert action == (
+    assert contractCall == (
         ("endorsement", "withdrawEndorsement", [WALLET, "new"])
         if current == "new"
         else None

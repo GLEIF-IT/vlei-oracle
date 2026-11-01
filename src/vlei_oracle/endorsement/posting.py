@@ -12,11 +12,11 @@ from eth_account import Account
 from hio.base import doing
 from web3 import Web3
 
-from vlei_oracle.endorsement.decisions import ZERO_IDENTITY, next_action
+from vlei_oracle.endorsement.decisions import ZERO_IDENTITY, next_contract_call
 from vlei_oracle.persistence.records import (
-    AppliedWallet,
     PostingScope,
     TransactionRecord,
+    WalletEffects,
 )
 
 logger = logging.getLogger(__name__)
@@ -67,154 +67,183 @@ class StatusPoster(doing.DoDoer):
             yield from self.cycle()
             yield self.interval
 
-    def action(self, work):
+    def contract_call(self, postingOperation):
         """Choose from current off-chain selection and our own confirmed effects."""
-        status = self.baser.statuses.get(keys=(work.associationSaid,))
-        selected = self.baser.selected_association(status.association["extId"])
-        applied = self.baser.applied.get(keys=(work.wallet,)) or AppliedWallet()
-        valid = (
-            status.status == "accepted"
-            and selected is not None
-            and selected.associationSaid == status.associationSaid
+        associationStatus = self.baser.statuses.get(
+            keys=(postingOperation.associationSaid,)
         )
-        if selected is None and applied.associationSaid:
+        selectedStatus = self.baser.selected_association(
+            associationStatus.association["extId"]
+        )
+        walletEffects = (
+            self.baser.walletEffects.get(keys=(postingOperation.wallet,))
+            or WalletEffects()
+        )
+        valid = (
+            associationStatus.status == "accepted"
+            and selectedStatus is not None
+            and selectedStatus.associationSaid == associationStatus.associationSaid
+        )
+        if selectedStatus is None and walletEffects.associationSaid:
             # A newer retirement can supersede an older published claim before
             # its acceptance arrives. Release the wallet's own recorded effect.
             return (
                 "endorsement",
                 "withdrawEndorsement",
-                [work.wallet, applied.associationSaid],
+                [postingOperation.wallet, walletEffects.associationSaid],
             )
-        return next_action(
-            asdict(status),
-            identity=applied.identityRef or ZERO_IDENTITY,
+        return next_contract_call(
+            asdict(associationStatus),
+            identity=walletEffects.identityRef or ZERO_IDENTITY,
             endorsement=(
-                applied.endorsementIdentity or ZERO_IDENTITY,
-                applied.associationSaid,
+                walletEffects.endorsementIdentity or ZERO_IDENTITY,
+                walletEffects.associationSaid,
             ),
             valid=valid,
         )
 
     def cycle(self):
         """Advance only pending work, or prepare one step of the oldest operation."""
-        work = self.baser.pending.get(keys=("writer",))
-        if work is not None:
-            yield from self.confirm(work)
+        postingOperation = self.baser.pending.get(keys=("writer",))
+        if postingOperation is not None:
+            yield from self.confirm(postingOperation)
             return
-        work = self.baser.begin_operation()
-        if work is None:
+        postingOperation = self.baser.begin_operation()
+        if postingOperation is None:
             return
-        action = self.action(work)
-        if action is None:
-            status = self.baser.statuses.get(keys=(work.associationSaid,))
-            work.outcome = (
-                "published" if status.selection == "selected" else status.selection
+        contractCall = self.contract_call(postingOperation)
+        if contractCall is None:
+            associationStatus = self.baser.statuses.get(
+                keys=(postingOperation.associationSaid,)
             )
-            self.baser.move_operation(work, "preparing", "completed")
+            postingOperation.outcome = (
+                "published"
+                if associationStatus.selection == "selected"
+                else associationStatus.selection
+            )
+            self.baser.move_operation(postingOperation, "preparing", "completed")
             return
-        if work.attempts >= self.max_attempts:
-            work.error = work.error or "preparation interrupted; attempt limit reached"
-            self.baser.move_operation(work, "preparing", "dead")
+        if postingOperation.attempts >= self.max_attempts:
+            postingOperation.error = (
+                postingOperation.error
+                or "preparation interrupted; attempt limit reached"
+            )
+            self.baser.move_operation(postingOperation, "preparing", "dead")
             return
-        work.attempts += 1
-        work.action = action[1]
-        self.baser.preparing.pin(keys=("writer",), val=work)
+        postingOperation.attempts += 1
+        postingOperation.functionName = contractCall[1]
+        self.baser.preparing.pin(keys=("writer",), val=postingOperation)
         try:
-            tx = yield from self.effects.prepare(action)
-            if self.action(work) != action:
+            unsignedTransaction = yield from self.effects.prepare(contractCall)
+            if self.contract_call(postingOperation) != contractCall:
                 # No signature exists: a newer local event may safely suppress this step.
-                work.attempts = 0
-                work.error = ""
-                self.baser.preparing.pin(keys=("writer",), val=work)
+                postingOperation.attempts = 0
+                postingOperation.error = ""
+                self.baser.preparing.pin(keys=("writer",), val=postingOperation)
                 return
-            signed = self.account.sign_transaction(tx)
+            signedTransaction = self.account.sign_transaction(unsignedTransaction)
         except (OSError, TimeoutError, ValueError) as error:
-            self.fail(work, "preparing", error)
+            self.fail(postingOperation, "preparing", error)
             return
-        work.txHash = Web3.to_hex(signed.hash)
-        work.signedAt = self.clock()
-        work.error = ""
-        intent = TransactionRecord(
-            txHash=work.txHash,
-            rawTransaction=Web3.to_hex(signed.raw_transaction),
-            nonce=tx["nonce"],
-            associationSaid=work.associationSaid,
-            action=work.action,
+        postingOperation.txHash = Web3.to_hex(signedTransaction.hash)
+        postingOperation.signedAt = self.clock()
+        postingOperation.error = ""
+        txRecord = TransactionRecord(
+            txHash=postingOperation.txHash,
+            rawTransaction=Web3.to_hex(signedTransaction.raw_transaction),
+            nonce=unsignedTransaction["nonce"],
+            associationSaid=postingOperation.associationSaid,
+            functionName=postingOperation.functionName,
         )
-        self.baser.move_operation(work, "preparing", "pending", intent=intent)
+        self.baser.move_operation(
+            postingOperation, "preparing", "pending", txRecord=txRecord
+        )
 
-    def confirm(self, work):
+    def confirm(self, postingOperation):
         """Observe only this signed transaction, submitting the same bytes if needed."""
-        intent = self.baser.transactions.get(keys=(work.txHash,))
-        if not work.signedAt:
-            work.signedAt = self.clock()
-            self.baser.pending.pin(keys=("writer",), val=work)
+        txRecord = self.baser.transactions.get(keys=(postingOperation.txHash,))
+        if not postingOperation.signedAt:
+            postingOperation.signedAt = self.clock()
+            self.baser.pending.pin(keys=("writer",), val=postingOperation)
         try:
             yield from self.effects.check_chain()
-            receipt = yield from self.effects.receipt(work.txHash)
+            receipt = yield from self.effects.receipt(postingOperation.txHash)
             if receipt is not None and receipt["confirmed"]:
-                self.complete_step(work, intent, receipt["status"] == "0x1")
+                self.complete_step(
+                    postingOperation, txRecord, receipt["status"] == "0x1"
+                )
                 return
-            if self.clock() - work.signedAt >= self.pending_timeout:
-                work.error = (
+            if self.clock() - postingOperation.signedAt >= self.pending_timeout:
+                postingOperation.error = (
                     "receipt deadline exceeded; signed transaction remains unresolved"
                 )
-                self.baser.move_operation(work, "pending", "dead")
+                self.baser.move_operation(postingOperation, "pending", "dead")
                 return
-            if not work.submitted and receipt is None:
-                yield from self.effects.submit(intent.rawTransaction, intent.txHash)
-                work.submitted = True
-                work.error = ""
-                self.baser.pending.pin(keys=("writer",), val=work)
+            if not postingOperation.submitted and receipt is None:
+                yield from self.effects.submit(txRecord.rawTransaction, txRecord.txHash)
+                postingOperation.submitted = True
+                postingOperation.error = ""
+                self.baser.pending.pin(keys=("writer",), val=postingOperation)
         except (OSError, TimeoutError, ValueError) as error:
-            self.fail(work, "pending", error)
+            self.fail(postingOperation, "pending", error)
 
-    def complete_step(self, work, intent, succeeded):
+    def complete_step(self, postingOperation, txRecord, succeeded):
         """Atomically record a confirmed effect and return to the next preparation."""
-        intent.state = "confirmed" if succeeded else "reverted"
-        work.lastTransactionHash = intent.txHash
-        work.txHash = ""
-        work.submitted = False
-        work.signedAt = 0.0
-        work.rpcFailures = 0
-        applied = None
+        txRecord.state = "confirmed" if succeeded else "reverted"
+        postingOperation.lastTransactionHash = txRecord.txHash
+        postingOperation.txHash = ""
+        postingOperation.submitted = False
+        postingOperation.signedAt = 0.0
+        postingOperation.rpcFailures = 0
+        walletEffects = None
         if succeeded:
-            status = self.baser.statuses.get(keys=(work.associationSaid,))
-            applied = self.baser.applied.get(keys=(work.wallet,)) or AppliedWallet()
-            if work.action == "registerIdentity":
-                applied.identityRef = status.identityRef
-            elif work.action == "removeIdentity":
-                applied.identityRef = ""
-            elif work.action == "publishEndorsement":
-                applied.endorsementIdentity = status.identityRef
-                applied.associationSaid = status.associationSaid
-            elif work.action == "withdrawEndorsement":
-                applied.endorsementIdentity = applied.associationSaid = ""
+            associationStatus = self.baser.statuses.get(
+                keys=(postingOperation.associationSaid,)
+            )
+            walletEffects = (
+                self.baser.walletEffects.get(keys=(postingOperation.wallet,))
+                or WalletEffects()
+            )
+            if postingOperation.functionName == "registerIdentity":
+                walletEffects.identityRef = associationStatus.identityRef
+            elif postingOperation.functionName == "removeIdentity":
+                walletEffects.identityRef = ""
+            elif postingOperation.functionName == "publishEndorsement":
+                walletEffects.endorsementIdentity = associationStatus.identityRef
+                walletEffects.associationSaid = associationStatus.associationSaid
+            elif postingOperation.functionName == "withdrawEndorsement":
+                walletEffects.endorsementIdentity = walletEffects.associationSaid = ""
             else:
                 raise ValueError("unknown persisted contract action")
-            work.attempts = 0
-            work.error = ""
+            postingOperation.attempts = 0
+            postingOperation.error = ""
         else:
-            work.error = f"transaction reverted: {intent.txHash}"
+            postingOperation.error = f"transaction reverted: {txRecord.txHash}"
         phase = (
             "dead"
-            if not succeeded and work.attempts >= self.max_attempts
+            if not succeeded and postingOperation.attempts >= self.max_attempts
             else "preparing"
         )
         self.baser.move_operation(
-            work, "pending", phase, applied=applied, intent=intent
+            postingOperation,
+            "pending",
+            phase,
+            walletEffects=walletEffects,
+            txRecord=txRecord,
         )
 
-    def fail(self, work, phase, error):
+    def fail(self, postingOperation, phase, error):
         """Persist bounded failure without changing credential validity or selection."""
-        work.error = str(error) or type(error).__name__
-        logger.error("contract posting failed: %s", work.error)
+        postingOperation.error = str(error) or type(error).__name__
+        logger.error("contract posting failed: %s", postingOperation.error)
         if phase == "pending":
-            work.rpcFailures += 1
+            postingOperation.rpcFailures += 1
         exhausted = (
-            work.rpcFailures if phase == "pending" else work.attempts
+            postingOperation.rpcFailures
+            if phase == "pending"
+            else postingOperation.attempts
         ) >= self.max_attempts
         if exhausted:
-            self.baser.move_operation(work, phase, "dead")
+            self.baser.move_operation(postingOperation, phase, "dead")
         else:
-            getattr(self.baser, phase).pin(keys=("writer",), val=work)
+            getattr(self.baser, phase).pin(keys=("writer",), val=postingOperation)

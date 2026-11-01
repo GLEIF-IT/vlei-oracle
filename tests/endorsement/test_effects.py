@@ -14,9 +14,9 @@ from tests.support.contracts import (
     drive,
     effects_for,
     observe,
-    pending_intent,
-    persist_intent,
-    signed_intent,
+    pending_transaction,
+    persist_transaction,
+    signed_transaction,
 )
 from vlei_oracle.associations.statusing import read_status
 from vlei_oracle.endorsement.effects import ContractEffects
@@ -89,17 +89,17 @@ def test_lost_submission_result_recovers_saved_identity(deployment, tmp_path):
         tx = yield from effects.prepare(
             ("endorsement", "publishEndorsement", [WALLET, IDENTITY, "association"])
         )
-        intent = persist_intent(store, signed_intent(tx))
-        yield from effects.submit(intent.rawTransaction, intent.txHash)
+        txRecord = persist_transaction(store, signed_transaction(tx))
+        yield from effects.submit(txRecord.rawTransaction, txRecord.txHash)
         # Deliberately lose all in-memory effect/receipt progress.
-        return intent
+        return txRecord
 
-    intent = drive(effects_for(deployment), submit)
+    txRecord = drive(effects_for(deployment), submit)
     store.close()
     reopened = OracleBaser(name="posting", headDirPath=str(tmp_path))
     try:
-        saved = pending_intent(reopened)
-        assert saved == intent
+        saved = pending_transaction(reopened)
+        assert saved == txRecord
 
         def recover(effects):
             result = yield from effects.receipt(saved.txHash)
@@ -123,13 +123,13 @@ def test_receipt_disappears_after_reorg_and_same_bytes_can_be_submitted(deployme
         tx = yield from effects.prepare(
             ("endorsement", "publishEndorsement", [WALLET, IDENTITY, "reorg"])
         )
-        intent = signed_intent(tx, said="reorg")
-        yield from effects.submit(intent.rawTransaction, intent.txHash)
-        assert (yield from effects.receipt(intent.txHash))["status"] == "0x1"
+        txRecord = signed_transaction(tx, said="reorg")
+        yield from effects.submit(txRecord.rawTransaction, txRecord.txHash)
+        assert (yield from effects.receipt(txRecord.txHash))["status"] == "0x1"
         assert (yield from effects.request("evm_revert", [snapshot])) is True
-        assert (yield from effects.receipt(intent.txHash)) is None
-        yield from effects.submit(intent.rawTransaction, intent.txHash)
-        result = yield from effects.receipt(intent.txHash)
+        assert (yield from effects.receipt(txRecord.txHash)) is None
+        yield from effects.submit(txRecord.rawTransaction, txRecord.txHash)
+        result = yield from effects.receipt(txRecord.txHash)
         assert result["status"] == "0x1"
         return result
 
@@ -155,12 +155,12 @@ def test_receipt_waits_for_configured_confirmations(deployment):
         tx = yield from effects.prepare(
             ("endorsement", "publishEndorsement", [WALLET, IDENTITY, "confirmations"])
         )
-        intent = signed_intent(tx, said="confirmations")
-        yield from effects.submit(intent.rawTransaction, intent.txHash)
-        receipt = yield from effects.receipt(intent.txHash)
+        txRecord = signed_transaction(tx, said="confirmations")
+        yield from effects.submit(txRecord.rawTransaction, txRecord.txHash)
+        receipt = yield from effects.receipt(txRecord.txHash)
         assert receipt["confirmed"] is False
         yield from effects.request("evm_mine", [])
-        assert (yield from effects.receipt(intent.txHash))["confirmed"] is True
+        assert (yield from effects.receipt(txRecord.txHash))["confirmed"] is True
         return True
 
     drive(effects, workflow)
@@ -249,14 +249,14 @@ def test_rpc_outage_is_unknown_not_transaction_absence(tmp_path, unavailable):
         identity=address,
     )
     store = OracleBaser(name="rpc-unknown", headDirPath=str(tmp_path))
-    intent = persist_intent(
+    txRecord = persist_transaction(
         store,
         TransactionRecord(
             txHash="0x" + "12" * 32,
             rawTransaction="0x1234",
             nonce=0,
             associationSaid="association",
-            action="publishEndorsement",
+            functionName="publishEndorsement",
         ),
     )
     completed = []
@@ -265,10 +265,10 @@ def test_rpc_outage_is_unknown_not_transaction_absence(tmp_path, unavailable):
         yield tock
         if unavailable:
             with pytest.raises(ValueError, match="invalid RPC response"):
-                yield from effects.receipt(intent.txHash)
+                yield from effects.receipt(txRecord.txHash)
         else:
-            assert (yield from effects.receipt(intent.txHash)) is None
-        assert pending_intent(store) == intent
+            assert (yield from effects.receipt(txRecord.txHash)) is None
+        assert pending_transaction(store) == txRecord
         assert "eth_sendRawTransaction" not in calls
         completed.append(True)
         parent.remove([effects, server_doer])

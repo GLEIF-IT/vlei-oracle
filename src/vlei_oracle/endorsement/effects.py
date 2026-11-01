@@ -33,7 +33,7 @@ class ContractEffects(doing.DoDoer):
         self.confirmations, self.timeout = confirmations, timeout
         self.web3 = Web3()
         self.contracts = {}
-        for key, address, filename in (
+        for contractName, address, filename in (
             ("endorsement", endorsement, "VLEIOracleRegistry.json"),
             ("identity", identity, "IdentityRegistry.json"),
         ):
@@ -42,7 +42,7 @@ class ContractEffects(doing.DoDoer):
                 .joinpath("contract_data", filename)
                 .read_text()
             )
-            self.contracts[key] = self.web3.eth.contract(
+            self.contracts[contractName] = self.web3.eth.contract(
                 address=Web3.to_checksum_address(address), abi=abi
             )
         super().__init__(doers=[], always=True)
@@ -69,15 +69,15 @@ class ContractEffects(doing.DoDoer):
 
     def check_chain(self):
         """Refuse observations or effects from another chain."""
-        chain = yield from self.request("eth_chainId", [])
-        if int(chain, 16) != self.chain_id:
+        chainIdHex = yield from self.request("eth_chainId", [])
+        if int(chainIdHex, 16) != self.chain_id:
             raise ValueError("RPC chain does not match posting deployment")
 
-    def prepare(self, action):
+    def prepare(self, contractCall):
         """Fetch unsigned transaction inputs without broadcasting."""
         yield from self.check_chain()
-        key, function, args = action
-        contract = self.contracts[key]
+        contractName, functionName, args = contractCall
+        contract = self.contracts[contractName]
         # ABI validation and encoding run locally against the actual pinned ABI.
         args = [
             (
@@ -90,7 +90,7 @@ class ContractEffects(doing.DoDoer):
         tx = {
             "from": self.writer,
             "to": contract.address,
-            "data": contract.encode_abi(function, args=args),
+            "data": contract.encode_abi(functionName, args=args),
             "value": 0,
         }
         nonce = yield from self.request(
@@ -127,8 +127,10 @@ class ContractEffects(doing.DoDoer):
         )
         return receipt
 
-    def submit(self, raw, tx_hash):
+    def submit(self, rawTransaction, tx_hash):
         """Broadcast an already persisted signed identity; never allocate a nonce."""
-        result = yield from self.request("eth_sendRawTransaction", [raw])
-        if result.lower() != tx_hash:
+        submittedTxHash = yield from self.request(
+            "eth_sendRawTransaction", [rawTransaction]
+        )
+        if submittedTxHash.lower() != tx_hash:
             raise ValueError("RPC returned a different transaction identity")

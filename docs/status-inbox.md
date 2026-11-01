@@ -46,7 +46,7 @@ vlei-oracle server start \
 The writer needs the deployed registries' permissions and exclusive ownership of
 its Ethereum account. Status receipt commits selection and a queued operation
 before ACK. One operation progresses through native LMDB phase subdatabases:
-`queued.`, `preparing.`, `pending.`, `completed.` and `dead.`. `applied.` records
+`queued.`, `preparing.`, `pending.`, `completed.` and `dead.`. `wallet-effects.` records
 only this writer's confirmed effects; `txns.` retains signed attempt history.
 `inbox.` and `statuses.` retain event and verifier-status history. None of these
 history tables is scanned to schedule completed work.
@@ -103,3 +103,16 @@ HIO 0.6.22. Keep those package pins; do not install overlapping upstream keri/hi
 distributions. The known KERIpy receipt-couple shortage can monopolize producer
 intake on malformed evidence; a valid-stream qualification does not establish
 malformed-stream liveness. See [Verifier operations](https://github.com/GLEIF-IT/eoa-verifier/blob/master/docs/operations.md).
+
+## Record vocabulary
+
+Names identify domain objects and their representations through source, tests
+and public status: `postingOperation` is a `PostingOperation`, `txRecord` is a
+`TransactionRecord`, and `walletEffects` contains only this writer's confirmed
+effects. A `contractCall` is `(contractName, functionName, args)`; the persisted
+`functionName` is only the function-name string, not that tuple. Signed bytes
+remain a transaction record after confirmation or revert.
+
+The operation returned by the endorsement resource exposes `functionName`.
+This format replaces the former `action` field; use fresh application stores.
+There are no old-format readers, migrations or compatibility aliases.

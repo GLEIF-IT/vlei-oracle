@@ -28,8 +28,8 @@ SOURCE = Path(__file__).resolve().parents[2]
 
 def parser() -> argparse.ArgumentParser:
     """Describe explicit run ownership and optional candidate-source selection."""
-    result = argparse.ArgumentParser(description=__doc__)
-    result.add_argument(
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
         "command",
         choices=(
             "prepare",
@@ -43,15 +43,15 @@ def parser() -> argparse.ArgumentParser:
             "_initialize",
         ),
     )
-    result.add_argument("--run-dir", required=True, type=Path)
-    result.add_argument("--verifier-source", type=Path)
-    result.add_argument("--comply-source", type=Path)
-    result.add_argument("--oracle-source", type=Path, default=SOURCE)
-    result.add_argument("--oracle-wheel", type=Path)
-    result.add_argument("--tool-revision")
-    result.add_argument("--witness-count", type=int, choices=(1, 6), default=6)
-    result.add_argument("--service")
-    return result
+    parser.add_argument("--run-dir", required=True, type=Path)
+    parser.add_argument("--verifier-source", type=Path)
+    parser.add_argument("--comply-source", type=Path)
+    parser.add_argument("--oracle-source", type=Path, default=SOURCE)
+    parser.add_argument("--oracle-wheel", type=Path)
+    parser.add_argument("--tool-revision")
+    parser.add_argument("--witness-count", type=int, choices=(1, 6), default=6)
+    parser.add_argument("--service")
+    return parser
 
 
 def main() -> None:

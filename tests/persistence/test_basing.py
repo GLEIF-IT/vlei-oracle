@@ -5,7 +5,7 @@ from unittest.mock import patch
 import pytest
 from eth_account import Account
 
-from tests.support.contracts import persist_intent, signed_intent
+from tests.support.contracts import persist_transaction, signed_transaction
 from tests.support.status_events import event_body, post, said, selected
 from vlei_oracle.persistence.basing import OracleBaser
 from vlei_oracle.persistence.records import PostingScope
@@ -64,14 +64,14 @@ def test_signed_attempts_are_immutable_across_reopen(tmp_path):
         "value": 0,
         "chainId": 31337,
     }
-    intent = persist_intent(store, signed_intent(transaction))
+    txRecord = persist_transaction(store, signed_transaction(transaction))
     store.close()
     store.reopen()
     try:
         with pytest.raises(ValueError, match="signed attempt"):
-            persist_intent(store, replace(intent, associationSaid="different"))
+            persist_transaction(store, replace(txRecord, associationSaid="different"))
         with pytest.raises(ValueError, match="signed attempt"):
-            persist_intent(store, replace(intent, rawTransaction="0x00"))
+            persist_transaction(store, replace(txRecord, rawTransaction="0x00"))
     finally:
         store.close(clear=True)
 
@@ -87,15 +87,15 @@ def test_receipt_and_phase_transition_are_atomic(peers):
     assert post(peers, body).status_code == 200
     assert post(peers, body).status_code == 200
     assert peers.inbox.queued.cntAll() == 1
-    work = peers.inbox.begin_operation()
+    postingOperation = peers.inbox.begin_operation()
     with patch.object(
         peers.inbox.completed, "serializer", side_effect=RuntimeError("move failed")
     ):
         with pytest.raises(RuntimeError, match="move failed"):
-            peers.inbox.move_operation(work, "preparing", "completed")
+            peers.inbox.move_operation(postingOperation, "preparing", "completed")
     peers.inbox.close()
     peers.inbox.reopen()
-    assert peers.inbox.preparing.get(keys=("writer",)) == work
+    assert peers.inbox.preparing.get(keys=("writer",)) == postingOperation
     assert peers.inbox.completed.cntAll() == 0
 
 
@@ -105,12 +105,12 @@ def test_confirmation_rollback_retains_pending_intent_and_previous_effects(tmp_p
 
     from keri.db import dbing
 
-    from vlei_oracle.persistence.records import AppliedWallet
+    from vlei_oracle.persistence.records import WalletEffects
 
     with dbing.openLMDB(cls=OracleBaser, name="confirm-rollback", temp=True) as store:
-        intent = persist_intent(
+        txRecord = persist_transaction(
             store,
-            signed_intent(
+            signed_transaction(
                 {
                     "nonce": 0,
                     "gasPrice": 1,
@@ -133,9 +133,9 @@ def test_confirmation_rollback_retains_pending_intent_and_previous_effects(tmp_p
                 resolved,
                 "pending",
                 "preparing",
-                intent=replace(intent, state="confirmed"),
-                applied=AppliedWallet(identityRef=IDENTITY),
+                txRecord=replace(txRecord, state="confirmed"),
+                walletEffects=WalletEffects(identityRef=IDENTITY),
             )
         assert store.pending.get(keys=("writer",)) == original
-        assert store.transactions.get(keys=(intent.txHash,)) == intent
-        assert store.applied.get(keys=(original.wallet,)) is None
+        assert store.transactions.get(keys=(txRecord.txHash,)) == txRecord
+        assert store.walletEffects.get(keys=(original.wallet,)) is None
