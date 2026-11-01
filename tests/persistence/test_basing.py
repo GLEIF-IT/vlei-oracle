@@ -87,19 +87,25 @@ def test_receipt_and_phase_transition_are_atomic(peers):
     assert post(peers, body).status_code == 200
     assert post(peers, body).status_code == 200
     assert peers.inbox.queued.cntAll() == 1
-    postingOperation = peers.inbox.begin_operation()
+    postingOperation = peers.inbox.next_queued()
+    assert peers.inbox.queued.cntAll() == 1
+    assert peers.inbox.next_preparing() is None
+    assert peers.inbox.next_pending() is None
+    peers.inbox.queued_to_preparing(postingOperation)
     with patch.object(
         peers.inbox.completed, "serializer", side_effect=RuntimeError("move failed")
     ):
         with pytest.raises(RuntimeError, match="move failed"):
-            peers.inbox.move_operation(postingOperation, "preparing", "completed")
+            peers.inbox.preparing_to_completed(postingOperation)
     peers.inbox.close()
     peers.inbox.reopen()
     assert peers.inbox.preparing.get(keys=("writer",)) == postingOperation
     assert peers.inbox.completed.cntAll() == 0
 
 
-def test_confirmation_rollback_retains_pending_transaction_and_previous_effects(tmp_path):
+def test_confirmation_rollback_retains_pending_transaction_and_previous_effects(
+    tmp_path,
+):
     """A failed phase write cannot record a receipt or applied effect independently."""
     from dataclasses import replace
 
@@ -123,16 +129,21 @@ def test_confirmation_rollback_retains_pending_transaction_and_previous_effects(
         )
         original = store.pending.get(keys=("writer",))
         resolved = replace(original, txHash="")
+        put_transaction = store._put_transaction
+
+        def fail_after_journal_write(txn, record, raw):
+            """Interrupt after the actual LMDB journal mutation, before phase completion."""
+            put_transaction(txn, record, raw)
+            raise RuntimeError("phase failed")
+
         with (
             patch.object(
-                store.preparing, "serializer", side_effect=RuntimeError("phase failed")
+                store, "_put_transaction", side_effect=fail_after_journal_write
             ),
             pytest.raises(RuntimeError, match="phase failed"),
         ):
-            store.move_operation(
+            store.pending_to_preparing(
                 resolved,
-                "pending",
-                "preparing",
                 txRecord=replace(txRecord, state="confirmed"),
                 walletEffects=WalletEffects(identityRef=IDENTITY),
             )

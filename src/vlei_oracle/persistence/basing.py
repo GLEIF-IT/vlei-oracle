@@ -182,123 +182,196 @@ class OracleBaser(dbing.LMDBer):
             raise ValueError("store belongs to a different posting scope")
         self.scope.pin(keys=("posting",), val=scope)
 
-    def begin_operation(self):
-        """Move the oldest queued operation into the sole writer slot atomically."""
-        with self.env.begin(write=True) as txn:
-            sequence = (
-                self.sequence.deserializer(txn.get(b"writer", db=self.sequence.sdb))
-                or PostingSequence()
-            )
-            if sequence.blockedBy or txn.get(b"writer", db=self.pending.sdb):
-                return None
-            activeOperation = self.preparing.deserializer(
-                txn.get(b"writer", db=self.preparing.sdb)
-            )
-            if activeOperation:
-                return activeOperation
-            with txn.cursor(db=self.queued.sdb) as cursor:
-                if not cursor.first():
-                    return None
-                key, raw = cursor.item()
-                postingOperation = self.queued.deserializer(raw)
-                txn.put(
-                    b"writer",
-                    self.preparing.serializer(postingOperation),
-                    db=self.preparing.sdb,
-                )
-                txn.delete(key, db=self.queued.sdb)
-                return postingOperation
+    def next_pending(self):
+        """Read the sole pending signed operation without changing its phase."""
+        return self.pending.get(keys=("writer",))
 
-    def move_operation(
-        self,
-        postingOperation,
-        source,
-        destination,
-        *,
-        walletEffects=None,
-        txRecord=None,
-    ):
-        """Commit one phase transition with its journal/effect changes or nothing.
+    def next_preparing(self):
+        """Read interrupted preparation without consulting queued operations."""
+        return self.preparing.get(keys=("writer",))
 
-        Active phases use one writer slot; terminal phases use the operation ID.
-        The signed transaction is durable before any network submission. A dead signed
-        transaction fences all later work until explicitly resumed and resolved.
-        """
-        source_key = (
-            postingOperation.operationId.encode() if source == "dead" else b"writer"
-        )
-        target_key = (
-            b"writer"
-            if destination in ("preparing", "pending")
-            else postingOperation.operationId.encode()
-        )
-        origin, target = getattr(self, source), getattr(self, destination)
+    def next_queued(self):
+        """Detach the oldest queued operation and close its reader before returning."""
+        with self.env.begin(db=self.queued.sdb) as txn, txn.cursor() as cursor:
+            return (
+                self.queued.deserializer(bytes(cursor.value()))
+                if cursor.first()
+                else None
+            )
+
+    def queued_to_preparing(self, postingOperation):
+        """Claim the selected queued operation in the sole preparation slot."""
+        key = postingOperation.operationId.encode()
+        expected = self.queued.serializer(postingOperation)
+        raw = self.preparing.serializer(postingOperation)
         with self.env.begin(write=True) as txn:
-            currentOperation = origin.deserializer(txn.get(source_key, db=origin.sdb))
+            if txn.get(key, db=self.queued.sdb) != expected:
+                raise ValueError("queued operation is absent or changed")
+            if txn.get(b"writer", db=self.preparing.sdb) or txn.get(
+                b"writer", db=self.pending.sdb
+            ):
+                raise ValueError("writer already has active work")
+            txn.delete(key, db=self.queued.sdb)
+            txn.put(b"writer", raw, db=self.preparing.sdb)
+
+    def preparing_to_pending(self, postingOperation, txRecord):
+        """Journal the signed transaction and move preparing work to pending atomically."""
+        source_key, target_key = b"writer", b"writer"
+        raw = self.pending.serializer(postingOperation)
+        tx_raw = self.transactions.serializer(txRecord)
+        with self.env.begin(write=True) as txn:
+            currentOperation = self.preparing.deserializer(
+                txn.get(source_key, db=self.preparing.sdb)
+            )
             if (
                 currentOperation is None
                 or currentOperation.operationId != postingOperation.operationId
             ):
-                raise ValueError("operation is not in the expected phase")
-            if txRecord is not None:
-                existingTxRecord = self.transactions.deserializer(
-                    txn.get(txRecord.txHash.encode(), db=self.transactions.sdb)
-                )
-                if existingTxRecord is not None and any(
-                    getattr(existingTxRecord, field) != getattr(txRecord, field)
-                    for field in (
-                        "rawTransaction",
-                        "nonce",
-                        "associationSaid",
-                        "functionName",
-                    )
-                ):
-                    raise ValueError("cannot change a persisted signed attempt")
-                txn.put(
-                    txRecord.txHash.encode(),
-                    self.transactions.serializer(txRecord),
-                    db=self.transactions.sdb,
-                )
-            if walletEffects is not None:
+                raise ValueError("operation is not in the expected preparing phase")
+            self._put_transaction(txn, txRecord, tx_raw)
+            txn.delete(source_key, db=self.preparing.sdb)
+            txn.put(target_key, raw, db=self.pending.sdb)
+
+    def preparing_to_completed(self, postingOperation):
+        """Remove preparing work and retain its terminal publication outcome."""
+        source_key, target_key = b"writer", postingOperation.operationId.encode()
+        raw = self.completed.serializer(postingOperation)
+        with self.env.begin(write=True) as txn:
+            currentOperation = self.preparing.deserializer(
+                txn.get(source_key, db=self.preparing.sdb)
+            )
+            if (
+                currentOperation is None
+                or currentOperation.operationId != postingOperation.operationId
+            ):
+                raise ValueError("operation is not in the expected preparing phase")
+            txn.delete(source_key, db=self.preparing.sdb)
+            txn.put(target_key, raw, db=self.completed.sdb)
+
+    def preparing_to_dead(self, postingOperation):
+        """Stop unsigned preparation without blocking later queued operations."""
+        source_key, target_key = b"writer", postingOperation.operationId.encode()
+        raw = self.dead.serializer(postingOperation)
+        with self.env.begin(write=True) as txn:
+            currentOperation = self.preparing.deserializer(
+                txn.get(source_key, db=self.preparing.sdb)
+            )
+            if (
+                currentOperation is None
+                or currentOperation.operationId != postingOperation.operationId
+            ):
+                raise ValueError("operation is not in the expected preparing phase")
+            txn.delete(source_key, db=self.preparing.sdb)
+            txn.put(target_key, raw, db=self.dead.sdb)
+
+    def pending_to_preparing(self, postingOperation, txRecord, walletEffects=None):
+        """Record a resolved receipt and optional confirmed effects before the next step."""
+        source_key, target_key = b"writer", b"writer"
+        raw = self.preparing.serializer(postingOperation)
+        tx_raw = self.transactions.serializer(txRecord)
+        effects_raw = (
+            self.walletEffects.serializer(walletEffects)
+            if walletEffects is not None
+            else None
+        )
+        with self.env.begin(write=True) as txn:
+            currentOperation = self.pending.deserializer(
+                txn.get(source_key, db=self.pending.sdb)
+            )
+            if (
+                currentOperation is None
+                or currentOperation.operationId != postingOperation.operationId
+            ):
+                raise ValueError("operation is not in the expected pending phase")
+            self._put_transaction(txn, txRecord, tx_raw)
+            if effects_raw is not None:
                 txn.put(
                     postingOperation.wallet.encode(),
-                    self.walletEffects.serializer(walletEffects),
+                    effects_raw,
                     db=self.walletEffects.sdb,
                 )
-            txn.delete(source_key, db=origin.sdb)
-            txn.put(target_key, target.serializer(postingOperation), db=target.sdb)
-            sequence = (
-                self.sequence.deserializer(txn.get(b"writer", db=self.sequence.sdb))
-                or PostingSequence()
-            )
-            if destination == "dead" and postingOperation.txHash:
-                sequence.blockedBy = postingOperation.operationId
-            elif (
-                source == "dead" and sequence.blockedBy == postingOperation.operationId
-            ):
-                sequence.blockedBy = ""
-            txn.put(b"writer", self.sequence.serializer(sequence), db=self.sequence.sdb)
+            txn.delete(source_key, db=self.pending.sdb)
+            txn.put(target_key, raw, db=self.preparing.sdb)
 
-    def retry_operation(self, operation_id):
-        """Explicit local operator retry; signed dead letters retain their exact transaction."""
-        if self.preparing.get(keys=("writer",)) or self.pending.get(keys=("writer",)):
-            raise ValueError("writer already has active work")
-        sequence = self.sequence.get(keys=("writer",)) or PostingSequence()
-        if sequence.blockedBy and sequence.blockedBy != operation_id:
-            raise ValueError("another unresolved signed operation blocks the writer")
-        postingOperation = self.dead.get(keys=(operation_id,))
-        if postingOperation is None:
-            raise ValueError("unknown dead-letter operation")
-        postingOperation.attempts = postingOperation.rpcFailures = 0
-        postingOperation.error = ""
-        # The caller restarts the pending deadline on its first resumed cycle.
-        postingOperation.signedAt = 0.0
-        postingOperation.submitted = False
-        self.move_operation(
-            postingOperation,
-            "dead",
-            "pending" if postingOperation.txHash else "preparing",
+    def pending_to_dead(self, postingOperation, sequence, txRecord=None):
+        """Stop pending work with its prepared writer fence and optional resolved receipt."""
+        source_key, target_key = b"writer", postingOperation.operationId.encode()
+        raw = self.dead.serializer(postingOperation)
+        tx_raw = (
+            self.transactions.serializer(txRecord) if txRecord is not None else None
         )
+        sequence_raw = self.sequence.serializer(sequence)
+        with self.env.begin(write=True) as txn:
+            currentOperation = self.pending.deserializer(
+                txn.get(source_key, db=self.pending.sdb)
+            )
+            if (
+                currentOperation is None
+                or currentOperation.operationId != postingOperation.operationId
+            ):
+                raise ValueError("operation is not in the expected pending phase")
+            if txRecord is not None:
+                self._put_transaction(txn, txRecord, tx_raw)
+            txn.delete(source_key, db=self.pending.sdb)
+            txn.put(target_key, raw, db=self.dead.sdb)
+            txn.put(b"writer", sequence_raw, db=self.sequence.sdb)
+
+    def dead_to_pending(self, postingOperation, sequence):
+        """Resume the same signed transaction and clear its prepared writer fence."""
+        source_key, target_key = postingOperation.operationId.encode(), b"writer"
+        raw = self.pending.serializer(postingOperation)
+        sequence_raw = self.sequence.serializer(sequence)
+        with self.env.begin(write=True) as txn:
+            currentOperation = self.dead.deserializer(
+                txn.get(source_key, db=self.dead.sdb)
+            )
+            if (
+                currentOperation is None
+                or currentOperation.operationId != postingOperation.operationId
+            ):
+                raise ValueError("operation is not in the expected dead phase")
+            if txn.get(b"writer", db=self.preparing.sdb) or txn.get(
+                b"writer", db=self.pending.sdb
+            ):
+                raise ValueError("writer already has active work")
+            txn.delete(source_key, db=self.dead.sdb)
+            txn.put(target_key, raw, db=self.pending.sdb)
+            txn.put(b"writer", sequence_raw, db=self.sequence.sdb)
+
+    def dead_to_preparing(self, postingOperation, sequence):
+        """Resume unsigned preparation with the operator-reset attempt budget."""
+        source_key, target_key = postingOperation.operationId.encode(), b"writer"
+        raw = self.preparing.serializer(postingOperation)
+        sequence_raw = self.sequence.serializer(sequence)
+        with self.env.begin(write=True) as txn:
+            currentOperation = self.dead.deserializer(
+                txn.get(source_key, db=self.dead.sdb)
+            )
+            if (
+                currentOperation is None
+                or currentOperation.operationId != postingOperation.operationId
+            ):
+                raise ValueError("operation is not in the expected dead phase")
+            if txn.get(b"writer", db=self.preparing.sdb) or txn.get(
+                b"writer", db=self.pending.sdb
+            ):
+                raise ValueError("writer already has active work")
+            txn.delete(source_key, db=self.dead.sdb)
+            txn.put(target_key, raw, db=self.preparing.sdb)
+            txn.put(b"writer", sequence_raw, db=self.sequence.sdb)
+
+    def _put_transaction(self, txn, txRecord, raw):
+        """Save journal progress while refusing mutation of previously signed bytes."""
+        key = txRecord.txHash.encode()
+        existing = self.transactions.deserializer(
+            txn.get(key, db=self.transactions.sdb)
+        )
+        if existing is not None and any(
+            getattr(existing, field) != getattr(txRecord, field)
+            for field in ("rawTransaction", "nonce", "associationSaid", "functionName")
+        ):
+            raise ValueError("cannot change a persisted signed attempt")
+        txn.put(key, raw, db=self.transactions.sdb)
 
     def operation_for(self, event_id):
         """Return a detached phase/record for one event, without history iteration."""

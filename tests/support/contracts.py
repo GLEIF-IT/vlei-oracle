@@ -144,7 +144,7 @@ def persist_transaction(store, txRecord):
         txHash=txRecord.txHash,
     )
     store.preparing.pin(keys=("writer",), val=postingOperation)
-    store.move_operation(postingOperation, "preparing", "pending", txRecord=txRecord)
+    store.preparing_to_pending(postingOperation, txRecord)
     return txRecord
 
 
