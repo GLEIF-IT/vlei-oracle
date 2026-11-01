@@ -99,7 +99,7 @@ def test_receipt_and_phase_transition_are_atomic(peers):
     assert peers.inbox.completed.cntAll() == 0
 
 
-def test_confirmation_rollback_retains_pending_intent_and_previous_effects(tmp_path):
+def test_confirmation_rollback_retains_pending_transaction_and_previous_effects(tmp_path):
     """A failed phase write cannot record a receipt or applied effect independently."""
     from dataclasses import replace
 
