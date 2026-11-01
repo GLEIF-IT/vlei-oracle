@@ -21,7 +21,7 @@ class EndorsementQuery:
         phase, postingOperation = self.posting.operation_for(
             f"{said}:{associationStatus.statusRevision}"
         )
-        walletEffects = self.posting.wallet_effects(associationStatus.wallet)
+        walletEffects = self.posting.effects(associationStatus.wallet)
         published = walletEffects is not None and walletEffects.associationSaid == said
         action = "withdraw" if associationStatus.status == "revoked" else "publish"
         if phase == "dead":

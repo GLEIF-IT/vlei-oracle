@@ -1,7 +1,7 @@
 {
   "verifier": {
     "url": "https://github.com/GLEIF-IT/eoa-verifier.git",
-    "commit": "de97e2d832485228d5e325eb653fa0f0d8b76dda"
+    "commit": "407499ec348dc919bd3353480c07ae4fb2a558d9"
   },
   "comply": {
     "url": "https://github.com/GLEIF-IT/vlei-comply.git",

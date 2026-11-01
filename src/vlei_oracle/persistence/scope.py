@@ -15,10 +15,10 @@ class ScopeStore:
         """Return the bound posting scope, or None."""
         return self.baser.scope.get(keys=("posting",))
 
-    def record_inbox_scope(self, scope):
+    def bind_inbox(self, scope):
         """Persist the prepared receiver deployment binding."""
         self.baser.inbox_scope.put(keys=("receiver",), val=scope)
 
-    def record_posting_scope(self, scope):
+    def bind_posting(self, scope):
         """Persist the prepared posting deployment binding."""
         self.baser.scope.pin(keys=("posting",), val=scope)

@@ -7,7 +7,7 @@ class PostingReader:
     def __init__(self, baser):
         self.baser = baser
 
-    def posting_sequence(self):
+    def seq(self):
         """Return arrival order and the unresolved-signature fence, or None."""
         return self.baser.sequence.get(keys=("writer",))
 
@@ -15,7 +15,7 @@ class PostingReader:
         """Read the sole pending signed operation without changing its phase."""
         return self.baser.pending.get(keys=("writer",))
 
-    def next_preparing(self):
+    def next_prep(self):
         """Read interrupted preparation without consulting queued operations."""
         return self.baser.preparing.get(keys=("writer",))
 
@@ -50,15 +50,15 @@ class PostingReader:
                 return phase, postingOperation
         raise ValueError("stored event has no delivery phase")
 
-    def wallet_effects(self, wallet):
+    def effects(self, wallet):
         """Return only this writer's confirmed wallet effects."""
         return self.baser.walletEffects.get(keys=(wallet,))
 
-    def transaction(self, txHash):
+    def tx(self, txHash):
         """Return one persisted signed transaction and its receipt state."""
         return self.baser.transactions.get(keys=(txHash,))
 
-    def dead_operation(self, operationId):
+    def dead(self, operationId):
         """Return one dead letter by operation ID."""
         return self.baser.dead.get(keys=(operationId,))
 
@@ -69,7 +69,7 @@ class PostingWriter:
     def __init__(self, baser):
         self.baser = baser
 
-    def queued_to_preparing(self, postingOperation):
+    def queued_to_prep(self, postingOperation):
         """Claim the selected queued operation in the sole preparation slot."""
         key = postingOperation.operationId.encode()
         expected = self.baser.queued.serializer(postingOperation)
@@ -84,7 +84,7 @@ class PostingWriter:
             txn.delete(key, db=self.baser.queued.sdb)
             txn.put(b"writer", raw, db=self.baser.preparing.sdb)
 
-    def preparing_to_pending(self, postingOperation, txRecord):
+    def prep_to_pending(self, postingOperation, txRecord):
         """Journal the signed transaction and move preparing work to pending atomically."""
         source_key, target_key = b"writer", b"writer"
         raw = self.baser.pending.serializer(postingOperation)
@@ -98,11 +98,11 @@ class PostingWriter:
                 or currentOperation.operationId != postingOperation.operationId
             ):
                 raise ValueError("operation is not in the expected preparing phase")
-            self._put_transaction(txn, txRecord, tx_raw)
+            self._put_tx(txn, txRecord, tx_raw)
             txn.delete(source_key, db=self.baser.preparing.sdb)
             txn.put(target_key, raw, db=self.baser.pending.sdb)
 
-    def preparing_to_completed(self, postingOperation):
+    def prep_to_completed(self, postingOperation):
         """Remove preparing work and retain its terminal publication outcome."""
         source_key, target_key = b"writer", postingOperation.operationId.encode()
         raw = self.baser.completed.serializer(postingOperation)
@@ -118,7 +118,7 @@ class PostingWriter:
             txn.delete(source_key, db=self.baser.preparing.sdb)
             txn.put(target_key, raw, db=self.baser.completed.sdb)
 
-    def preparing_to_dead(self, postingOperation):
+    def prep_to_dead(self, postingOperation):
         """Stop unsigned preparation without blocking later queued operations."""
         source_key, target_key = b"writer", postingOperation.operationId.encode()
         raw = self.baser.dead.serializer(postingOperation)
@@ -134,7 +134,7 @@ class PostingWriter:
             txn.delete(source_key, db=self.baser.preparing.sdb)
             txn.put(target_key, raw, db=self.baser.dead.sdb)
 
-    def pending_to_preparing(self, postingOperation, txRecord, walletEffects=None):
+    def pending_to_prep(self, postingOperation, txRecord, walletEffects=None):
         """Record a resolved receipt and optional confirmed effects before the next step."""
         source_key, target_key = b"writer", b"writer"
         raw = self.baser.preparing.serializer(postingOperation)
@@ -153,7 +153,7 @@ class PostingWriter:
                 or currentOperation.operationId != postingOperation.operationId
             ):
                 raise ValueError("operation is not in the expected pending phase")
-            self._put_transaction(txn, txRecord, tx_raw)
+            self._put_tx(txn, txRecord, tx_raw)
             if effects_raw is not None:
                 txn.put(
                     postingOperation.wallet.encode(),
@@ -183,7 +183,7 @@ class PostingWriter:
             ):
                 raise ValueError("operation is not in the expected pending phase")
             if txRecord is not None:
-                self._put_transaction(txn, txRecord, tx_raw)
+                self._put_tx(txn, txRecord, tx_raw)
             txn.delete(source_key, db=self.baser.pending.sdb)
             txn.put(target_key, raw, db=self.baser.dead.sdb)
             txn.put(b"writer", sequence_raw, db=self.baser.sequence.sdb)
@@ -210,7 +210,7 @@ class PostingWriter:
             txn.put(target_key, raw, db=self.baser.pending.sdb)
             txn.put(b"writer", sequence_raw, db=self.baser.sequence.sdb)
 
-    def dead_to_preparing(self, postingOperation, sequence):
+    def dead_to_prep(self, postingOperation, sequence):
         """Resume unsigned preparation with the operator-reset attempt budget."""
         source_key, target_key = postingOperation.operationId.encode(), b"writer"
         raw = self.baser.preparing.serializer(postingOperation)
@@ -232,7 +232,7 @@ class PostingWriter:
             txn.put(target_key, raw, db=self.baser.preparing.sdb)
             txn.put(b"writer", sequence_raw, db=self.baser.sequence.sdb)
 
-    def _put_transaction(self, txn, txRecord, raw):
+    def _put_tx(self, txn, txRecord, raw):
         """Save journal progress while refusing mutation of previously signed bytes."""
         key = txRecord.txHash.encode()
         existing = self.baser.transactions.deserializer(
@@ -245,10 +245,10 @@ class PostingWriter:
             raise ValueError("cannot change a persisted signed attempt")
         txn.put(key, raw, db=self.baser.transactions.sdb)
 
-    def record_preparing_progress(self, postingOperation):
+    def save_prep(self, postingOperation):
         """Persist prepared preparing progress without changing phase."""
         self.baser.preparing.pin(keys=("writer",), val=postingOperation)
 
-    def record_pending_progress(self, postingOperation):
+    def save_pending(self, postingOperation):
         """Persist prepared pending progress without changing phase."""
         self.baser.pending.pin(keys=("writer",), val=postingOperation)

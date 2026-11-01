@@ -81,3 +81,11 @@ No cross-feature atomic operation is split into independently committing calls.
 Queries retain bounded per-identifier phase lookups. The association-only public
 endorsement response, wire values, layout, one-item priority and retry behavior
 remain unchanged. ContractEffects remains a focused RPC adapter.
+
+Function names rely on feature context: AssociationReader.selected;
+ReceiptWriter.record_and_queue; PostingReader.seq / tx / effects; and
+PostingWriter.queued_to_prep / prep_to_pending / pending_to_prep.
+`prep` means the preparing phase, `tx` a signed transaction record, and `seq`
+the posting sequence and fence record. save_prep and save_pending persist
+progress within their named phase. ScopeStore.bind_inbox / bind_posting retain
+the existing deployment-binding semantics. No table or wire names change.

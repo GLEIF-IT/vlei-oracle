@@ -48,6 +48,6 @@ def event_body(peers, label, sequence, *, issuer=None, revoked=False):
 
 def selected(peers):
     """Read the selected association for the fixture's canonical chain/address."""
-    return AssociationReader(peers.inbox).selected_association(
+    return AssociationReader(peers.inbox).selected(
         json.loads(peers.event.body)["association"]["extId"]
     )

@@ -65,7 +65,7 @@ class ReceiptService:
             and selectedStatus.associationSaid != associationStatus.associationSaid
             else None
         )
-        postingSequence = self.posting_reader.posting_sequence() or PostingSequence()
+        postingSequence = self.posting_reader.seq() or PostingSequence()
         postingSequence.next += 1
         statusEvent.operationId = f"{postingSequence.next:016x}"
         postingOperation = PostingOperation(
@@ -74,7 +74,7 @@ class ReceiptService:
             associationStatus.associationSaid,
             associationStatus.wallet,
         )
-        self.writer.record_status_and_queue(
+        self.writer.record_and_queue(
             statusEvent,
             associationStatus,
             walletClaim,

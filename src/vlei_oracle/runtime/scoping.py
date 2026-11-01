@@ -12,11 +12,11 @@ class ScopeService:
         existing = self.store.inbox_scope()
         if existing is not None and existing != scope:
             raise ValueError("inbox belongs to another verifier or chain")
-        self.store.record_inbox_scope(scope)
+        self.store.bind_inbox(scope)
 
     def bind_posting(self, scope):
         """Refuse a different deployment before enabling transaction publication."""
         existing = self.store.posting_scope()
         if existing is not None and existing != scope:
             raise ValueError("store belongs to a different posting scope")
-        self.store.record_posting_scope(scope)
+        self.store.bind_posting(scope)

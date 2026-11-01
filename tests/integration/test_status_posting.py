@@ -39,7 +39,7 @@ def settle(postingService, wallet, expected_said):
         if (
             endorsement[1] == expected_said
             and postingService.reader.next_pending() is None
-            and postingService.reader.next_preparing() is None
+            and postingService.reader.next_prep() is None
             and postingService.reader.next_queued() is None
         ):
             return endorsement
@@ -345,7 +345,7 @@ def test_bad_rpc_response_preserves_pending_transaction_and_signed_ack(
     assert parent.done and responses[0]["status"] == 200
     assert json.loads(responses[0]["body"])["stored"] is True
     assert (
-        AssociationReader(peers.inbox).selected_association(
+        AssociationReader(peers.inbox).selected(
             "eip155:31337:0x" + "11" * 20
         )
         is not None
@@ -483,7 +483,7 @@ def test_reverts_exhaust_budget_then_require_explicit_retry(peers, deployment):
         assert state["action"] == "publish"
         assert state["publicationStatus"] == "not_published"
         assert peers.inbox.statuses.get(keys=(association,)).status == "accepted"
-        assert PostingReader(peers.inbox).wallet_effects("0x" + "11" * 20) is None
+        assert PostingReader(peers.inbox).effects("0x" + "11" * 20) is None
         assert peers.inbox.transactions.cntAll() == 3
         with patch.object(
             effects, "request", side_effect=AssertionError("dead letter retried")
@@ -601,7 +601,7 @@ def test_newer_revocation_withdraws_published_predecessor(peers, deployment):
         )
         yield from settle(postingService, wallet, "")
         assert (
-            AssociationReader(peers.inbox).selected_association(
+            AssociationReader(peers.inbox).selected(
                 "eip155:31337:" + wallet
             )
             is None

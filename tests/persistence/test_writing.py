@@ -68,14 +68,14 @@ def test_receipt_and_phase_transition_are_atomic(peers):
     assert peers.inbox.queued.cntAll() == 1
     postingOperation = PostingReader(peers.inbox).next_queued()
     assert peers.inbox.queued.cntAll() == 1
-    assert PostingReader(peers.inbox).next_preparing() is None
+    assert PostingReader(peers.inbox).next_prep() is None
     assert PostingReader(peers.inbox).next_pending() is None
-    PostingWriter(peers.inbox).queued_to_preparing(postingOperation)
+    PostingWriter(peers.inbox).queued_to_prep(postingOperation)
     with patch.object(
         peers.inbox.completed, "serializer", side_effect=RuntimeError("move failed")
     ):
         with pytest.raises(RuntimeError, match="move failed"):
-            PostingWriter(peers.inbox).preparing_to_completed(postingOperation)
+            PostingWriter(peers.inbox).prep_to_completed(postingOperation)
     peers.inbox.close()
     peers.inbox.reopen()
     assert peers.inbox.preparing.get(keys=("writer",)) == postingOperation
@@ -109,7 +109,7 @@ def test_confirmation_rollback_retains_pending_transaction_and_previous_effects(
         original = store.pending.get(keys=("writer",))
         resolved = replace(original, txHash="")
         writer = PostingWriter(store)
-        put_transaction = writer._put_transaction
+        put_transaction = writer._put_tx
 
         def fail_after_journal_write(txn, record, raw):
             """Interrupt after the actual LMDB journal mutation, before phase completion."""
@@ -118,11 +118,11 @@ def test_confirmation_rollback_retains_pending_transaction_and_previous_effects(
 
         with (
             patch.object(
-                writer, "_put_transaction", side_effect=fail_after_journal_write
+                writer, "_put_tx", side_effect=fail_after_journal_write
             ),
             pytest.raises(RuntimeError, match="phase failed"),
         ):
-            writer.pending_to_preparing(
+            writer.pending_to_prep(
                 resolved,
                 txRecord=replace(txRecord, state="confirmed"),
                 walletEffects=WalletEffects(identityRef=IDENTITY),

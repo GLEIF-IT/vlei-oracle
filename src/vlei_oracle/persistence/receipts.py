@@ -14,7 +14,7 @@ class ReceiptWriter:
         with db.env.begin(write=True) as txn:
             txn.put(key, raw, db=db.inbox.sdb)
 
-    def record_status_and_queue(
+    def record_and_queue(
         self,
         statusEvent,
         associationStatus,

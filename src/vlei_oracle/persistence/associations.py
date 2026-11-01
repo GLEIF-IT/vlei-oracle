@@ -19,7 +19,7 @@ class AssociationReader:
         """Return selection history for one canonical chain/address, or None."""
         return self.baser.claims.get(keys=(extId,))
 
-    def selected_association(self, ext_id):
+    def selected(self, ext_id):
         """Read the current selected status for a canonical chain/address, without RPC."""
         with self.baser.env.begin() as txn:
             claim = self.baser.claims.deserializer(
