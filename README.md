@@ -40,11 +40,11 @@ See the [operator guide](docs/status-inbox.md#configuration-changes-and-stored-s
 ## Code organization
 
 - runtime/ owns CLI, validated config, identity startup and HIO/store lifetime.
-- receiving/ authenticates status ingress and signs durable receipt ACKs.
+- receiving/ authenticates status ingress and signs ACKs for durable status-event storage.
 - associations/ owns trusted status decoding, domain records and pure selection.
 - endorsement/ owns desired actions, HIO RPC, effects and posting recovery.
 - persistence/ owns LMDB lifecycle/table bindings, detached readers and explicit atomic writers.
-- receiving/receipt.py owns receipt revision policy and wallet-selection preparation.
+- receiving/status_events.py owns status-event revision policy and wallet-selection preparation.
 - endorsement/posting.py owns posting decisions; endorsement/doing.py only schedules them.
 - endorsement/retrying.py and querying.py own offline recovery and local status queries.
 
@@ -55,7 +55,7 @@ See the [testing guide](docs/testing.md) for module/class/function lookup and pa
 qualification. Initializers contain no import facades; the root package retains
 only its literal version metadata.
 
-The [Oracle API](protocol/oracle-api-v1/README.md) defines receipt, selection and
+The [Oracle API](protocol/oracle-api-v1/README.md) defines status-event storage, selection and
 publication. The [selection ADR](adrs/0001-wallet-association-selection.md) explains
 the rationale. Credential evidence is delivered to EOA Verifier.
 

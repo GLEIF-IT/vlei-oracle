@@ -9,7 +9,7 @@ The test follows these boundaries:
 
 1. Create a real EIP-712 wallet proof, issue its association through the LE, and
    deliver source-chain, KEL/TEL and addressed IPEX Grant evidence over HTTP.
-2. Observe verifier acceptance, signed webhook receipt and actual contract mapping.
+2. Observe verifier acceptance, signed status-event ACK and actual contract mapping.
    Drop one successful ACK after the receiver commits; verify retry keeps identical
    event bytes and eventually obtains an authenticated ACK.
 3. Issue an otherwise valid second-wallet credential reusing the first nonce;
@@ -24,7 +24,7 @@ The test follows these boundaries:
    revocation and confirm the successor remains mapped. Revoke the successor and
    require both its acknowledged revocation event and actual contract withdrawal.
    Submit another token transfer and confirm that both balances remain unchanged,
-   even though the policy-failure transaction itself has a successful receipt.
+   even though the policy-failure transaction itself has a successful transaction receipt.
 
 A Grant alone is not a revocation proof: the test supplies verified revocation
 TEL and witnessed KEL anchor. Authenticated storage ACK, application status and contract state
@@ -77,5 +77,5 @@ operation; repeated flow does not reset acceptance, mappings or token history.
 The focused producer completion-gap tests now belong to Verifier delivery tests;
 Oracle keeps receiver ordering, selection and publication assertions. Both use
 GLEIF KERI 1.2.19/HIO 0.6.22. Valid-stream qualification does not resolve the known
-native receipt-couple shortage limitation. See the
+KERIpy receipt-couple shortage limitation. See the
 [environment guide](../scripts/integration/README.md) for stop/start and clean.

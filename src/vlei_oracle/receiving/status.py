@@ -10,7 +10,7 @@ from vlei_oracle.receiving.authing import AuthenticationError
 
 
 class StatusEnd:
-    """Borrow authentication and the receipt service; ACK only committed events."""
+    """Borrow authentication and the status-event service; ACK only committed events."""
 
     def __init__(self, *, auth, service, target, chain_id):
         self.auth, self.service = auth, service
@@ -33,35 +33,37 @@ class StatusEnd:
             raise falcon.HTTPBadRequest(
                 description="destination does not match configuration"
             )
-        body = req.bounded_stream.read()
+        statusEventBytes = req.bounded_stream.read()
         try:
             requestAuth = self.auth.verify(
                 method=req.method,
                 target=self.target,
                 action="status",
-                body=body,
+                body=statusEventBytes,
                 headers=req.headers,
             )
         except AuthenticationError as exc:
             raise falcon.HTTPUnauthorized(description=str(exc)) from exc
         try:
-            event, status = read_status(body, chain_id=self.chain_id)
+            statusEvent, associationStatus = read_status(
+                statusEventBytes, chain_id=self.chain_id
+            )
         except ValueError as exc:
             raise falcon.HTTPBadRequest(description=str(exc)) from exc
         try:
-            self.service.receive_status(event, status)
+            self.service.receive_status(statusEvent, associationStatus)
         except ValueError as exc:
             raise falcon.HTTPConflict(description=str(exc)) from exc
 
         # A crash or signing failure here leaves a committed event safe to redeliver.
-        ack = json.dumps({"eventId": event.eventId, "stored": True}).encode()
+        ackBytes = json.dumps({"eventId": statusEvent.eventId, "stored": True}).encode()
         headers, _ = self.auth.sign(
             method=req.method,
             target=self.target,
             action="ack",
-            body=ack,
+            body=ackBytes,
             request=requestAuth.reference,
             status=200,
         )
-        rep.status, rep.data = falcon.HTTP_200, ack
+        rep.status, rep.data = falcon.HTTP_200, ackBytes
         rep.set_headers(headers)

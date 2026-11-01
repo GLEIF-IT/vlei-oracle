@@ -91,7 +91,7 @@ def test_lost_submission_result_recovers_saved_identity(deployment, tmp_path):
         )
         txRecord = persist_transaction(store, signed_transaction(tx))
         yield from effects.submit(txRecord.rawTransaction, txRecord.txHash)
-        # Deliberately lose all in-memory effect/receipt progress.
+        # Deliberately lose all in-memory effect/transaction-receipt progress.
         return txRecord
 
     txRecord = drive(effects_for(deployment), submit)
@@ -102,22 +102,22 @@ def test_lost_submission_result_recovers_saved_identity(deployment, tmp_path):
         assert saved == txRecord
 
         def recover(effects):
-            result = yield from effects.receipt(saved.txHash)
+            txReceipt = yield from effects.transaction_receipt(saved.txHash)
             identity, endorsement = yield from observe(effects, WALLET)
             nonce = yield from effects.request(
                 "eth_getTransactionCount", [effects.writer, "latest"]
             )
             assert endorsement == (IDENTITY, "association")
             assert int(nonce, 16) == saved.nonce + 1
-            return result
+            return txReceipt
 
-        receipt = drive(effects_for(deployment), recover)
-        assert receipt["confirmed"] and receipt["status"] == "0x1"
+        txReceipt = drive(effects_for(deployment), recover)
+        assert txReceipt["confirmed"] and txReceipt["status"] == "0x1"
     finally:
         reopened.close(clear=True)
 
 
-def test_receipt_disappears_after_reorg_and_same_bytes_can_be_submitted(deployment):
+def test_tx_receipt_disappears_after_reorg_and_same_bytes_can_be_submitted(deployment):
     def workflow(effects):
         snapshot = yield from effects.request("evm_snapshot", [])
         tx = yield from effects.prepare(
@@ -125,13 +125,15 @@ def test_receipt_disappears_after_reorg_and_same_bytes_can_be_submitted(deployme
         )
         txRecord = signed_transaction(tx, said="reorg")
         yield from effects.submit(txRecord.rawTransaction, txRecord.txHash)
-        assert (yield from effects.receipt(txRecord.txHash))["status"] == "0x1"
+        assert (yield from effects.transaction_receipt(txRecord.txHash))[
+            "status"
+        ] == "0x1"
         assert (yield from effects.request("evm_revert", [snapshot])) is True
-        assert (yield from effects.receipt(txRecord.txHash)) is None
+        assert (yield from effects.transaction_receipt(txRecord.txHash)) is None
         yield from effects.submit(txRecord.rawTransaction, txRecord.txHash)
-        result = yield from effects.receipt(txRecord.txHash)
-        assert result["status"] == "0x1"
-        return result
+        txReceipt = yield from effects.transaction_receipt(txRecord.txHash)
+        assert txReceipt["status"] == "0x1"
+        return txReceipt
 
     drive(effects_for(deployment), workflow)
 
@@ -147,7 +149,7 @@ def test_wrong_chain_cannot_prepare_a_transaction(deployment):
     drive(effects_for(deployment, chain_id=31338), workflow)
 
 
-def test_receipt_waits_for_configured_confirmations(deployment):
+def test_tx_receipt_waits_for_configured_confirmations(deployment):
     effects = effects_for(deployment)
     effects.confirmations = 2
 
@@ -157,10 +159,12 @@ def test_receipt_waits_for_configured_confirmations(deployment):
         )
         txRecord = signed_transaction(tx, said="confirmations")
         yield from effects.submit(txRecord.rawTransaction, txRecord.txHash)
-        receipt = yield from effects.receipt(txRecord.txHash)
-        assert receipt["confirmed"] is False
+        txReceipt = yield from effects.transaction_receipt(txRecord.txHash)
+        assert txReceipt["confirmed"] is False
         yield from effects.request("evm_mine", [])
-        assert (yield from effects.receipt(txRecord.txHash))["confirmed"] is True
+        assert (yield from effects.transaction_receipt(txRecord.txHash))[
+            "confirmed"
+        ] is True
         return True
 
     drive(effects, workflow)
@@ -169,14 +173,14 @@ def test_receipt_waits_for_configured_confirmations(deployment):
 @pytest.mark.parametrize(
     "field,value", [("transactionHash", "0x" + "34" * 32), ("status", "0x2")]
 )
-def test_mismatched_receipt_is_rejected_over_http(field, value):
+def test_mismatched_tx_receipt_is_rejected_over_http(field, value):
     tx_hash = "0x" + "12" * 32
-    receipt = {"transactionHash": tx_hash, "status": "0x1"}
-    receipt[field] = value
+    txReceipt = {"transactionHash": tx_hash, "status": "0x1"}
+    txReceipt[field] = value
 
     class Endpoint:
         def on_post(self, req, resp):
-            resp.media = {"jsonrpc": "2.0", "id": req.media["id"], "result": receipt}
+            resp.media = {"jsonrpc": "2.0", "id": req.media["id"], "result": txReceipt}
 
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
@@ -197,7 +201,7 @@ def test_mismatched_receipt_is_rejected_over_http(field, value):
     def run(tymth, tock=0.0, **opts):
         yield tock
         with pytest.raises(ValueError, match="invalid transaction receipt"):
-            yield from effects.receipt(tx_hash)
+            yield from effects.transaction_receipt(tx_hash)
         completed.append(True)
         parent.remove([effects, server_doer])
 
@@ -265,9 +269,9 @@ def test_rpc_outage_is_unknown_not_transaction_absence(tmp_path, unavailable):
         yield tock
         if unavailable:
             with pytest.raises(ValueError, match="invalid RPC response"):
-                yield from effects.receipt(txRecord.txHash)
+                yield from effects.transaction_receipt(txRecord.txHash)
         else:
-            assert (yield from effects.receipt(txRecord.txHash)) is None
+            assert (yield from effects.transaction_receipt(txRecord.txHash)) is None
         assert pending_transaction(store) == txRecord
         assert "eth_sendRawTransaction" not in calls
         completed.append(True)

@@ -14,7 +14,7 @@ releases it. Never compare sequence numbers across issuers. Retain issuance
 history after release so a superseded predecessor cannot return. Reordered
 revocation of an older association cannot withdraw its successor.
 
-Commit receipt, newest verifier status and selection in one LMDB transaction.
+Commit status event, newest verifier status and selection in one LMDB transaction.
 Keep local selection distinct from the producer's accepted/revoked status. A
 rejected claim is still durably received; its ACK does not authorize publication.
 Submission and confirmation remain separate from selection.

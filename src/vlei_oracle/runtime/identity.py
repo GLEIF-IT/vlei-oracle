@@ -1,4 +1,4 @@
-"""Persistent signing identity for trusted-status receipt and ACKs."""
+"""Persistent signing identity for authenticated status-event processing and ACKs."""
 
 import json
 from pathlib import Path

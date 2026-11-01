@@ -56,7 +56,7 @@ process arguments. Never use live operator state as a run root.
 CLI parsing, source/artifact handling, process ownership, dependency checkout,
 contract deployment and the lost-ACK fixture are separate small modules. The
 sole USDC assertion sequence remains `tests/qualification/test_two_services.py`.
-It verifies real balance changes and exact-SAID withdrawal, beyond receipt ACKs.
+It verifies real balance changes and exact-SAID withdrawal, beyond status-event storage ACKs.
 Oracle never imports the Verifier fixture implementation; commands and explicit
 artifacts are the shared boundary. None of this tooling ships in the runtime wheel.
 

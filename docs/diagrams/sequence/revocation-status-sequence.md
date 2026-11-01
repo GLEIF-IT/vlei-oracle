@@ -19,7 +19,7 @@ sequenceDiagram
     V->>V: KERIpy validates credential TEL revocation
     V->>V: Record revoked association status and its own delivery event
     V->>O: Authenticated revoked event
-    O->>O: Commit receipt, selection and queued withdrawal
+    O->>O: Commit status event, selection and queued withdrawal
     O-->>V: Authenticated ACK for this event/attempt
     O->>C: Withdraw exact association SAID
     alt Current mapping still names revoked SAID

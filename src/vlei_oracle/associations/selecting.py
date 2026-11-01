@@ -6,7 +6,7 @@ def update_selection(status, *, current, claim):
 
     status is a newer authenticated verifier status with immutable issuance facts.
     Its previous selection decision is preserved by the caller. ACKs acknowledge
-    receipt even when ownership policy rejects the claim; no contract effect occurs.
+    status-event storage even when ownership policy rejects the claim; no contract effect occurs.
     """
     issuer = status.association["issuerAid"]
     sequence = status.association["issuanceAnchor"]["sequenceNumber"]

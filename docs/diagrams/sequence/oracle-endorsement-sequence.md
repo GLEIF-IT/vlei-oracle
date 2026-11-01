@@ -1,8 +1,8 @@
-# Oracle receipt, selection and publication
+# Oracle status-event processing, selection and publication
 
 Verifier has completed initial verification and application acceptance. Oracle trusts authenticated producer facts.
 
-![Oracle receipt, selection and publication](oracle-endorsement-sequence.svg)
+![Oracle status-event processing, selection and publication](oracle-endorsement-sequence.svg)
 
 <details>
 <summary>Editable Mermaid source</summary>
@@ -17,7 +17,7 @@ sequenceDiagram
     participant C as Ethereum registries
     V->>O: Authenticated immutable status event
     O->>O: Validate trusted sender, event identifiers and chain
-    O->>O: Commit receipt, selection and queued operation
+    O->>O: Commit status event, selection and queued operation
     O-->>V: Authenticated durable-storage ACK
     Note over V,O: ACK does not mean selected or published
     P->>P: Claim one queued operation into preparing
@@ -25,9 +25,9 @@ sequenceDiagram
     P->>P: Recheck selection and persist signature in pending
     P->>C: Submit the persisted transaction
     alt Confirmed success
-        C-->>P: Receipt for this transaction
+        C-->>P: Transaction receipt
         P->>P: Commit effect and prepare next step or complete
-    else Retry budget or receipt deadline exhausted
+    else Retry budget or transaction-receipt deadline exhausted
         P->>P: Move to dead letter for manual intervention
         Note over P,C: An unresolved signature blocks later sends
     end

@@ -62,10 +62,10 @@ def send(effects, target, function, args, key):
     signed = account.sign_transaction(tx)
     tx_hash = Web3.to_hex(signed.hash)
     yield from effects.submit(Web3.to_hex(signed.raw_transaction), tx_hash)
-    while (receipt := (yield from effects.receipt(tx_hash))) is None:
+    while (txReceipt := (yield from effects.transaction_receipt(tx_hash))) is None:
         yield 0.01
-    assert receipt["status"] == "0x1", receipt
-    return receipt
+    assert txReceipt["status"] == "0x1", txReceipt
+    return txReceipt
 
 
 def effects_for(deployment, *, chain_id=31337):

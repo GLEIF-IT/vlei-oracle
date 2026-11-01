@@ -32,7 +32,7 @@ def posting_service_for(peers, deployment):
 
 
 def settle(postingService, wallet, expected_said):
-    """Drive the ordinary worker until both its receipt and actual mapping agree."""
+    """Drive the ordinary worker until both its transaction receipt and actual mapping agree."""
     for _ in range(36):
         yield from postingService.cycle()
         _, endorsement = yield from observe(postingService.effects, wallet)
@@ -131,7 +131,7 @@ def test_accepted_replaced_and_revoked_status_changes_real_mapping(peers, deploy
     drive(postingService.effects, workflow)
 
 
-def test_pending_receipt_survives_restart_and_replacement(peers, deployment):
+def test_pending_tx_receipt_survives_restart_and_replacement(peers, deployment):
     """Submission is pending, not success; after restart finish it and apply the latest selected claim."""
     postingService = posting_service_for(peers, deployment)
     wallet = "0x" + "11" * 20
@@ -284,7 +284,7 @@ def test_bad_rpc_response_preserves_pending_transaction_and_signed_ack(
     initialPostingService = posting_service_for(peers, deployment)
 
     def submit(effects):
-        """Create a real signed/submitted transaction, leaving receipt processing for a later cycle."""
+        """Create a real signed/submitted transaction, leaving transaction-receipt processing for a later cycle."""
         yield from initialPostingService.cycle()
         return True
 
@@ -309,7 +309,7 @@ def test_bad_rpc_response_preserves_pending_transaction_and_signed_ack(
     responses = []
 
     def probe(tymth, tock=0.0, **opts):
-        """Wait for the posting error, then exercise receipt over a real signed connection."""
+        """Wait for the posting error, then exercise status-event acceptance over a real signed connection."""
         yield tock
         while not any(
             "pending contract transaction failed:" in record.getMessage()
@@ -345,9 +345,7 @@ def test_bad_rpc_response_preserves_pending_transaction_and_signed_ack(
     assert parent.done and responses[0]["status"] == 200
     assert json.loads(responses[0]["body"])["stored"] is True
     assert (
-        AssociationReader(peers.inbox).selected(
-            "eip155:31337:0x" + "11" * 20
-        )
+        AssociationReader(peers.inbox).selected("eip155:31337:0x" + "11" * 20)
         is not None
     )
     assert rpc_clients and all(not client.connector.opened for client in rpc_clients)
@@ -500,7 +498,7 @@ def test_reverts_exhaust_budget_then_require_explicit_retry(peers, deployment):
     drive(postingService.effects, workflow)
 
 
-def test_receipt_deadline_fences_writer_and_manual_retry_preserves_signature(
+def test_tx_receipt_deadline_fences_writer_and_manual_retry_preserves_signature(
     peers, deployment
 ):
     """A timed-out signed operation must resolve before any later nonce is allocated."""
@@ -600,12 +598,7 @@ def test_newer_revocation_withdraws_published_predecessor(peers, deployment):
             == 200
         )
         yield from settle(postingService, wallet, "")
-        assert (
-            AssociationReader(peers.inbox).selected(
-                "eip155:31337:" + wallet
-            )
-            is None
-        )
+        assert AssociationReader(peers.inbox).selected("eip155:31337:" + wallet) is None
         return True
 
     drive(postingService.effects, workflow)
@@ -661,18 +654,18 @@ def test_preparation_errors_stop_in_dead_letter(peers, deployment):
 
 
 def test_pending_rpc_errors_keep_signed_dead_letter(peers, deployment):
-    """Repeated failed receipt RPCs stop, retaining the unresolved nonce across reopen."""
+    """Repeated failed transaction-receipt RPCs stop, retaining the unresolved nonce across reopen."""
     postingService = posting_service_for(peers, deployment)
     assert post(peers, event_body(peers, "pending-exhausted", 130)).status_code == 200
 
     def unavailable(tx_hash):
         yield 0.0
-        raise TimeoutError("receipt unavailable")
+        raise TimeoutError("transaction receipt unavailable")
 
     def workflow(effects):
         yield from postingService.cycle()
         txRecord = pending_transaction(peers.inbox)
-        with patch.object(effects, "receipt", unavailable):
+        with patch.object(effects, "transaction_receipt", unavailable):
             for _ in range(3):
                 yield from postingService.cycle()
         peers.inbox.close()

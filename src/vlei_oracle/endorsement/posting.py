@@ -24,7 +24,7 @@ class PostingService:
     """Prepare one writer's explicit delivery obligations using detached records.
 
     max_attempts bounds each contract step and interrupted pending RPCs.
-    pending_timeout bounds receipt waiting in wall-clock seconds across restarts.
+    pending_timeout bounds transaction-receipt waiting in wall-clock seconds across restarts.
     Unresolved signed dead letters fence the writer; retry uses the same bytes.
     """
 
@@ -58,9 +58,7 @@ class PostingService:
         selectedStatus = self.associations.selected(
             associationStatus.association["extId"]
         )
-        walletEffects = (
-            self.reader.effects(postingOperation.wallet) or WalletEffects()
-        )
+        walletEffects = self.reader.effects(postingOperation.wallet) or WalletEffects()
         valid = (
             associationStatus.status == "accepted"
             and selectedStatus is not None
@@ -157,19 +155,19 @@ class PostingService:
             self.writer.save_pending(postingOperation)
         try:
             yield from self.effects.check_chain()
-            receipt = yield from self.effects.receipt(postingOperation.txHash)
-            if receipt is not None and receipt["confirmed"]:
+            txReceipt = yield from self.effects.transaction_receipt(
+                postingOperation.txHash
+            )
+            if txReceipt is not None and txReceipt["confirmed"]:
                 self.complete_step(
-                    postingOperation, txRecord, receipt["status"] == "0x1"
+                    postingOperation, txRecord, txReceipt["status"] == "0x1"
                 )
                 return
             if self.clock() - postingOperation.signedAt >= self.pending_timeout:
-                postingOperation.error = (
-                    "receipt deadline exceeded; signed transaction remains unresolved"
-                )
+                postingOperation.error = "transaction receipt deadline exceeded; signed transaction remains unresolved"
                 self.stop_pending(postingOperation)
                 return
-            if not postingOperation.submitted and receipt is None:
+            if not postingOperation.submitted and txReceipt is None:
                 yield from self.effects.submit(txRecord.rawTransaction, txRecord.txHash)
                 postingOperation.submitted = True
                 postingOperation.error = ""

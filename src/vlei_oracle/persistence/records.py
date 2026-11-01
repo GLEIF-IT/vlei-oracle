@@ -17,7 +17,7 @@ class PostingScope:
 
 @dataclass
 class TransactionRecord:
-    """Signed transaction bytes and identity, persisted before any broadcast."""
+    """Signed bytes and identity saved before broadcast, with the recorded outcome."""
 
     txHash: str
     rawTransaction: str
@@ -47,7 +47,7 @@ class PostingOperation:
     """One event's delivery work; membership in a phase table owns its lifecycle.
 
     attempts counts preparations of the current contract step. rpcFailures bounds
-    interrupted pending I/O. signedAt starts the finite receipt waiting period.
+    interrupted pending I/O. signedAt starts the finite transaction-receipt waiting period.
     A persisted txHash fences the writer even when this operation is dead-lettered.
     """
 
