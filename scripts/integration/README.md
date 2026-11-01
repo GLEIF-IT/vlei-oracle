@@ -21,7 +21,7 @@ scenario state; repeated flows never silently reset chain, credentials or stores
 Use a new run for another flow. Stop preserves persistent state. Start verifies
 existing deployed code and writer authorization and reopens services without
 new Grants or deployment. Clean refuses live owned services in either owner and
-removes only this explicit stopped run. One controller operates each run at a
+removes only this explicit stopped run. Keep run roots outside source checkouts. One controller operates each run at a
 time; concurrent lifecycle commands are unsupported.
 
 Preparation fetches the exact Verifier/Comply revisions in `dependencies.json`,

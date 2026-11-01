@@ -82,6 +82,9 @@ def prepare_run(
     run-owned so Forge output cannot dirty an operator's checkout. Preparation
     issues the source chain through Verifier's CLI but leaves no services running.
     """
+    for source in (oracle_source, verifier_source, comply_source):
+        if source is not None and root.resolve().is_relative_to(source.resolve()):
+            raise ValueError("Run directory must be outside selected source checkouts")
     for executable in ("anvil", "forge", "cast", "jq"):
         if not shutil.which(executable):
             raise ValueError(f"Missing required local tooling: {executable}")

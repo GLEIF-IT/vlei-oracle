@@ -178,8 +178,24 @@ def test_missing_executable_fails_before_creating_state(tmp_path, monkeypatch):
 
     monkeypatch.setenv("PATH", "")
     run = tmp_path / "absent"
+    source = tmp_path / "source"
+    source.mkdir()
     with pytest.raises(ValueError, match="Missing required local tooling"):
         prepare_run(
-            run, tmp_path, verifier_source=None, comply_source=None, witness_count=1
+            run, source, verifier_source=None, comply_source=None, witness_count=1
         )
     assert not run.exists()
+
+
+@pytest.mark.parametrize("wheel_inputs", [False, True])
+def test_snapshot_refuses_source_overlap_before_writing(tmp_path, wheel_inputs):
+    """A nested run must never recursively copy its own stores or build output."""
+    from scripts.integration.artifacts import copy_tool_inputs
+
+    source = tmp_path / "source"
+    source.mkdir()
+    destination = source / "run/tools"
+    copy = copy_tool_inputs if wheel_inputs else snapshot_source
+    with pytest.raises(ValueError, match="outside its source"):
+        copy(source, destination)
+    assert not (source / "run").exists()
