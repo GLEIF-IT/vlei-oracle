@@ -51,6 +51,16 @@ only this writer's confirmed effects; `txns.` retains signed attempt history.
 `inbox.` and `statuses.` retain event and verifier-status history. None of these
 history tables is scanned to schedule completed work.
 
+Posting reads pending, preparing and queued work through separate bounded
+queries. Its scheduler makes priority explicit; each persistence transition has
+fixed source and destination tables (`queued_to_preparing`,
+`preparing_to_pending`, `pending_to_preparing`, and terminal/recovery operations).
+There is no phase-string dispatcher. Preparation failures and pending RPC failures
+have separate operations and budgets. Offline recovery prepares the reset record
+and writer fence before the dead-to-preparing or dead-to-pending commit.
+Signed transaction bytes, receipt progress and confirmed effects retain their
+atomic commit boundaries.
+
 `--confirmations` defaults to 2, `--posting-interval` to one second,
 `--max-attempts` to 3 and `--pending-timeout` to 120 seconds. Each completed step
 resets the preparation/revert attempt budget. Pending RPC failures are bounded

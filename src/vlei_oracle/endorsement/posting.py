@@ -15,6 +15,7 @@ from web3 import Web3
 from vlei_oracle.endorsement.decisions import ZERO_IDENTITY, next_contract_call
 from vlei_oracle.persistence.records import (
     PostingScope,
+    PostingSequence,
     TransactionRecord,
     WalletEffects,
 )
@@ -104,13 +105,23 @@ class StatusPoster(doing.DoDoer):
 
     def cycle(self):
         """Advance only pending work, or prepare one step of the oldest operation."""
-        postingOperation = self.baser.pending.get(keys=("writer",))
+        postingOperation = self.baser.next_pending()
         if postingOperation is not None:
             yield from self.confirm(postingOperation)
             return
-        postingOperation = self.baser.begin_operation()
-        if postingOperation is None:
+        sequence = self.baser.sequence.get(keys=("writer",)) or PostingSequence()
+        if sequence.blockedBy:
             return
+        postingOperation = self.baser.next_preparing()
+        if postingOperation is None:
+            postingOperation = self.baser.next_queued()
+            if postingOperation is None:
+                return
+            self.baser.queued_to_preparing(postingOperation)
+        yield from self.prepare(postingOperation)
+
+    def prepare(self, postingOperation):
+        """Prepare one selected operation and durably journal its signed transaction."""
         contractCall = self.contract_call(postingOperation)
         if contractCall is None:
             associationStatus = self.baser.statuses.get(
@@ -121,14 +132,14 @@ class StatusPoster(doing.DoDoer):
                 if associationStatus.selection == "selected"
                 else associationStatus.selection
             )
-            self.baser.move_operation(postingOperation, "preparing", "completed")
+            self.baser.preparing_to_completed(postingOperation)
             return
         if postingOperation.attempts >= self.max_attempts:
             postingOperation.error = (
                 postingOperation.error
                 or "preparation interrupted; attempt limit reached"
             )
-            self.baser.move_operation(postingOperation, "preparing", "dead")
+            self.baser.preparing_to_dead(postingOperation)
             return
         postingOperation.attempts += 1
         postingOperation.functionName = contractCall[1]
@@ -143,7 +154,7 @@ class StatusPoster(doing.DoDoer):
                 return
             signedTransaction = self.account.sign_transaction(unsignedTransaction)
         except (OSError, TimeoutError, ValueError) as error:
-            self.fail(postingOperation, "preparing", error)
+            self.fail_preparing(postingOperation, error)
             return
         postingOperation.txHash = Web3.to_hex(signedTransaction.hash)
         postingOperation.signedAt = self.clock()
@@ -155,9 +166,7 @@ class StatusPoster(doing.DoDoer):
             associationSaid=postingOperation.associationSaid,
             functionName=postingOperation.functionName,
         )
-        self.baser.move_operation(
-            postingOperation, "preparing", "pending", txRecord=txRecord
-        )
+        self.baser.preparing_to_pending(postingOperation, txRecord)
 
     def confirm(self, postingOperation):
         """Observe only this signed transaction, submitting the same bytes if needed."""
@@ -177,7 +186,7 @@ class StatusPoster(doing.DoDoer):
                 postingOperation.error = (
                     "receipt deadline exceeded; signed transaction remains unresolved"
                 )
-                self.baser.move_operation(postingOperation, "pending", "dead")
+                self.stop_pending(postingOperation)
                 return
             if not postingOperation.submitted and receipt is None:
                 yield from self.effects.submit(txRecord.rawTransaction, txRecord.txHash)
@@ -185,7 +194,7 @@ class StatusPoster(doing.DoDoer):
                 postingOperation.error = ""
                 self.baser.pending.pin(keys=("writer",), val=postingOperation)
         except (OSError, TimeoutError, ValueError) as error:
-            self.fail(postingOperation, "pending", error)
+            self.fail_pending(postingOperation, error)
 
     def complete_step(self, postingOperation, txRecord, succeeded):
         """Atomically record a confirmed effect and return to the next preparation."""
@@ -219,31 +228,33 @@ class StatusPoster(doing.DoDoer):
             postingOperation.error = ""
         else:
             postingOperation.error = f"transaction reverted: {txRecord.txHash}"
-        phase = (
-            "dead"
-            if not succeeded and postingOperation.attempts >= self.max_attempts
-            else "preparing"
-        )
-        self.baser.move_operation(
-            postingOperation,
-            "pending",
-            phase,
-            walletEffects=walletEffects,
-            txRecord=txRecord,
-        )
-
-    def fail(self, postingOperation, phase, error):
-        """Persist bounded failure without changing credential validity or selection."""
-        postingOperation.error = str(error) or type(error).__name__
-        logger.error("contract posting failed: %s", postingOperation.error)
-        if phase == "pending":
-            postingOperation.rpcFailures += 1
-        exhausted = (
-            postingOperation.rpcFailures
-            if phase == "pending"
-            else postingOperation.attempts
-        ) >= self.max_attempts
-        if exhausted:
-            self.baser.move_operation(postingOperation, phase, "dead")
+        if not succeeded and postingOperation.attempts >= self.max_attempts:
+            self.stop_pending(postingOperation, txRecord=txRecord)
         else:
-            getattr(self.baser, phase).pin(keys=("writer",), val=postingOperation)
+            self.baser.pending_to_preparing(postingOperation, txRecord, walletEffects)
+
+    def stop_pending(self, postingOperation, *, txRecord=None):
+        """Prepare a dead letter and fence later work only for an unresolved signature."""
+        sequence = self.baser.sequence.get(keys=("writer",)) or PostingSequence()
+        if postingOperation.txHash:
+            sequence.blockedBy = postingOperation.operationId
+        self.baser.pending_to_dead(postingOperation, sequence, txRecord)
+
+    def fail_preparing(self, postingOperation, error):
+        """Retain preparation for retry, or stop an exhausted unsigned operation."""
+        postingOperation.error = str(error) or type(error).__name__
+        logger.error("contract preparation failed: %s", postingOperation.error)
+        if postingOperation.attempts >= self.max_attempts:
+            self.baser.preparing_to_dead(postingOperation)
+        else:
+            self.baser.preparing.pin(keys=("writer",), val=postingOperation)
+
+    def fail_pending(self, postingOperation, error):
+        """Retain the signed transaction for retry, or dead-letter and fence the writer."""
+        postingOperation.error = str(error) or type(error).__name__
+        logger.error("pending contract transaction failed: %s", postingOperation.error)
+        postingOperation.rpcFailures += 1
+        if postingOperation.rpcFailures >= self.max_attempts:
+            self.stop_pending(postingOperation)
+        else:
+            self.baser.pending.pin(keys=("writer",), val=postingOperation)

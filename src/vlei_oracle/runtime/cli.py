@@ -136,13 +136,14 @@ def receive_handler(args):
 
 
 def retry_handler(args):
-    """Move a corrected dead letter back to its phase using native LMDB ownership.
+    """Move a corrected dead letter back to its phase using KERIpy LMDB ownership.
 
     Stop the service first: this is a local operator command, not a second writer.
     An unresolved signed transaction keeps its bytes and nonce; no new transaction is signed.
     """
     from keri.db import dbing
 
+    from vlei_oracle.endorsement.retrying import retry_operation
     from vlei_oracle.persistence.basing import OracleBaser
 
     with dbing.openLMDB(
@@ -152,7 +153,7 @@ def retry_handler(args):
         headDirPath=args.head_dir,
         temp=False,
     ) as baser:
-        baser.retry_operation(args.operation_id)
+        retry_operation(baser, args.operation_id)
 
 
 if __name__ == "__main__":

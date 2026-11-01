@@ -8,6 +8,7 @@ import pytest
 from tests.support.contracts import KEY, drive, observe, pending_transaction
 from tests.support.status_events import event_body, post, said
 from vlei_oracle.endorsement.posting import StatusPoster
+from vlei_oracle.endorsement.retrying import retry_operation
 from vlei_oracle.runtime.serving import StatusReceiver
 
 
@@ -259,7 +260,7 @@ def test_bad_rpc_response_preserves_pending_transaction_and_signed_ack(
         """Wait for the posting error, then exercise receipt over a real signed connection."""
         yield tock
         while not any(
-            "contract posting failed:" in record.getMessage()
+            "pending contract transaction failed:" in record.getMessage()
             for record in caplog.records
         ):
             yield 0.01
@@ -422,7 +423,7 @@ def test_reverts_exhaust_budget_then_require_explicit_retry(peers, deployment):
             yield from poster.cycle()
         peers.inbox.close()
         peers.inbox.reopen()
-        peers.inbox.retry_operation(state["operation"]["operationId"])
+        retry_operation(peers.inbox, state["operation"]["operationId"])
         yield from settle(poster, "0x" + "11" * 20, association)
         return True
 
@@ -458,7 +459,7 @@ def test_receipt_deadline_fences_writer_and_manual_retry_preserves_signature(
             assert peers.inbox.transactions.cntAll() == 1
             peers.inbox.close()
             peers.inbox.reopen()
-            peers.inbox.retry_operation(postingOperation.operationId)
+            retry_operation(peers.inbox, postingOperation.operationId)
             assert pending_transaction(peers.inbox) == txRecord
             yield from effects.request("evm_mine", [])
             yield from poster.cycle()
