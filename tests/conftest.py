@@ -102,22 +102,29 @@ def peers(tmp_path):
 
 
 @pytest.fixture(scope="module")
-def deployment(tmp_path_factory):
-    """Own an isolated Comply snapshot and Anvil using the operator setup path."""
+def comply_checkout(tmp_path_factory):
+    """Expose the isolated contract inputs and outputs used by the deployment."""
     from scripts.integration.artifacts import snapshot_source
-    from scripts.integration.environment import start_chain
-    from scripts.integration.processes import free_port, stop
 
     selected = os.getenv("VLEI_COMPLY_DIR")
     assert selected, "Set VLEI_COMPLY_DIR to the exact qualified contract checkout"
-    comply = Path(selected).resolve()
-    assert (comply / "script/DeployAll.s.sol").is_file()
+    source = Path(selected).resolve()
+    assert (source / "script/DeployAll.s.sol").is_file()
+    isolated = tmp_path_factory.mktemp("contract-source") / "comply"
+    snapshot_source(source, isolated)
+    return isolated
+
+
+@pytest.fixture(scope="module")
+def deployment(tmp_path_factory, comply_checkout):
+    """Own Anvil and build/deploy the shared isolated Comply fixture checkout."""
+    from scripts.integration.environment import start_chain
+    from scripts.integration.processes import free_port, stop
+
     anvil = shutil.which("anvil")
     assert anvil and shutil.which("forge"), "Foundry 1.5.1 is required"
     root = tmp_path_factory.mktemp("contracts").resolve()
     (root / "logs").mkdir()
-    isolated = root / "comply"
-    snapshot_source(comply, isolated)
     port = free_port()
     configuration = {
         "anvil": anvil,
@@ -128,7 +135,9 @@ def deployment(tmp_path_factory):
         start_chain(root, configuration)
         yield (
             configuration["rpcUrl"],
-            deploy(isolated, configuration["rpcUrl"], root / "contracts.json", KEY),
+            deploy(
+                comply_checkout, configuration["rpcUrl"], root / "contracts.json", KEY
+            ),
         )
     finally:
         stop(root)

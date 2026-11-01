@@ -1,9 +1,7 @@
 """endorsement/test_effects.py."""
 
 import json
-import os
 import socket
-from pathlib import Path
 
 import falcon
 import pytest
@@ -22,25 +20,33 @@ WALLET = Account.from_key("0x" + "0" * 63 + "1").address
 IDENTITY = "0x" + "12" * 32
 
 
-def test_python_encoding_matches_owned_solidity_vector(deployment):
-    comply = Path(
-        os.getenv(
-            "VLEI_COMPLY_DIR", Path(__file__).resolve().parents[3] / "vlei-comply"
-        )
-    )
+def test_python_encoding_matches_owned_solidity_vector(deployment, comply_checkout):
+    """Compare exact calldata and freshly compiled ABIs from the deployed inputs."""
+    comply = comply_checkout
     vector = json.loads((comply / "abi/endorsement-vector.json").read_text())
     # The contract fixture owns mapping/calldata; proof conformance lives in Verifier.
     facts = {
-        "issuerAid": 'DIqI4910CfGV_VLbLTy6XXLKZwm_HZQSG_N0iAG0D29c',
-        "leSaid": 'EDtvFDCx-Kjtac85bs5PenfQlm41Y5BlWlpooRhF-RGn',
+        "issuerAid": "DIqI4910CfGV_VLbLTy6XXLKZwm_HZQSG_N0iAG0D29c",
+        "leSaid": "EDtvFDCx-Kjtac85bs5PenfQlm41Y5BlWlpooRhF-RGn",
         "extId": "eip155:1:" + vector["wallet"],
-        "issuanceAnchor": {"sequenceNumber": 3, "said": 'EIMtYfwyE2KoT65Tze54g0IyPfw41Zly2sXvo9Mrgzv3'},
+        "issuanceAnchor": {
+            "sequenceNumber": 3,
+            "said": "EIMtYfwyE2KoT65Tze54g0IyPfw41Zly2sXvo9Mrgzv3",
+        },
     }
-    _, mapped = read_status(json.dumps({
-        "version": "1", "eventId": vector["associationSaid"] + ":1",
-        "associationSaid": vector["associationSaid"], "statusRevision": 1,
-        "status": "accepted", "association": facts,
-    }).encode(), chain_id=1)
+    _, mapped = read_status(
+        json.dumps(
+            {
+                "version": "1",
+                "eventId": vector["associationSaid"] + ":1",
+                "associationSaid": vector["associationSaid"],
+                "statusRevision": 1,
+                "status": "accepted",
+                "association": facts,
+            }
+        ).encode(),
+        chain_id=1,
+    )
     assert mapped.associationSaid == vector["associationSaid"]
     assert mapped.identityRef == vector["identityRef"]
     assert mapped.wallet == vector["wallet"]
