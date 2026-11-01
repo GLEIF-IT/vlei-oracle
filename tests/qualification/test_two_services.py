@@ -13,11 +13,10 @@ from hio.base import doing
 
 from scripts.integration.artifacts import load_json, save_json
 from scripts.integration.environment import (
-    call_verifier,
     restart_oracle,
-    start_verifier,
 )
 from scripts.integration.processes import stop
+from scripts.integration.verifier import call_verifier, start_verifier
 from tests.support.contracts import KEY, contract, effects_for, observe, read, send
 from tests.support.processes import request
 

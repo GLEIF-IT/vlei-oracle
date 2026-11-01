@@ -1,27 +1,27 @@
 """Public CLI for Oracle's local USDC integration environment.
 
 Run with ``python -m scripts.integration.env`` from the selected tooling root.
-Applications execute from fresh wheels. Preparation/lifetimes belong to
+Applications execute from fresh wheels. Preparation belongs to ``preparing`` and lifetimes to
 ``environment`` and USDC assertions remain in the sole maintained pytest scenario.
 """
 
 import argparse
 import json
 import os
-from pathlib import Path
 import sys
+from pathlib import Path
 
+from .artifacts import load_run
 from .environment import (
-    call_verifier,
     clean_run,
-    initialize_identity,
-    load_run,
-    prepare_run,
     run_flow,
     start_run,
     stop_run,
 )
+from .identity import initialize_identity
+from .preparing import prepare_run
 from .processes import is_running, process_records
+from .verifier import call_verifier
 
 SOURCE = Path(__file__).resolve().parents[2]
 

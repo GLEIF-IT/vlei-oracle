@@ -1,4 +1,4 @@
-"""conftest.py."""
+"""Shared peer identities and isolated real-contract deployment fixtures."""
 
 import json
 import os
@@ -13,7 +13,6 @@ from falcon import testing
 from keri.app import habbing
 from keri.db import dbing
 
-from scripts.integration.artifacts import source_revision
 from scripts.integration.contracts import deploy
 from tests.support.contracts import KEY
 from tests.support.status_events import said
@@ -115,7 +114,7 @@ def comply_checkout(tmp_path_factory):
 @pytest.fixture(scope="module")
 def deployed_chain(tmp_path_factory, comply_checkout):
     """Own Anvil and build/deploy the shared isolated Comply fixture checkout."""
-    from scripts.integration.environment import start_chain
+    from scripts.integration.chain import start_chain
     from scripts.integration.processes import free_port, stop
 
     anvil = shutil.which("anvil")
@@ -162,49 +161,3 @@ def deployment(deployed_chain):
             return True
 
         drive(effects_for(deployed_chain), restore)
-
-
-@pytest.fixture
-def integration_run(tmp_path):
-    """Attach an explicit started run, or own a fresh installed-wheel stack.
-
-    The external run is managed by the operator command. A pytest-created run
-    closes all child processes even when qualification fails, retaining evidence.
-    """
-    from scripts.integration.environment import (
-        load_run,
-        prepare_run,
-        start_run,
-        stop_run,
-    )
-
-    selected = os.getenv("ORACLE_INTEGRATION_RUN")
-    if selected:
-        root = Path(selected).resolve()
-        load_run(root)
-        yield root
-        return
-    wheel = os.environ.get("ORACLE_WHEEL")
-    assert wheel and Path(wheel).is_file(), (
-        "Set ORACLE_WHEEL to the fresh qualified wheel"
-    )
-    root = (tmp_path / "stack").resolve()
-    source = Path(__file__).resolve().parents[1]
-    prepare_run(
-        root,
-        source,
-        verifier_source=Path(os.environ["VERIFIER_TOOL_SOURCE"])
-        if os.getenv("VERIFIER_TOOL_SOURCE")
-        else None,
-        comply_source=Path(os.environ["VLEI_COMPLY_DIR"])
-        if os.getenv("VLEI_COMPLY_DIR")
-        else None,
-        witness_count=1,
-        wheel=Path(wheel),
-        tool_revision=os.getenv("GITHUB_SHA") or source_revision(source),
-    )
-    try:
-        start_run(root, load_run(root))
-        yield root
-    finally:
-        stop_run(root)

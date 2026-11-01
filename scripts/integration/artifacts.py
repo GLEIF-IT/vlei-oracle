@@ -8,10 +8,10 @@ published revision. They are tooling only, outside application wheels.
 import hashlib
 import json
 import os
-from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+from pathlib import Path
 
 
 def load_json(path: Path) -> dict:
@@ -122,3 +122,14 @@ def copy_tool_inputs(source: Path, destination: Path) -> dict:
             digest.update(str(path.relative_to(destination)).encode() + b"\0")
             digest.update(hashlib.sha256(path.read_bytes()).digest())
     return {"sha256": digest.hexdigest()}
+
+
+OWNER = "vlei-oracle-integration"
+
+
+def load_run(root: Path) -> dict:
+    """Require the exact owned run before inspecting, starting or cleaning it."""
+    configuration = load_json(root / "run.json")
+    if configuration["owner"] != OWNER or configuration["root"] != str(root):
+        raise ValueError("Run ownership mismatch")
+    return configuration

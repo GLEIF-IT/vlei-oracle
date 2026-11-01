@@ -118,3 +118,13 @@ receipts and Ethereum transaction receipts retain those qualified names.
 No wire values, event IDs, signed payloads, LMDB keys/subdatabases, transaction
 boundaries, retry policy or business behavior change. The coordinated PRs record
 focused, installed-wheel and paired qualification results and exact pins.
+
+## Follow-up: test and tooling organization
+
+Preserve the component and explicit phase-transition design. Reclassify policy
+tests under their feature, name atomic persistence tests by their record family,
+and keep real cross-component scenarios under integration. Separate concrete
+tooling preparation and service-launch responsibilities while keeping lifecycle
+sequencing explicit. Update the test guide with current paths. This follow-up
+changes neither application source nor protocol/storage behavior; qualification
+results and exact dependency pins are recorded in the organization PRs.
