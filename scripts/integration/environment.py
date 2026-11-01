@@ -237,8 +237,16 @@ def initialize_identity(root: Path, configuration: dict) -> None:
 
     configuration["versions"] = {
         "python": sys.version.split()[0],
-        **{name: version(name) for name in ("vlei-oracle", "eoa-verifier", "gleif_keri", "gleif_hio")},
-        **{name: subprocess.check_output([name, "--version"], text=True, timeout=5).strip() for name in ("anvil", "forge", "cast", "jq")},
+        **{
+            name: version(name)
+            for name in ("vlei-oracle", "eoa-verifier", "gleif_keri", "gleif_hio")
+        },
+        **{
+            name: subprocess.check_output(
+                [name, "--version"], text=True, timeout=5
+            ).strip()
+            for name in ("anvil", "forge", "cast", "jq")
+        },
     }
     with habbing.openHby(
         name="oracle", headDirPath=str(root / "services"), temp=False

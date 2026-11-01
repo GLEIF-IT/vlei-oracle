@@ -1,6 +1,7 @@
 """Select exact, fresh integration-tool and contract checkouts without resets."""
 
 from pathlib import Path
+import os
 import subprocess
 
 
@@ -14,6 +15,7 @@ def fetch_checkout(directory: Path, url: str, revision: str) -> None:
         raise ValueError(f"Refusing existing checkout {directory}")
     subprocess.run(["git", "init", "--quiet", str(directory)], check=True)
     git = ["git", "-C", str(directory)]
+    environment = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
     subprocess.run([*git, "remote", "add", "origin", url], check=True)
     subprocess.run(
         [
@@ -28,9 +30,16 @@ def fetch_checkout(directory: Path, url: str, revision: str) -> None:
             revision,
         ],
         check=True,
+        timeout=120,
+        env=environment,
     )
     subprocess.run([*git, "checkout", "--detach", "FETCH_HEAD"], check=True)
     actual = subprocess.check_output([*git, "rev-parse", "HEAD"], text=True).strip()
     if actual != revision:
         raise ValueError("Dependency did not resolve to its exact requested commit")
-    subprocess.run([*git, "submodule", "update", "--init", "--recursive"], check=True)
+    subprocess.run(
+        [*git, "submodule", "update", "--init", "--recursive"],
+        check=True,
+        timeout=240,
+        env=environment,
+    )

@@ -87,7 +87,11 @@ def snapshot_source(source: Path, destination: Path) -> dict:
             shutil.copy2(original, copied)
             digest.update(b"file\0" + relative.encode() + b"\0")
             digest.update(hashlib.sha256(original.read_bytes()).digest())
-    return {"revision": source_revision(source), "sha256": digest.hexdigest(), "submodules": submodules}
+    return {
+        "revision": source_revision(source),
+        "sha256": digest.hexdigest(),
+        "submodules": submodules,
+    }
 
 
 def copy_tool_inputs(source: Path, destination: Path) -> dict:

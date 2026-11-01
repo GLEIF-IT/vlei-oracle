@@ -140,3 +140,46 @@ def test_relocated_cli_help_requires_no_application_or_neighbor_checkout(tmp_pat
     )
     assert invalid.returncode != 0
     assert not run.exists()
+
+
+def test_readiness_timeout_stops_only_owned_child_and_retains_logs(tmp_path):
+    """Partial startup leaves diagnostics and never signals an unrelated process."""
+    (tmp_path / "logs").mkdir()
+    port = free_port()
+    command = [
+        sys.executable,
+        "-u",
+        "-c",
+        "import time; print('owned startup diagnostic'); time.sleep(60)",
+    ]
+    with subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(60)"]
+    ) as sentinel:
+        try:
+            launch(tmp_path, "unready", command, port=port)
+            with pytest.raises(TimeoutError, match="unready readiness timed out"):
+                wait_ready(tmp_path, "unready", lambda: False, timeout=0.2)
+            stop(tmp_path)
+            assert sentinel.poll() is None
+            assert (
+                "owned startup diagnostic"
+                in (tmp_path / "logs/unready.log").read_text()
+            )
+            assert not process_records(tmp_path)
+        finally:
+            stop(tmp_path)
+            sentinel.terminate()
+            sentinel.wait(timeout=5)
+
+
+def test_missing_executable_fails_before_creating_state(tmp_path, monkeypatch):
+    """Operator preflight cannot leave a partial run when Foundry is absent."""
+    from scripts.integration.environment import prepare_run
+
+    monkeypatch.setenv("PATH", "")
+    run = tmp_path / "absent"
+    with pytest.raises(ValueError, match="Missing required local tooling"):
+        prepare_run(
+            run, tmp_path, verifier_source=None, comply_source=None, witness_count=1
+        )
+    assert not run.exists()
