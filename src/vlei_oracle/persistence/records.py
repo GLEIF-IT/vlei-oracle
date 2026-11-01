@@ -28,13 +28,6 @@ class TransactionRecord:
 
 
 @dataclass
-class ReplayClaim:
-    """Authenticated transport nonce lifetime, independent of event deduplication."""
-
-    expiresAt: int
-
-
-@dataclass
 class InboxScope:
     """Last observed producer/chain settings, used only for startup warnings."""
 

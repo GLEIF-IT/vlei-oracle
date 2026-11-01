@@ -1,6 +1,5 @@
 """HIO composition and shared KERIpy/LMDB resource lifetime."""
 
-from functools import partial
 from pathlib import Path
 
 import falcon
@@ -18,8 +17,8 @@ from vlei_oracle.persistence.posting import PostingReader, PostingWriter
 from vlei_oracle.persistence.records import InboxScope, PostingScope
 from vlei_oracle.persistence.scope import ScopeStore
 from vlei_oracle.persistence.status_events import StatusEventWriter
-from vlei_oracle.persistence.transport import claim_nonce
-from vlei_oracle.receiving.authing import ServiceAuthenticator
+from vlei_oracle.receiving.authing import HttpSignatures
+from vlei_oracle.receiving.keys import ServiceKeys
 from vlei_oracle.receiving.status import StatusEnd
 from vlei_oracle.receiving.status_events import StatusEventService
 from vlei_oracle.runtime.identity import incept_if_new
@@ -47,11 +46,7 @@ class StatusReceiver(doing.DoDoer):
         posting_writer = PostingWriter(baser)
         scope = ScopeStore(baser)
         note_inbox(scope, InboxScope(config.verifier_aid, config.chain_id))
-        auth = ServiceAuthenticator(
-            hab=self.hab,
-            claim_nonce=partial(claim_nonce, baser),
-            peer_aid=config.verifier_aid,
-        )
+        auth = HttpSignatures(ServiceKeys(self.hab))
         self.app = falcon.App()
         self.app.add_route(
             "/v1/status-events",
@@ -62,6 +57,7 @@ class StatusReceiver(doing.DoDoer):
                 ),
                 target=config.webhook_url,
                 chain_id=config.chain_id,
+                verifier_aid=config.verifier_aid,
             ),
         )
         self.app.add_route(

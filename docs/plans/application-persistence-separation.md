@@ -1,5 +1,8 @@
 # Oracle application and persistence separation
 
+Current transport decision: the [optional HTTP signatures plan](https://github.com/GLEIF-IT/eoa-verifier/blob/master/docs/plans/optional-http-signatures.md) supersedes earlier mutual-ACK and transport replay-claim requirements.
+
+
 ## Decision and boundaries
 
 The application prepares valid domain records using detached, bounded reads.
@@ -16,7 +19,7 @@ Short writer-side integrity checks remain where they protect phase membership or
 immutable signed bytes; they are not a reason to move policy back into storage.
 
 Preserve dedicated phase tables, explicit transition names, FIFO arrival order,
-transport replay rejection, terminal revocation, selection isolation, signed-byte
+event deduplication, terminal revocation, selection isolation, signed-byte
 journaling before broadcast, finite retry/dead letters and local-only query state.
 No compatibility APIs, migrations, generic transition framework, extra locking,
 architecture-check scripts, or on-chain reconciliation are introduced.
@@ -49,8 +52,7 @@ revision. Do not weaken assertions or change integration topology.
 - Slice 3 implemented: PostingService owns policy, PostingDoer schedules it,
   RecoveryService prepares offline retries and EndorsementQuery prepares local
   progress. HTTP resources and CLI adapt these services; runtime composes their
-  readers, writers and effects once. Authentication borrows the transport replay
-  writer rather than a database handle. Tests follow their application/writer
+  readers, writers and effects once. Signature verification is stateless; no transport replay writer remains. Tests follow their application/writer
   owners and retain real status-event, rollback, restart and chain coverage.
 
 ## Review and qualification
@@ -75,7 +77,7 @@ The earlier application-wide adapters are removed, not retained as facades.
 | StatusEventWriter | StatusEventService; old-event recording or one event/status/selection/queue/sequence commit. |
 | PostingReader / PostingWriter | PostingService and RecoveryService; explicit phases, signed journal, confirmed effects, progress and recovery fences. StatusEventService borrows sequence reads and EndorsementQuery borrows posting queries explicitly. |
 | ScopeStore | Advisory inbox/posting startup records; read/save only. |
-| transport.claim_nonce | A bound callable supplied to ServiceAuthenticator, not a posting writer. |
+| HttpSignatures | Stateless signature checks; StatusEnd separately authorizes the configured producer. |
 
 No cross-feature atomic operation is split into independently committing calls.
 Queries retain bounded per-identifier phase lookups. The association-only public

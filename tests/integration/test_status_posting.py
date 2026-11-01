@@ -316,10 +316,9 @@ def test_bad_rpc_response_preserves_pending_transaction_and_signed_ack(
             for record in caplog.records
         ):
             yield 0.01
-        headers, requestAuth = peers.auth.sign(
+        headers = peers.auth.sign(
             method="POST",
             target=config.webhook_url,
-            action="status",
             body=body,
         )
         client.request(method="POST", headers=headers, body=body)
@@ -329,11 +328,8 @@ def test_bad_rpc_response_preserves_pending_transaction_and_signed_ack(
         peers.auth.verify(
             method="POST",
             target=config.webhook_url,
-            action="ack",
             body=response["body"],
             headers=response["headers"],
-            request=requestAuth.reference,
-            status=response["status"],
         )
         responses.append(response)
         parent.remove([receiver, server_doer, client_doer])

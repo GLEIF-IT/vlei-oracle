@@ -13,7 +13,6 @@ from .records import (
     PostingOperation,
     PostingScope,
     PostingSequence,
-    ReplayClaim,
     TransactionRecord,
     WalletEffects,
 )
@@ -40,9 +39,6 @@ class OracleBaser(dbing.LMDBer):
         self.inbox = koming.Komer(db=self, subkey="inbox.", schema=StatusEvent)
         self.statuses = koming.Komer(
             db=self, subkey="statuses.", schema=AssociationStatus
-        )
-        self.replay_claims = koming.Komer(
-            db=self, subkey="replay_claims.", schema=ReplayClaim
         )
         self.claims = koming.Komer(db=self, subkey="claims.", schema=WalletClaim)
         self.inbox_scope = koming.Komer(
