@@ -40,4 +40,4 @@ sequenceDiagram
 
 </details>
 
-Selection and receipt do not change upstream acceptance. The fixture also rejects reuse of an accepted issuer/nonce by another credential. Direct USDC transfers can bypass wUSDC; its role is auditable compliance for routed transfers. No production-readiness or malformed-stream liveness claim follows from this scenario.
+Selection and receipt do not change upstream acceptance. The fixture also rejects reuse of an accepted nonce by another credential. Direct USDC transfers can bypass wUSDC; its role is auditable compliance for routed transfers. No production-readiness or malformed-stream liveness claim follows from this scenario.

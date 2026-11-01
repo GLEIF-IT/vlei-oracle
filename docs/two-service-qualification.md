@@ -12,7 +12,7 @@ The test follows these boundaries:
 2. Observe verifier acceptance, signed webhook receipt and actual contract mapping.
    Drop one successful ACK after the receiver commits; verify retry keeps identical
    event bytes and eventually obtains an authenticated ACK.
-3. Issue an otherwise valid second-wallet credential reusing the first issuer/nonce;
+3. Issue an otherwise valid second-wallet credential reusing the first nonce;
    require terminal `NONCE_REUSED`, no webhook and no change to the mapping. Then
    issue a fresh-nonce association for the beneficiary wallet. With both wallet
    mappings confirmed, transfer USDC and check both token balances. The oracle
