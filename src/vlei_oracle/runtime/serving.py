@@ -1,7 +1,5 @@
 """HIO composition and shared KERIpy/LMDB resource lifetime."""
 
-from vlei_oracle.runtime.scoping import ScopeService
-
 from pathlib import Path
 
 import falcon
@@ -11,15 +9,17 @@ from keri.app import configing, habbing, keeping
 from keri.db import basing, dbing
 from keri.end import ending
 
+from vlei_oracle.endorsement.querying import EndorsementQuery
 from vlei_oracle.endorsement.resources import EndorsementEnd
 from vlei_oracle.persistence.basing import OracleBaser
 from vlei_oracle.persistence.reading import OracleReader
+from vlei_oracle.persistence.records import InboxScope, PostingScope
 from vlei_oracle.persistence.writing import OracleWriter
-from vlei_oracle.receiving.receipt import ReceiptService
-from vlei_oracle.persistence.records import InboxScope
 from vlei_oracle.receiving.authing import ServiceAuthenticator
+from vlei_oracle.receiving.receipt import ReceiptService
 from vlei_oracle.receiving.status import StatusEnd
 from vlei_oracle.runtime.identity import incept_if_new
+from vlei_oracle.runtime.scoping import ScopeService
 
 
 class StatusReceiver(doing.DoDoer):
@@ -38,23 +38,25 @@ class StatusReceiver(doing.DoDoer):
             hby.psr.parse(ims=bytearray(Path(config.verifier_kel).read_bytes()))
         if config.verifier_aid not in hby.kevers:
             raise ValueError("verifier key state unavailable; supply --verifier-kel")
-        ScopeService(OracleReader(baser), OracleWriter(baser)).bind_inbox(
-            InboxScope(config.verifier_aid, config.chain_id)
-        )
+        reader, writer = OracleReader(baser), OracleWriter(baser)
+        scopes = ScopeService(reader, writer)
+        scopes.bind_inbox(InboxScope(config.verifier_aid, config.chain_id))
         auth = ServiceAuthenticator(
-            hab=self.hab, baser=baser, peer_aid=config.verifier_aid
+            hab=self.hab, writer=writer, peer_aid=config.verifier_aid
         )
         self.app = falcon.App()
         self.app.add_route(
             "/v1/status-events",
             StatusEnd(
                 auth=auth,
-                service=ReceiptService(OracleReader(baser), OracleWriter(baser)),
+                service=ReceiptService(reader, writer),
                 target=config.webhook_url,
                 chain_id=config.chain_id,
             ),
         )
-        self.app.add_route("/v1/endorsements/{said}", EndorsementEnd(baser))
+        self.app.add_route(
+            "/v1/endorsements/{said}", EndorsementEnd(EndorsementQuery(reader))
+        )
         # KERIpy OOBI export lets the verifier learn this receiver's signing AID.
         self.app.add_route("/oobi/{aid}", ending.OOBIEnd(hby=hby))
         self.server = http.Server(host=config.host, port=config.http_port, app=self.app)
@@ -62,27 +64,36 @@ class StatusReceiver(doing.DoDoer):
         if config.rpc_url:
             from eth_account import Account
 
+            from vlei_oracle.endorsement.doing import PostingDoer
             from vlei_oracle.endorsement.effects import ContractEffects
-            from vlei_oracle.endorsement.posting import StatusPoster
+            from vlei_oracle.endorsement.posting import PostingService
 
+            account = Account.from_key(config.posting_key)
             effects = ContractEffects(
                 rpc_url=config.rpc_url,
                 chain_id=config.chain_id,
-                writer=Account.from_key(config.posting_key).address,
+                writer=account.address,
                 endorsement=config.endorsement_registry,
                 identity=config.identity_registry,
                 confirmations=config.confirmations,
             )
-            doers.append(
-                StatusPoster(
-                    baser=baser,
-                    effects=effects,
-                    key=config.posting_key,
-                    interval=config.posting_interval,
-                    max_attempts=config.max_attempts,
-                    pending_timeout=config.pending_timeout,
+            scopes.bind_posting(
+                PostingScope(
+                    effects.chain_id,
+                    effects.writer.lower(),
+                    effects.contracts["endorsement"].address.lower(),
+                    effects.contracts["identity"].address.lower(),
                 )
             )
+            service = PostingService(
+                reader=reader,
+                writer=writer,
+                effects=effects,
+                account=account,
+                max_attempts=config.max_attempts,
+                pending_timeout=config.pending_timeout,
+            )
+            doers.append(PostingDoer(service, interval=config.posting_interval))
         super().__init__(doers=doers)
 
 

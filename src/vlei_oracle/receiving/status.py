@@ -10,7 +10,7 @@ from vlei_oracle.receiving.authing import AuthenticationError
 
 
 class StatusEnd:
-    """Borrow transport authentication and storage; ACK only committed events."""
+    """Borrow authentication and the receipt service; ACK only committed events."""
 
     def __init__(self, *, auth, service, target, chain_id):
         self.auth, self.service = auth, service

@@ -1,45 +1,18 @@
-"""Read-only REST representation of the Oracle's own endorsement delivery state."""
-
-from vlei_oracle.persistence.reading import OracleReader
-
-from dataclasses import asdict
+"""Falcon adapter for read-only endorsement application queries."""
 
 import falcon
 
-from vlei_oracle.persistence.records import WalletEffects, PostingSequence
-
 
 class EndorsementEnd:
-    """Expose durable progress without Ethereum calls or mutation permissions."""
+    """Translate local endorsement query results into HTTP responses."""
 
-    def __init__(self, baser):
-        self.baser = baser
+    def __init__(self, query):
+        self.query = query
 
     def on_get(self, req, rep, said):
-        """Return a known association's latest operation, or 404 for an unknown SAID.
-
-        confirmedEffect describes this writer's last confirmed wallet effects,
-        not current chain truth. Public responses omit signed transaction bytes.
-        """
-        associationStatus = self.baser.statuses.get(keys=(said,))
-        if associationStatus is None:
+        """Return progress for one credential SAID, or 404 when unknown."""
+        result = self.query.endorsement(said)
+        if result is None:
             raise falcon.HTTPNotFound(title="Unknown endorsement")
-        phase, postingOperation = OracleReader(self.baser).operation_for(
-            f"{said}:{associationStatus.statusRevision}"
-        )
-        walletEffects = (
-            self.baser.walletEffects.get(keys=(associationStatus.wallet,))
-            or WalletEffects()
-        )
-        sequence = self.baser.sequence.get(keys=("writer",)) or PostingSequence()
-        rep.media = {
-            "associationSaid": said,
-            "wallet": associationStatus.wallet,
-            "verifierStatus": associationStatus.status,
-            "selection": associationStatus.selection,
-            "phase": phase,
-            "operation": asdict(postingOperation) if postingOperation else None,
-            "confirmedEffect": asdict(walletEffects),
-            "writerBlockedBy": sequence.blockedBy or None,
-        }
+        rep.media = result
         rep.set_header("Cache-Control", "no-store")

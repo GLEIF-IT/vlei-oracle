@@ -81,3 +81,15 @@ class OracleReader:
     def posting_scope(self):
         """Return the bound posting scope, or None."""
         return self.baser.scope.get(keys=("posting",))
+
+    def wallet_effects(self, wallet):
+        """Return only this writer's confirmed wallet effects."""
+        return self.baser.walletEffects.get(keys=(wallet,))
+
+    def transaction(self, txHash):
+        """Return one persisted signed transaction and its receipt state."""
+        return self.baser.transactions.get(keys=(txHash,))
+
+    def dead_operation(self, operationId):
+        """Return one dead letter by operation ID."""
+        return self.baser.dead.get(keys=(operationId,))

@@ -17,54 +17,66 @@ class ReceiptService:
     def __init__(self, reader, writer):
         self.reader, self.writer = reader, writer
 
-    def receive_status(self, event, status):
+    def receive_status(self, statusEvent, associationStatus):
         """Apply monotonic status and wallet selection, or acknowledge an old event.
 
         Exact redelivery is harmless; changed event bytes or issuance facts are
         conflicts. Credential revocation is terminal for this association SAID.
         """
-        prior = self.reader.event(event.eventId)
-        if prior is not None:
-            if prior.body != event.body:
+        priorEvent = self.reader.event(statusEvent.eventId)
+        if priorEvent is not None:
+            if priorEvent.body != statusEvent.body:
                 raise ValueError("conflicting event revision")
             return
-        current = self.reader.association(status.associationSaid)
-        if current is not None:
-            if current.association != status.association:
+        currentStatus = self.reader.association(associationStatus.associationSaid)
+        if currentStatus is not None:
+            if currentStatus.association != associationStatus.association:
                 raise ValueError("association facts cannot change")
             if (
-                current.status == "revoked"
-                and status.status != "revoked"
-                and status.statusRevision > current.statusRevision
+                currentStatus.status == "revoked"
+                and associationStatus.status != "revoked"
+                and associationStatus.statusRevision > currentStatus.statusRevision
             ):
                 raise ValueError("revoked association cannot be reaccepted")
             if (
-                current.status == "accepted"
-                and status.status == "revoked"
-                and status.statusRevision < current.statusRevision
+                currentStatus.status == "accepted"
+                and associationStatus.status == "revoked"
+                and associationStatus.statusRevision < currentStatus.statusRevision
             ):
                 raise ValueError("revocation revision precedes acceptance")
-            if status.statusRevision <= current.statusRevision:
-                self.writer.record_event(event)
+            if associationStatus.statusRevision <= currentStatus.statusRevision:
+                self.writer.record_event(statusEvent)
                 return
-            status.selection = current.selection
-        claim = self.reader.claim(status.association["extId"]) or WalletClaim()
-        selected = (
-            self.reader.association(claim.currentSaid) if claim.currentSaid else None
+            associationStatus.selection = currentStatus.selection
+        walletClaim = (
+            self.reader.claim(associationStatus.association["extId"]) or WalletClaim()
         )
-        update_selection(status, current=selected, claim=claim)
-        previous = (
-            selected
-            if selected is not None
-            and selected.associationSaid != status.associationSaid
+        selectedStatus = (
+            self.reader.association(walletClaim.currentSaid)
+            if walletClaim.currentSaid
             else None
         )
-        sequence = self.reader.posting_sequence() or PostingSequence()
-        sequence.next += 1
-        event.operationId = f"{sequence.next:016x}"
-        operation = PostingOperation(
-            event.operationId, event.eventId, status.associationSaid, status.wallet
+        update_selection(associationStatus, current=selectedStatus, claim=walletClaim)
+        previousStatus = (
+            selectedStatus
+            if selectedStatus is not None
+            and selectedStatus.associationSaid != associationStatus.associationSaid
+            else None
+        )
+        postingSequence = self.reader.posting_sequence() or PostingSequence()
+        postingSequence.next += 1
+        statusEvent.operationId = f"{postingSequence.next:016x}"
+        postingOperation = PostingOperation(
+            statusEvent.operationId,
+            statusEvent.eventId,
+            associationStatus.associationSaid,
+            associationStatus.wallet,
         )
         self.writer.record_status_and_queue(
-            event, status, claim, previous, operation, sequence
+            statusEvent,
+            associationStatus,
+            walletClaim,
+            previousStatus,
+            postingOperation,
+            postingSequence,
         )

@@ -18,6 +18,7 @@ from scripts.integration.contracts import deploy
 from tests.support.contracts import KEY
 from tests.support.status_events import said
 from vlei_oracle.persistence.basing import OracleBaser
+from vlei_oracle.persistence.writing import OracleWriter
 from vlei_oracle.receiving.authing import ServiceAuthenticator as SenderAuthenticator
 from vlei_oracle.runtime.config import ReceiverConfig
 from vlei_oracle.runtime.serving import StatusReceiver
@@ -96,7 +97,7 @@ def peers(tmp_path):
             outbox=outbox,
             event=event,
             auth=SenderAuthenticator(
-                hab=producer_hab, baser=outbox, peer_aid=receiver.hab.pre
+                hab=producer_hab, writer=OracleWriter(outbox), peer_aid=receiver.hab.pre
             ),
         )
 

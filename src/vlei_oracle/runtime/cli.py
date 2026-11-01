@@ -143,8 +143,10 @@ def retry_handler(args):
     """
     from keri.db import dbing
 
-    from vlei_oracle.endorsement.retrying import retry_operation
+    from vlei_oracle.endorsement.retrying import RecoveryService
     from vlei_oracle.persistence.basing import OracleBaser
+    from vlei_oracle.persistence.reading import OracleReader
+    from vlei_oracle.persistence.writing import OracleWriter
 
     with dbing.openLMDB(
         cls=OracleBaser,
@@ -153,7 +155,9 @@ def retry_handler(args):
         headDirPath=args.head_dir,
         temp=False,
     ) as baser:
-        retry_operation(baser, args.operation_id)
+        RecoveryService(OracleReader(baser), OracleWriter(baser)).retry_operation(
+            args.operation_id
+        )
 
 
 if __name__ == "__main__":
