@@ -12,8 +12,9 @@ from vlei_oracle.receiving.authing import AuthenticationError
 class StatusEnd:
     """Borrow authentication and the status-event service; ACK only committed events."""
 
-    def __init__(self, *, auth, service, target, chain_id, verifier_aid):
+    def __init__(self, *, auth, service, target, chain_id, verifier_aid, verifier_oobi):
         self.auth, self.service = auth, service
+        self.verifier_oobi = verifier_oobi
         self.target, self.chain_id, self.verifier_aid = target, chain_id, verifier_aid
         parts = urlsplit(target)
         self.relative_uri = parts.path + ("?" + parts.query if parts.query else "")
@@ -23,12 +24,17 @@ class StatusEnd:
 
         Exact redelivery returns success without repeated effects. The signed JSON
         result confirms Oracle storage, not selected ownership or publication.
-        Return 401 for invalid/untrusted signatures, 400 for malformed events and
+        Return 503 while the producer introduction is unresolved, 401 for
+        invalid/untrusted signatures, 400 for malformed events and
         409 for immutable-body or revision conflicts. No transport nonce is claimed.
         """
         if req.relative_uri != self.relative_uri:
             raise falcon.HTTPBadRequest(
                 description="destination does not match configuration"
+            )
+        if not self.verifier_oobi.ready():
+            raise falcon.HTTPServiceUnavailable(
+                description="Verifier OOBI resolution is not ready", retry_after=1
             )
         statusEventBytes = req.bounded_stream.read()
         try:

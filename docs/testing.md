@@ -54,3 +54,8 @@ identity setup in identity.py, and chain/deployment work in chain.py. services.p
 launches Oracle and the response-loss proxy; verifier.py calls the external
 Verifier fixture CLI. environment.py sequences lifecycle and qualification.
 These are concrete modules within the existing integration tooling package.
+
+OOBI introduction tests exercise real HTTP and the pinned KERIpy resolver.
+Resolution requires accepted key state; Oracle also binds it to the authorized
+producer AID. Rotation is retrieved from the same OOBI on restart. Startup no
+longer imports public KEL files. Credential/TEL evidence transport is unchanged.

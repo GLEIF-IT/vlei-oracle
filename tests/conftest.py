@@ -9,7 +9,6 @@ from types import SimpleNamespace
 
 import pytest
 from eth_account import Account
-from falcon import testing
 from keri.app import habbing
 from keri.db import dbing
 
@@ -38,9 +37,11 @@ def peers(tmp_path):
         ) as inbox,
     ):
         producer_hab = producer.makeHab(name="producer")
-        # Bootstrap through the receiver's actual KERIpy KEL import path.
-        kel = tmp_path / "producer.cesr"
-        kel.write_bytes(producer_hab.makeOwnEvent(sn=0))
+        from scripts.integration.processes import free_port
+        from tests.support.oobis import resolve_peer
+
+        producer_port = free_port()
+        verifier_oobi = f"http://127.0.0.1:{producer_port}/oobi/{producer_hab.pre}"
         with socket.socket() as sock:
             sock.bind(("127.0.0.1", 0))
             port = sock.getsockname()[1]
@@ -48,16 +49,18 @@ def peers(tmp_path):
             verifier_aid=producer_hab.pre,
             chain_id=31337,
             webhook_url=f"http://127.0.0.1:{port}/v1/status-events",
-            verifier_kel=str(kel),
+            verifier_oobi=verifier_oobi,
             host="127.0.0.1",
             http_port=port,
         )
         receiver = StatusReceiver(config, hby=oracle, baser=inbox)
-        introduction = testing.TestClient(receiver.app).simulate_get(
-            f"/oobi/{receiver.hab.pre}"
+        resolve_peer(
+            oracle, verifier_oobi, producer, producer_port, resolver=receiver.oobiery
         )
-        assert introduction.status_code == 200
-        producer.psr.parse(ims=bytearray(introduction.content))
+        assert receiver.verifier_oobi.ready()
+        resolve_peer(
+            producer, f"http://127.0.0.1:{port}/oobi/{receiver.hab.pre}", oracle, port
+        )
         facts = {
             "issuerAid": producer_hab.pre,
             "leSaid": said("LE"),
@@ -85,6 +88,7 @@ def peers(tmp_path):
         )
         yield SimpleNamespace(
             config=config,
+            producer_port=producer_port,
             receiver=receiver,
             oracle=oracle,
             producer=producer,

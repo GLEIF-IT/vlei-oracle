@@ -57,6 +57,6 @@ def start_verifier(root: Path, configuration: dict) -> None:
         configuration["rpcUrl"],
         "--webhook-url",
         configuration["webhookUrl"],
-        "--peer-kel",
-        str(root / "oracle.cesr"),
+        "--webhook-oobi",
+        configuration["oracleUrl"] + "/oobi/" + configuration["oracleAid"],
     )

@@ -12,20 +12,19 @@ Use explicitly pinned installed applications, fresh demo stores and a separately
 sequenceDiagram
     autonumber
     participant U as Operator
-    participant L as Comply launcher
+    participant L as Oracle environment CLI
     participant V as Installed Verifier environment
     participant O as Oracle
     participant C as Anvil / contracts
-    U->>L: Select asset checkouts, executables and EOA_VERIFIER_PYTHON
-    L->>V: Read packaged association schema
-    L->>L: Prepare witness / schema service
-    L->>C: Deploy contracts and configure wallet policy
-    U->>U: Create independent service AIDs and stores
-    U->>C: Fund and authorize dedicated Oracle writer
-    L->>V: Start verifier with trusted GEDA, chain/RPC and webhook peer
-    L->>O: Start Oracle with trusted Verifier, chain and registry addresses
-    L->>V: Introduce Oracle public KEL
-    L->>O: Introduce Verifier public KEL
+    U->>L: Select exact source revisions and application wheels
+    L->>V: Prepare witnesses, schema hosting and source credentials
+    L->>C: Invoke Comply deployment and authorize Oracle writer
+    L->>O: Prepare independent Oracle AID and stores
+    L->>O: Start with authorized Verifier AID/OOBI and registry addresses
+    L->>V: Start with trusted GEDA, chain/RPC and optional webhook OOBI
+    V->>O: Resolve Oracle OOBI for signed responses
+    O->>V: Resolve authorized Verifier OOBI
+    Note over V,O: KERIpy validates KEL before authenticated delivery
 ```
 
 </details>

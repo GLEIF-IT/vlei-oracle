@@ -1,11 +1,9 @@
 """HIO composition and shared KERIpy/LMDB resource lifetime."""
 
-from pathlib import Path
-
 import falcon
 from hio.base import doing
 from hio.core import http
-from keri.app import configing, habbing, keeping
+from keri.app import configing, habbing, httping, keeping, oobiing
 from keri.db import basing, dbing
 from keri.end import ending
 
@@ -19,6 +17,7 @@ from vlei_oracle.persistence.scope import ScopeStore
 from vlei_oracle.persistence.status_events import StatusEventWriter
 from vlei_oracle.receiving.authing import HttpSignatures
 from vlei_oracle.receiving.keys import ServiceKeys
+from vlei_oracle.receiving.oobing import VerifierOobi
 from vlei_oracle.receiving.status import StatusEnd
 from vlei_oracle.receiving.status_events import StatusEventService
 from vlei_oracle.runtime.identity import incept_if_new
@@ -28,19 +27,20 @@ from vlei_oracle.runtime.scoping import note_inbox, note_posting
 class StatusReceiver(doing.DoDoer):
     """Borrow identity and stores; let the HIO HTTP Doer own its listener.
 
-    Peer KEL import uses KERIpy validation. Only accepted local key state can
+    Peer OOBI resolution uses KERIpy validation. Only accepted local key state can
     authorize a webhook; no header-provided key or credential verifier is used.
-    Update the KEL file and restart after peer rotation.
+    Resolve the configured producer OOBI on startup; unresolved introductions
+    return retryable HTTP 503 instead of accepting unverified status events.
     """
 
     def __init__(self, config, *, hby, baser):
         self.hab = incept_if_new(
             hby=hby, alias=config.alias, incept_file=config.incept_file
         )
-        if config.verifier_kel:
-            hby.psr.parse(ims=bytearray(Path(config.verifier_kel).read_bytes()))
-        if config.verifier_aid not in hby.kevers:
-            raise ValueError("verifier key state unavailable; supply --verifier-kel")
+        self.verifier_oobi = VerifierOobi(
+            hby, config.verifier_oobi, config.verifier_aid
+        )
+        self.oobiery = oobiing.Oobiery(hby=hby, clienter=httping.Clienter())
         associations = AssociationReader(baser)
         posting = PostingReader(baser)
         posting_writer = PostingWriter(baser)
@@ -58,6 +58,7 @@ class StatusReceiver(doing.DoDoer):
                 target=config.webhook_url,
                 chain_id=config.chain_id,
                 verifier_aid=config.verifier_aid,
+                verifier_oobi=self.verifier_oobi,
             ),
         )
         self.app.add_route(
@@ -67,7 +68,11 @@ class StatusReceiver(doing.DoDoer):
         # KERIpy OOBI export lets the verifier learn this receiver's signing AID.
         self.app.add_route("/oobi/{aid}", ending.OOBIEnd(hby=hby))
         self.server = http.Server(host=config.host, port=config.http_port, app=self.app)
-        doers = [http.ServerDoer(server=self.server)]
+        doers = [
+            http.ServerDoer(server=self.server),
+            *self.oobiery.doers,
+            doing.doify(self.escrow_do),
+        ]
         if config.rpc_url:
             from eth_account import Account
 
@@ -104,6 +109,14 @@ class StatusReceiver(doing.DoDoer):
             )
             doers.append(PostingDoer(service, interval=config.posting_interval))
         super().__init__(doers=doers)
+
+    def escrow_do(self, tymth, tock=0.0, **opts):
+        """Let native KERI processors accept escrowed OOBI events and replies."""
+        yield tock
+        while True:
+            self.oobiery.parser.kvy.processEscrows()
+            self.oobiery.parser.rvy.processEscrowReply()
+            yield self.tock
 
 
 def run_receiver(config, *, expire=0.0):

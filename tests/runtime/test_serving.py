@@ -13,8 +13,6 @@ def test_receiver_reopens_identity_and_keripy_stores(peers, tmp_path, capsys):
     config = replace(
         peers.config, head_dir=str(tmp_path / "service"), name="persistent-inbox"
     )
-    with pytest.raises(FileNotFoundError):
-        run_receiver(replace(config, verifier_kel=str(tmp_path / "missing.cesr")))
     run_receiver(config, expire=0.03)
     first = capsys.readouterr().out
     run_receiver(config, expire=0.03)

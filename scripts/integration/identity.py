@@ -8,7 +8,7 @@ from .artifacts import save_json
 
 
 def initialize_identity(root: Path, configuration: dict) -> None:
-    """Prepare Oracle's own AID and public KEL before either service opens stores."""
+    """Prepare Oracle's own AID for public OOBI serving before either service opens stores."""
     from importlib.metadata import version
 
     from keri.app import habbing
@@ -31,6 +31,5 @@ def initialize_identity(root: Path, configuration: dict) -> None:
     ) as hby:
         hab = hby.habByName("oracle") or hby.makeHab(name="oracle")
         configuration["oracleAid"] = hab.pre
-        (root / "oracle.cesr").write_bytes(hab.makeOwnEvent(sn=0))
     configuration["prepared"] = True
     save_json(root / "run.json", configuration)

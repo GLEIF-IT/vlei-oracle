@@ -79,9 +79,9 @@ def _receiver_arguments(receive):
         "--webhook-url", required=True, help="Exact public /v1/status-events URL"
     )
     receive.add_argument(
-        "--verifier-kel",
-        default="",
-        help="CESR key-event stream for verifier bootstrap/rotation",
+        "--verifier-oobi",
+        required=True,
+        help="OOBI URL resolving the authorized Verifier AID",
     )
     receive.add_argument("--name", default="vlei-oracle-inbox")
     receive.add_argument("--base", default="")
@@ -122,7 +122,7 @@ def receive_handler(args):
                     "verifier_aid",
                     "chain_id",
                     "webhook_url",
-                    "verifier_kel",
+                    "verifier_oobi",
                     "name",
                     "base",
                     "alias",
