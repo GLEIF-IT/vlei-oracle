@@ -82,6 +82,9 @@ def prepare_run(
     run-owned so Forge output cannot dirty an operator's checkout. Preparation
     issues the source chain through Verifier's CLI but leaves no services running.
     """
+    for executable in ("anvil", "forge", "cast", "jq"):
+        if not shutil.which(executable):
+            raise ValueError(f"Missing required local tooling: {executable}")
     if root.exists():
         raise ValueError("Choose a fresh run directory")
     root.mkdir(parents=True, mode=0o700)
@@ -92,23 +95,33 @@ def prepare_run(
         root, "verifier", verifier_source, pins["verifier"]
     )
     comply_source = _select_source(root, "comply", comply_source, pins["comply"])
-    subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "scripts.integration.env",
-            "prepare",
-            "--verifier-source",
-            str(verifier_source),
-            "--run-dir",
-            str(root / "verifier"),
-            "--witness-count",
-            str(witness_count),
-        ],
-        check=True,
-        timeout=240,
-        cwd=verifier_source,
-    )
+    try:
+        subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "scripts.integration.env",
+                "prepare",
+                "--verifier-source",
+                str(verifier_source),
+                "--run-dir",
+                str(root / "verifier"),
+                "--witness-count",
+                str(witness_count),
+            ],
+            check=True,
+            timeout=240,
+            cwd=verifier_source,
+        )
+    except BaseException as error:
+        # A killed preparation controller cannot unwind its separate witness session.
+        # Use the recorded owner to stop it, preserving the original failure/logs.
+        try:
+            if (root / "verifier/run.json").exists():
+                call_verifier(root, "stop")
+        except Exception as cleanup_error:
+            error.add_note(f"Verifier cleanup also failed: {cleanup_error}")
+        raise
     verifier = load_json(root / "verifier/run.json")
     snapshot = root / "tools/oracle"
     if wheel is None:
@@ -116,7 +129,11 @@ def prepare_run(
     else:
         if not tool_revision:
             raise ValueError("--oracle-wheel requires --tool-revision")
-        provenance = copy_tool_inputs(oracle_source, snapshot)
+        provenance = (
+            snapshot_source(oracle_source, snapshot)
+            if (oracle_source / ".git").exists()
+            else copy_tool_inputs(oracle_source, snapshot)
+        )
         provenance["revision"] = tool_revision
     wheel = _install_oracle(root, snapshot, verifier["python"], wheel)
     from .processes import free_port
@@ -216,7 +233,13 @@ def _install_oracle(root: Path, source: Path, python: str, wheel: Path | None) -
 def initialize_identity(root: Path, configuration: dict) -> None:
     """Prepare Oracle's own AID and public KEL before either service opens stores."""
     from keri.app import habbing
+    from importlib.metadata import version
 
+    configuration["versions"] = {
+        "python": sys.version.split()[0],
+        **{name: version(name) for name in ("vlei-oracle", "eoa-verifier", "gleif_keri", "gleif_hio")},
+        **{name: subprocess.check_output([name, "--version"], text=True, timeout=5).strip() for name in ("anvil", "forge", "cast", "jq")},
+    }
     with habbing.openHby(
         name="oracle", headDirPath=str(root / "services"), temp=False
     ) as hby:

@@ -26,6 +26,7 @@ class USDCScenario:
     """Borrow one started run and its HIO contract client for a fresh USDC flow."""
 
     def __init__(self, root: Path):
+        """Bind explicit run artifacts, public fixture wallets and contract ABIs."""
         self.root = root
         self.configuration = load_json(root / "run.json")
         self.verifier = load_json(root / "verifier/run.json")
