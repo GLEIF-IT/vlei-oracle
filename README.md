@@ -29,7 +29,11 @@ provided. Preserve existing user stores separately.
 - receiving/ authenticates status ingress and signs durable receipt ACKs.
 - associations/ owns trusted status decoding, domain records and pure selection.
 - endorsement/ owns desired actions, HIO RPC, effects and posting recovery.
-- persistence/ owns LMDB tables, scopes and atomic receipt/selection/journal writes.
+- persistence/ owns LMDB tables and atomic writes of prepared records.
+- receiving/receipt.py owns receipt revision policy and wallet-selection preparation.
+
+The [application/persistence separation plan](docs/plans/application-persistence-separation.md)
+records the staged boundary refactor and its validation requirements.
 
 See the [testing guide](docs/testing.md) for module/class/function lookup and paired
 qualification. Initializers contain no import facades; the root package retains
