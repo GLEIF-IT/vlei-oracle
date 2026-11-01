@@ -23,7 +23,7 @@ from vlei_oracle.receiving.authing import ServiceAuthenticator
 from vlei_oracle.receiving.receipt import ReceiptService
 from vlei_oracle.receiving.status import StatusEnd
 from vlei_oracle.runtime.identity import incept_if_new
-from vlei_oracle.runtime.scoping import ScopeService
+from vlei_oracle.runtime.scoping import note_inbox, note_posting
 
 
 class StatusReceiver(doing.DoDoer):
@@ -46,8 +46,7 @@ class StatusReceiver(doing.DoDoer):
         posting = PostingReader(baser)
         posting_writer = PostingWriter(baser)
         scope = ScopeStore(baser)
-        scopes = ScopeService(scope)
-        scopes.bind_inbox(InboxScope(config.verifier_aid, config.chain_id))
+        note_inbox(scope, InboxScope(config.verifier_aid, config.chain_id))
         auth = ServiceAuthenticator(
             hab=self.hab,
             claim_nonce=partial(claim_nonce, baser),
@@ -87,13 +86,14 @@ class StatusReceiver(doing.DoDoer):
                 identity=config.identity_registry,
                 confirmations=config.confirmations,
             )
-            scopes.bind_posting(
+            note_posting(
+                scope,
                 PostingScope(
                     effects.chain_id,
                     effects.writer.lower(),
                     effects.contracts["endorsement"].address.lower(),
                     effects.contracts["identity"].address.lower(),
-                )
+                ),
             )
             service = PostingService(
                 reader=posting,

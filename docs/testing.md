@@ -7,7 +7,7 @@ tests is an explicit package. No PYTHONPATH/sys.path workarounds are required.
 |---|---|
 | runtime/cli.py | tests/runtime/test_cli.py |
 | Runtime identity/config/composition | tests/runtime/test_serving.py |
-| ScopeService deployment binding | tests/runtime/test_scoping.py |
+| Startup setting warnings and retained journal | tests/runtime/test_scoping.py |
 | Exact dependency checkout | tests/integration/test_checkouts.py |
 | Environment lifecycle/preflight | tests/integration/test_environment.py |
 | ReceiptService and StatusEnd.on_post | python -m pytest tests/receiving/test_status.py |

@@ -23,6 +23,20 @@ for CESR serialization of message structures. Use fresh PoC application stores
 for this revised v1 status/ACK contract; no migrations or old-payload readers are
 provided. Preserve existing user stores separately.
 
+## Operator responsibility for stored state
+
+Operators own compatibility between stored state and the configured Verifier,
+chain, registry contracts and Ethereum writer. Startup logs previous/current
+public settings when they change, continues, and records the new baseline.
+An unchanged restart is quiet. No private key is included in these warnings.
+
+A warning does not reset selection, replay completed work, rebuild confirmed
+effects or replace signed transactions. Retained effects may describe the old
+contracts, and signed transactions still target their original chain/contracts.
+Inspect and resolve outstanding work before changing deployments; use separate
+stores for an independent deployment and retain the old journal for recovery.
+See the [operator guide](docs/status-inbox.md#configuration-changes-and-stored-state).
+
 ## Code organization
 
 - runtime/ owns CLI, validated config, identity startup and HIO/store lifetime.

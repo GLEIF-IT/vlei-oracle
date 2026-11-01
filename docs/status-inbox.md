@@ -27,10 +27,9 @@ the configured verifier's key state before startup succeeds. Once stored, the
 file is optional on restart. For rotation, supply the updated stream and restart;
 there is no background key discovery. Service signatures support one transferable
 Ed25519 key at threshold one. The KERIpy `/oobi/{aid}` route exports this receiver's
-identity for introduction to the verifier. Do not change a store's trusted
-verifier or chain; use another store for a different trust scope. Use fresh
-application stores for demonstrations and preserve existing operator data
-separately. There are no storage migrations or previous-format readers.
+identity for introduction to the verifier. Use fresh application stores for
+demonstrations and preserve existing operator data separately. There are no
+storage migrations or previous-format readers.
 
 ## Contract posting
 
@@ -100,8 +99,38 @@ replacement, full nonce reconciliation or comprehensive reorg recovery.
 Use a known empty initial registry deployment and fresh application stores for
 this breaking storage layout. Preserve the application store across restart;
 there are no migrations, history reconstruction or backward-compatible readers.
-Changing writer, chain or contract addresses requires a separate deployment/store.
+Operators select compatible stores when changing writer, chain or contracts;
+startup warns about differences and continues as described below.
 Storage remains under KERIpy's name/base/head-dir conventions in `vlei-oracle/db`.
+
+## Configuration changes and stored state
+
+Operators own the decision to reuse state with different settings. At startup,
+Oracle compares two small records with their previous values:
+
+- Inbox: trusted Verifier AID and chain ID.
+- Posting, when enabled: chain ID, Ethereum writer address, endorsement registry
+  and identity registry addresses.
+
+Differences produce logger warnings with previous/current public values and do
+not block startup. Private keys are never logged. Each record is updated to the
+new settings, so an unchanged restart is quiet and changing back warns again.
+Missing records are initialized without history reconstruction. Receive-only
+startup leaves the last posting settings available for comparison when posting
+is next enabled.
+
+No state conversion accompanies a warning. Received statuses, selection, queues,
+signed journal entries, recovery fences and confirmed effects remain as stored.
+Completed work is not republished automatically for new contracts. An existing
+signed transaction still targets its original deployment; changing a writer key
+does not replace its signature or cancel it. Review and resolve pending work
+before changing deployments. For an independent deployment, use separate stores
+and retain the original journal for recovery. Do not clear queues or fences
+merely to silence a configuration warning.
+
+Peer authentication, payload validation, RPC chain checks and contract permissions
+still apply. Advisory startup settings do not bypass those checks or establish
+that old records describe the newly configured deployment.
 
 ## Tests and limitations
 
@@ -148,8 +177,9 @@ dead letters and confirmed effects. It never holds an LMDB transaction across
 RPC; after preparation yields, selection is checked again before signing.
 `PostingDoer` only schedules this service beside its RPC effect clients.
 `RecoveryService` prepares an explicit offline retry, and `EndorsementQuery`
-projects bounded local records for the thin HTTP resource. `ScopeService` uses the focused `ScopeStore` and
-validates configuration against the persistent deployment binding at startup.
+projects bounded local records for the thin HTTP resource. Startup functions
+`note_inbox` and `note_posting` read/save public settings through `ScopeStore`
+and log changes; no scope service or immutable configuration binding remains.
 
 Run one receiver/posting process per application store. The runtime uses one
 cooperative application writer; it does not support concurrent independent
