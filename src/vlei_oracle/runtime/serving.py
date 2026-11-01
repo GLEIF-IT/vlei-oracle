@@ -1,5 +1,7 @@
 """HIO composition and shared KERIpy/LMDB resource lifetime."""
 
+from vlei_oracle.runtime.scoping import ScopeService
+
 from pathlib import Path
 
 import falcon
@@ -36,7 +38,9 @@ class StatusReceiver(doing.DoDoer):
             hby.psr.parse(ims=bytearray(Path(config.verifier_kel).read_bytes()))
         if config.verifier_aid not in hby.kevers:
             raise ValueError("verifier key state unavailable; supply --verifier-kel")
-        baser.bind_inbox_scope(InboxScope(config.verifier_aid, config.chain_id))
+        ScopeService(OracleReader(baser), OracleWriter(baser)).bind_inbox(
+            InboxScope(config.verifier_aid, config.chain_id)
+        )
         auth = ServiceAuthenticator(
             hab=self.hab, baser=baser, peer_aid=config.verifier_aid
         )

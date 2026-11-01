@@ -42,4 +42,7 @@ revision. Do not weaken assertions or change integration topology.
 
 - Slice 1 implemented: ReceiptService owns preparation; OracleWriter commits the
   receipt/status/selection/queue records atomically. Validation recorded in its PR.
-- Slices 2 and 3 pending.
+- Slice 2 implemented: OracleBaser now only binds tables and owns lifecycle.
+  OracleReader returns detached bounded reads; OracleWriter owns explicit atomic
+  phase writes and integrity guards. ScopeService validates deployment bindings.
+  Old Baser workflow methods are removed. Slice 3 pending.

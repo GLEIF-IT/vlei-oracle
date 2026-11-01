@@ -4,6 +4,10 @@ Association authority flows from the verifier. This worker never discovers work
 or repairs drift by reading contract mappings; completed operations stay terminal.
 """
 
+from vlei_oracle.persistence.reading import OracleReader
+from vlei_oracle.persistence.writing import OracleWriter
+from vlei_oracle.runtime.scoping import ScopeService
+
 import logging
 import time
 from dataclasses import asdict
@@ -50,7 +54,7 @@ class StatusPoster(doing.DoDoer):
             raise ValueError("posting retry limits must be positive")
         if self.account.address.lower() != effects.writer.lower():
             raise ValueError("posting key does not match writer")
-        baser.bind_posting_scope(
+        ScopeService(OracleReader(baser), OracleWriter(baser)).bind_posting(
             PostingScope(
                 effects.chain_id,
                 effects.writer.lower(),
@@ -73,7 +77,7 @@ class StatusPoster(doing.DoDoer):
         associationStatus = self.baser.statuses.get(
             keys=(postingOperation.associationSaid,)
         )
-        selectedStatus = self.baser.selected_association(
+        selectedStatus = OracleReader(self.baser).selected_association(
             associationStatus.association["extId"]
         )
         walletEffects = (
@@ -105,19 +109,19 @@ class StatusPoster(doing.DoDoer):
 
     def cycle(self):
         """Advance only pending work, or prepare one step of the oldest operation."""
-        postingOperation = self.baser.next_pending()
+        postingOperation = OracleReader(self.baser).next_pending()
         if postingOperation is not None:
             yield from self.confirm(postingOperation)
             return
         sequence = self.baser.sequence.get(keys=("writer",)) or PostingSequence()
         if sequence.blockedBy:
             return
-        postingOperation = self.baser.next_preparing()
+        postingOperation = OracleReader(self.baser).next_preparing()
         if postingOperation is None:
-            postingOperation = self.baser.next_queued()
+            postingOperation = OracleReader(self.baser).next_queued()
             if postingOperation is None:
                 return
-            self.baser.queued_to_preparing(postingOperation)
+            OracleWriter(self.baser).queued_to_preparing(postingOperation)
         yield from self.prepare(postingOperation)
 
     def prepare(self, postingOperation):
@@ -132,14 +136,14 @@ class StatusPoster(doing.DoDoer):
                 if associationStatus.selection == "selected"
                 else associationStatus.selection
             )
-            self.baser.preparing_to_completed(postingOperation)
+            OracleWriter(self.baser).preparing_to_completed(postingOperation)
             return
         if postingOperation.attempts >= self.max_attempts:
             postingOperation.error = (
                 postingOperation.error
                 or "preparation interrupted; attempt limit reached"
             )
-            self.baser.preparing_to_dead(postingOperation)
+            OracleWriter(self.baser).preparing_to_dead(postingOperation)
             return
         postingOperation.attempts += 1
         postingOperation.functionName = contractCall[1]
@@ -166,7 +170,7 @@ class StatusPoster(doing.DoDoer):
             associationSaid=postingOperation.associationSaid,
             functionName=postingOperation.functionName,
         )
-        self.baser.preparing_to_pending(postingOperation, txRecord)
+        OracleWriter(self.baser).preparing_to_pending(postingOperation, txRecord)
 
     def confirm(self, postingOperation):
         """Observe only this signed transaction, submitting the same bytes if needed."""
@@ -231,21 +235,23 @@ class StatusPoster(doing.DoDoer):
         if not succeeded and postingOperation.attempts >= self.max_attempts:
             self.stop_pending(postingOperation, txRecord=txRecord)
         else:
-            self.baser.pending_to_preparing(postingOperation, txRecord, walletEffects)
+            OracleWriter(self.baser).pending_to_preparing(
+                postingOperation, txRecord, walletEffects
+            )
 
     def stop_pending(self, postingOperation, *, txRecord=None):
         """Prepare a dead letter and fence later work only for an unresolved signature."""
         sequence = self.baser.sequence.get(keys=("writer",)) or PostingSequence()
         if postingOperation.txHash:
             sequence.blockedBy = postingOperation.operationId
-        self.baser.pending_to_dead(postingOperation, sequence, txRecord)
+        OracleWriter(self.baser).pending_to_dead(postingOperation, sequence, txRecord)
 
     def fail_preparing(self, postingOperation, error):
         """Retain preparation for retry, or stop an exhausted unsigned operation."""
         postingOperation.error = str(error) or type(error).__name__
         logger.error("contract preparation failed: %s", postingOperation.error)
         if postingOperation.attempts >= self.max_attempts:
-            self.baser.preparing_to_dead(postingOperation)
+            OracleWriter(self.baser).preparing_to_dead(postingOperation)
         else:
             self.baser.preparing.pin(keys=("writer",), val=postingOperation)
 

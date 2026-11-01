@@ -1,5 +1,8 @@
 """Offline recovery of one corrected posting dead letter."""
 
+from vlei_oracle.persistence.reading import OracleReader
+from vlei_oracle.persistence.writing import OracleWriter
+
 from dataclasses import replace
 
 from vlei_oracle.persistence.records import PostingSequence
@@ -11,7 +14,7 @@ def retry_operation(baser, operation_id):
     Read and prepare recovery before the fixed dead-to-pending or dead-to-preparing
     write. An unresolved signature belonging to another operation fences recovery.
     """
-    if baser.next_preparing() or baser.next_pending():
+    if OracleReader(baser).next_preparing() or OracleReader(baser).next_pending():
         raise ValueError("writer already has active work")
     sequence = baser.sequence.get(keys=("writer",)) or PostingSequence()
     if sequence.blockedBy and sequence.blockedBy != operation_id:
@@ -29,6 +32,6 @@ def retry_operation(baser, operation_id):
     )
     sequence = replace(sequence, blockedBy="")
     if postingOperation.txHash:
-        baser.dead_to_pending(postingOperation, sequence)
+        OracleWriter(baser).dead_to_pending(postingOperation, sequence)
     else:
-        baser.dead_to_preparing(postingOperation, sequence)
+        OracleWriter(baser).dead_to_preparing(postingOperation, sequence)

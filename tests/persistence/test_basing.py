@@ -1,5 +1,9 @@
 """persistence/test_basing.py."""
 
+from vlei_oracle.persistence.reading import OracleReader
+from vlei_oracle.persistence.writing import OracleWriter
+from vlei_oracle.runtime.scoping import ScopeService
+
 from unittest.mock import patch
 
 import pytest
@@ -35,15 +39,15 @@ def test_receipt_and_selection_rollback_together(peers):
 def test_operation_store_refuses_different_deployment_scope(tmp_path, field):
     store = OracleBaser(name="scope", headDirPath=str(tmp_path))
     scope = PostingScope(31337, WALLET.lower(), WALLET.lower(), WALLET.lower())
-    store.bind_posting_scope(scope)
+    ScopeService(OracleReader(store), OracleWriter(store)).bind_posting(scope)
     store.close()
     reopened = OracleBaser(name="scope", headDirPath=str(tmp_path))
     try:
-        reopened.bind_posting_scope(scope)
+        ScopeService(OracleReader(reopened), OracleWriter(reopened)).bind_posting(scope)
         with pytest.raises(ValueError, match="posting scope"):
             from dataclasses import replace
 
-            reopened.bind_posting_scope(
+            ScopeService(OracleReader(reopened), OracleWriter(reopened)).bind_posting(
                 replace(
                     scope, **{field: 31338 if field == "chainId" else "0x" + "ab" * 20}
                 )
@@ -87,16 +91,16 @@ def test_receipt_and_phase_transition_are_atomic(peers):
     assert post(peers, body).status_code == 200
     assert post(peers, body).status_code == 200
     assert peers.inbox.queued.cntAll() == 1
-    postingOperation = peers.inbox.next_queued()
+    postingOperation = OracleReader(peers.inbox).next_queued()
     assert peers.inbox.queued.cntAll() == 1
-    assert peers.inbox.next_preparing() is None
-    assert peers.inbox.next_pending() is None
-    peers.inbox.queued_to_preparing(postingOperation)
+    assert OracleReader(peers.inbox).next_preparing() is None
+    assert OracleReader(peers.inbox).next_pending() is None
+    OracleWriter(peers.inbox).queued_to_preparing(postingOperation)
     with patch.object(
         peers.inbox.completed, "serializer", side_effect=RuntimeError("move failed")
     ):
         with pytest.raises(RuntimeError, match="move failed"):
-            peers.inbox.preparing_to_completed(postingOperation)
+            OracleWriter(peers.inbox).preparing_to_completed(postingOperation)
     peers.inbox.close()
     peers.inbox.reopen()
     assert peers.inbox.preparing.get(keys=("writer",)) == postingOperation
@@ -129,7 +133,8 @@ def test_confirmation_rollback_retains_pending_transaction_and_previous_effects(
         )
         original = store.pending.get(keys=("writer",))
         resolved = replace(original, txHash="")
-        put_transaction = store._put_transaction
+        writer = OracleWriter(store)
+        put_transaction = writer._put_transaction
 
         def fail_after_journal_write(txn, record, raw):
             """Interrupt after the actual LMDB journal mutation, before phase completion."""
@@ -138,11 +143,11 @@ def test_confirmation_rollback_retains_pending_transaction_and_previous_effects(
 
         with (
             patch.object(
-                store, "_put_transaction", side_effect=fail_after_journal_write
+                writer, "_put_transaction", side_effect=fail_after_journal_write
             ),
             pytest.raises(RuntimeError, match="phase failed"),
         ):
-            store.pending_to_preparing(
+            writer.pending_to_preparing(
                 resolved,
                 txRecord=replace(txRecord, state="confirmed"),
                 walletEffects=WalletEffects(identityRef=IDENTITY),
@@ -150,3 +155,40 @@ def test_confirmation_rollback_retains_pending_transaction_and_previous_effects(
         assert store.pending.get(keys=("writer",)) == original
         assert store.transactions.get(keys=(txRecord.txHash,)) == txRecord
         assert store.walletEffects.get(keys=(original.wallet,)) is None
+
+
+def test_receipt_write_failure_rolls_back_supersession(peers):
+    """Abort after real status writes; receipt and queue must not partially commit."""
+    from contextlib import contextmanager
+
+    assert post(peers, event_body(peers, "prior", 10)).status_code == 200
+    env = peers.inbox.env
+
+    class FailingTransaction:
+        """Let LMDB mutate status rows, then interrupt the subsequent claim write."""
+
+        def __init__(self, txn):
+            self.txn = txn
+
+        def __getattr__(self, name):
+            return getattr(self.txn, name)
+
+        def put(self, key, value, **kwargs):
+            if kwargs.get("db") == peers.inbox.claims.sdb:
+                raise RuntimeError("claim write interrupted")
+            return self.txn.put(key, value, **kwargs)
+
+    class FailingEnvironment:
+        @contextmanager
+        def begin(self, *args, **kwargs):
+            with env.begin(*args, **kwargs) as txn:
+                yield FailingTransaction(txn) if kwargs.get("write") else txn
+
+    with patch.object(peers.inbox, "env", FailingEnvironment()):
+        assert post(peers, event_body(peers, "successor", 12)).status_code == 500
+    assert selected(peers).associationSaid == said("prior")
+    assert selected(peers).selection == "selected"
+    assert peers.inbox.statuses.get(keys=(said("successor"),)) is None
+    assert peers.inbox.inbox.get(keys=(f"{said('successor')}:1",)) is None
+    assert peers.inbox.queued.cntAll() == 1
+    assert peers.inbox.sequence.get(keys=("writer",)).next == 1
