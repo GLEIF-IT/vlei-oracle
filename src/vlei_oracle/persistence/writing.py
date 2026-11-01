@@ -9,15 +9,21 @@ class OracleWriter:
     def __init__(self, baser):
         self.baser = baser
 
-    def record_event(self, event):
+    def record_event(self, statusEvent):
         """Record an older event without changing selection or creating posting work."""
         db = self.baser
-        key, raw = event.eventId.encode(), db.inbox.serializer(event)
+        key, raw = statusEvent.eventId.encode(), db.inbox.serializer(statusEvent)
         with db.env.begin(write=True) as txn:
             txn.put(key, raw, db=db.inbox.sdb)
 
     def record_status_and_queue(
-        self, event, status, claim, previous, operation, sequence
+        self,
+        statusEvent,
+        associationStatus,
+        walletClaim,
+        previousStatus,
+        postingOperation,
+        postingSequence,
     ):
         """Commit receipt, selected records and one queued operation together.
 
@@ -26,18 +32,27 @@ class OracleWriter:
         external I/O separates its reads, preparation and this commit.
         """
         db = self.baser
-        eventKey, eventRaw = event.eventId.encode(), db.inbox.serializer(event)
-        statusKey = status.associationSaid.encode()
-        statusRaw = db.statuses.serializer(status)
-        claimKey = status.association["extId"].encode()
-        claimRaw = db.claims.serializer(claim)
-        previousKey = (
-            previous.associationSaid.encode() if previous is not None else None
+        eventKey, eventRaw = (
+            statusEvent.eventId.encode(),
+            db.inbox.serializer(statusEvent),
         )
-        previousRaw = db.statuses.serializer(previous) if previous is not None else None
-        operationKey = operation.operationId.encode()
-        operationRaw = db.queued.serializer(operation)
-        sequenceRaw = db.sequence.serializer(sequence)
+        statusKey = associationStatus.associationSaid.encode()
+        statusRaw = db.statuses.serializer(associationStatus)
+        claimKey = associationStatus.association["extId"].encode()
+        claimRaw = db.claims.serializer(walletClaim)
+        previousKey = (
+            previousStatus.associationSaid.encode()
+            if previousStatus is not None
+            else None
+        )
+        previousRaw = (
+            db.statuses.serializer(previousStatus)
+            if previousStatus is not None
+            else None
+        )
+        operationKey = postingOperation.operationId.encode()
+        operationRaw = db.queued.serializer(postingOperation)
+        sequenceRaw = db.sequence.serializer(postingSequence)
         with db.env.begin(write=True) as txn:
             if previousKey is not None:
                 txn.put(previousKey, previousRaw, db=db.statuses.sdb)
@@ -236,3 +251,11 @@ class OracleWriter:
         return self.baser.replay_claims.put(
             keys=(peer, nonce), val=ReplayClaim(expires_at)
         )
+
+    def record_preparing_progress(self, postingOperation):
+        """Persist prepared preparing progress without changing phase."""
+        self.baser.preparing.pin(keys=("writer",), val=postingOperation)
+
+    def record_pending_progress(self, postingOperation):
+        """Persist prepared pending progress without changing phase."""
+        self.baser.pending.pin(keys=("writer",), val=postingOperation)

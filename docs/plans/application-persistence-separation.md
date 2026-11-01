@@ -45,4 +45,21 @@ revision. Do not weaken assertions or change integration topology.
 - Slice 2 implemented: OracleBaser now only binds tables and owns lifecycle.
   OracleReader returns detached bounded reads; OracleWriter owns explicit atomic
   phase writes and integrity guards. ScopeService validates deployment bindings.
-  Old Baser workflow methods are removed. Slice 3 pending.
+  Old Baser workflow methods are removed.
+- Slice 3 implemented: PostingService owns policy, PostingDoer schedules it,
+  RecoveryService prepares offline retries and EndorsementQuery prepares local
+  progress. HTTP resources and CLI adapt these services; runtime composes their
+  readers, writers and effects once. Authentication borrows the transport replay
+  writer rather than a database handle. Tests follow their application/writer
+  owners and retain real receipt, rollback, restart and chain coverage.
+
+## Review and qualification
+
+- [Receipt policy PR #61](https://github.com/GLEIF-IT/vlei-oracle/pull/61): 17 focused
+  tests and four receipt tests including the real transaction-boundary assertion.
+- [Persistence boundary PR #62](https://github.com/GLEIF-IT/vlei-oracle/pull/62): 20
+  focused tests plus actual receipt-write interruption/rollback.
+- Final application-service PR records the focused and fresh installed-wheel
+  results, including maintained paired qualification. Full qualification is a
+  merge gate for every slice. Exact Verifier and Comply pins remain unchanged;
+  neither companion needs a source change for these internal Oracle APIs.

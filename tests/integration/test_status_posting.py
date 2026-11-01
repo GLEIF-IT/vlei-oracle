@@ -1,7 +1,5 @@
 """integration/test_status_posting.py."""
 
-from vlei_oracle.persistence.reading import OracleReader
-
 from dataclasses import replace
 from unittest.mock import patch
 
@@ -9,12 +7,14 @@ import pytest
 
 from tests.support.contracts import KEY, drive, observe, pending_transaction
 from tests.support.status_events import event_body, post, said
-from vlei_oracle.endorsement.posting import StatusPoster
-from vlei_oracle.endorsement.retrying import retry_operation
+from vlei_oracle.endorsement.doing import PostingDoer
+from vlei_oracle.endorsement.retrying import RecoveryService
+from vlei_oracle.persistence.reading import OracleReader
+from vlei_oracle.persistence.writing import OracleWriter
 from vlei_oracle.runtime.serving import StatusReceiver
 
 
-def poster_for(peers, deployment):
+def posting_service_for(peers, deployment):
     """Use the actual receiver composition, with a dedicated chain writer."""
     rpc, addresses = deployment
     config = replace(
@@ -26,19 +26,21 @@ def poster_for(peers, deployment):
         confirmations=1,
     )
     receiver = StatusReceiver(config, hby=peers.oracle, baser=peers.inbox)
-    return next(doer for doer in receiver.doers if isinstance(doer, StatusPoster))
+    return next(
+        doer for doer in receiver.doers if isinstance(doer, PostingDoer)
+    ).service
 
 
-def settle(poster, wallet, expected_said):
+def settle(postingService, wallet, expected_said):
     """Drive the ordinary worker until both its receipt and actual mapping agree."""
     for _ in range(36):
-        yield from poster.cycle()
-        _, endorsement = yield from observe(poster.effects, wallet)
+        yield from postingService.cycle()
+        _, endorsement = yield from observe(postingService.effects, wallet)
         if (
             endorsement[1] == expected_said
-            and pending_transaction(poster.baser) is None
-            and poster.baser.preparing.get(keys=("writer",)) is None
-            and poster.baser.queued.cntAll() == 0
+            and postingService.reader.next_pending() is None
+            and postingService.reader.next_preparing() is None
+            and postingService.reader.next_queued() is None
         ):
             return endorsement
     pytest.fail(f"mapping did not settle to {expected_said}")
@@ -46,30 +48,30 @@ def settle(poster, wallet, expected_said):
 
 def test_accepted_replaced_and_revoked_status_changes_real_mapping(peers, deployment):
     """Publish once, replace by issuance, ignore old revocation, then withdraw the exact current SAID."""
-    poster = poster_for(peers, deployment)
+    postingService = posting_service_for(peers, deployment)
     wallet = "0x" + "11" * 20
     older = event_body(peers, "published-old", 10)
     assert post(peers, older).status_code == 200
 
     def workflow(effects):
         # Fixture observation is dated 2000; no verifier process is running.
-        endorsement = yield from settle(poster, wallet, said("published-old"))
+        endorsement = yield from settle(postingService, wallet, said("published-old"))
         status = peers.inbox.statuses.get(keys=(said("published-old"),))
         assert endorsement[0] == status.identityRef
         count = peers.inbox.transactions.cntAll()
         assert post(peers, older).status_code == 200
-        yield from poster.cycle()
+        yield from postingService.cycle()
         assert peers.inbox.transactions.cntAll() == count
 
         assert post(peers, event_body(peers, "published-new", 11)).status_code == 200
-        yield from settle(poster, wallet, said("published-new"))
+        yield from settle(postingService, wallet, said("published-new"))
         assert (
             post(
                 peers, event_body(peers, "published-old", 10, revoked=True)
             ).status_code
             == 200
         )
-        yield from poster.cycle()
+        yield from postingService.cycle()
         assert (yield from observe(effects, wallet))[1][1] == said("published-new")
         assert (
             post(
@@ -77,15 +79,15 @@ def test_accepted_replaced_and_revoked_status_changes_real_mapping(peers, deploy
             ).status_code
             == 200
         )
-        yield from settle(poster, wallet, "")
+        yield from settle(postingService, wallet, "")
         return True
 
-    drive(poster.effects, workflow)
+    drive(postingService.effects, workflow)
 
 
 def test_pending_receipt_survives_restart_and_replacement(peers, deployment):
     """Submission is pending, not success; after restart finish it and apply the latest selected claim."""
-    poster = poster_for(peers, deployment)
+    postingService = posting_service_for(peers, deployment)
     wallet = "0x" + "11" * 20
     assert post(peers, event_body(peers, "pending-old", 20)).status_code == 200
 
@@ -93,38 +95,38 @@ def test_pending_receipt_survives_restart_and_replacement(peers, deployment):
         # First establish the identity registry, then leave publication unmined.
         # Prepare, broadcast, then confirm identity registration.
         for _ in range(3):
-            yield from poster.cycle()
+            yield from postingService.cycle()
         yield from effects.request("anvil_setAutomine", [False])
         try:
-            yield from poster.cycle()
+            yield from postingService.cycle()
             txRecord = pending_transaction(peers.inbox)
             assert txRecord is not None
-            yield from poster.cycle()
+            yield from postingService.cycle()
             assert pending_transaction(peers.inbox).txHash == txRecord.txHash
             assert (yield from observe(effects, wallet))[1][1] != said("pending-old")
             peers.inbox.close()
             peers.inbox.reopen()
             assert post(peers, event_body(peers, "pending-new", 21)).status_code == 200
             yield from effects.request("evm_mine", [])
-            yield from poster.cycle()
+            yield from postingService.cycle()
             assert (
                 peers.inbox.transactions.get(keys=(txRecord.txHash,)).state
                 == "confirmed"
             )
         finally:
             yield from effects.request("anvil_setAutomine", [True])
-        yield from settle(poster, wallet, said("pending-new"))
+        yield from settle(postingService, wallet, said("pending-new"))
         return True
 
-    drive(poster.effects, workflow)
+    drive(postingService.effects, workflow)
 
 
 def test_preparation_failure_retries_and_rechecks_replacement(peers, deployment):
     """A failed prepare sends nothing; a replacement during RPC suppresses the stale new send."""
-    poster = poster_for(peers, deployment)
+    postingService = posting_service_for(peers, deployment)
     wallet = "0x" + "11" * 20
     assert post(peers, event_body(peers, "prepare-old", 30)).status_code == 200
-    prepare = poster.effects.prepare
+    prepare = postingService.effects.prepare
 
     def interrupted(contractCall):
         tx = yield from prepare(contractCall)
@@ -137,24 +139,24 @@ def test_preparation_failure_retries_and_rechecks_replacement(peers, deployment)
 
     def workflow(effects):
         with patch.object(effects, "prepare", unavailable):
-            yield from poster.cycle()
+            yield from postingService.cycle()
             assert "unavailable" in peers.inbox.preparing.get(keys=("writer",)).error
         assert peers.inbox.transactions.cntAll() == 0
         with patch.object(effects, "prepare", interrupted):
-            yield from poster.cycle()
+            yield from postingService.cycle()
         assert peers.inbox.transactions.cntAll() == 0
-        yield from settle(poster, wallet, said("prepare-new"))
+        yield from settle(postingService, wallet, said("prepare-new"))
         return True
 
-    drive(poster.effects, workflow)
+    drive(postingService.effects, workflow)
 
 
 def test_lost_broadcast_response_is_pending_until_confirmed(peers, deployment):
     """An uncertain send retains its hash and error across reopen and is never treated as delivered."""
-    poster = poster_for(peers, deployment)
+    postingService = posting_service_for(peers, deployment)
     wallet = "0x" + "11" * 20
     assert post(peers, event_body(peers, "uncertain", 40)).status_code == 200
-    submit = poster.effects.submit
+    submit = postingService.effects.submit
 
     def lose_response(raw, tx_hash):
         yield from submit(raw, tx_hash)
@@ -162,8 +164,8 @@ def test_lost_broadcast_response_is_pending_until_confirmed(peers, deployment):
 
     def workflow(effects):
         with patch.object(effects, "submit", lose_response):
-            yield from poster.cycle()  # Persist the signature.
-            yield from poster.cycle()  # Broadcast, then lose its response.
+            yield from postingService.cycle()  # Persist the signature.
+            yield from postingService.cycle()  # Broadcast, then lose its response.
         txRecord = pending_transaction(peers.inbox)
         assert (
             txRecord.state == "pending"
@@ -171,14 +173,14 @@ def test_lost_broadcast_response_is_pending_until_confirmed(peers, deployment):
         )
         peers.inbox.close()
         peers.inbox.reopen()
-        yield from poster.cycle()
+        yield from postingService.cycle()
         assert (
             peers.inbox.transactions.get(keys=(txRecord.txHash,)).state == "confirmed"
         )
-        yield from settle(poster, wallet, said("uncertain"))
+        yield from settle(postingService, wallet, said("uncertain"))
         return True
 
-    drive(poster.effects, workflow)
+    drive(postingService.effects, workflow)
 
 
 @pytest.mark.parametrize("failure", ["tls", "chunk-size", "null", "missing-result"])
@@ -204,7 +206,7 @@ def test_bad_rpc_response_preserves_pending_transaction_and_signed_ack(
                 if peer.rxbs:
                     rpc_clients.extend(
                         d.client
-                        for d in poster.effects.doers
+                        for d in postingService.effects.doers
                         if isinstance(d, http.ClientDoer)
                     )
                     peer.rxbs.clear()
@@ -233,14 +235,14 @@ def test_bad_rpc_response_preserves_pending_transaction_and_signed_ack(
     server_doer = BadResponsePeer(server=server)
     body = event_body(peers, "rpc-retry", 50)
     assert post(peers, body).status_code == 200
-    initial_poster = poster_for(peers, deployment)
+    initialPostingService = posting_service_for(peers, deployment)
 
     def submit(effects):
         """Create a real signed/submitted transaction, leaving receipt processing for a later cycle."""
-        yield from initial_poster.cycle()
+        yield from initialPostingService.cycle()
         return True
 
-    drive(initial_poster.effects, submit)
+    drive(initialPostingService.effects, submit)
     txRecord = pending_transaction(peers.inbox)
     assert txRecord is not None
     # Switch only the RPC peer; retain the deployment/writer and signed journal.
@@ -253,7 +255,9 @@ def test_bad_rpc_response_preserves_pending_transaction_and_signed_ack(
         identity_registry=addresses["identityRegistry"],
     )
     receiver = StatusReceiver(config, hby=peers.oracle, baser=peers.inbox)
-    poster = next(d for d in receiver.doers if isinstance(d, StatusPoster))
+    postingService = next(
+        d for d in receiver.doers if isinstance(d, PostingDoer)
+    ).service
     client = http.Client(path=config.webhook_url)
     client_doer = http.ClientDoer(client=client)
     responses = []
@@ -315,10 +319,10 @@ def test_rpc_yields_do_not_retain_lmdb_read_transactions(
     """Actual HTTP RPC may suspend at any step without retaining a native reader."""
     from tests.support.readers import active_readers
 
-    poster = poster_for(peers, deployment)
+    postingService = posting_service_for(peers, deployment)
     wallet = "0x" + "11" * 20
     assert post(peers, event_body(peers, "reader-lifetime", 60)).status_code == 200
-    request = poster.effects.request
+    request = postingService.effects.request
     yielded = []
 
     def checked_request(method, params):
@@ -336,13 +340,13 @@ def test_rpc_yields_do_not_retain_lmdb_read_transactions(
         finally:
             rpcGen.close()
 
-    monkeypatch.setattr(poster.effects, "request", checked_request)
+    monkeypatch.setattr(postingService.effects, "request", checked_request)
 
     def workflow(effects):
-        yield from settle(poster, wallet, said("reader-lifetime"))
+        yield from settle(postingService, wallet, said("reader-lifetime"))
         return True
 
-    drive(poster.effects, workflow)
+    drive(postingService.effects, workflow)
     assert {"eth_call", "eth_sendRawTransaction", "eth_getTransactionReceipt"} <= set(
         yielded
     )
@@ -355,7 +359,7 @@ def test_completed_delivery_is_idle_even_after_external_chain_change(peers, depl
 
     from tests.support.contracts import send
 
-    poster = poster_for(peers, deployment)
+    postingService = posting_service_for(peers, deployment)
     wallet = "0x" + "11" * 20
     association = said("idle")
     assert post(peers, event_body(peers, "idle", 70)).status_code == 200
@@ -366,7 +370,7 @@ def test_completed_delivery_is_idle_even_after_external_chain_change(peers, depl
     assert client.simulate_get("/v1/endorsements/unknown").status_code == 404
 
     def workflow(effects):
-        yield from settle(poster, wallet, association)
+        yield from settle(postingService, wallet, association)
         response = client.simulate_get(f"/v1/endorsements/{association}")
         assert response.json["phase"] == "completed"
         assert response.json["operation"]["functionName"] == "publishEndorsement"
@@ -381,7 +385,7 @@ def test_completed_delivery_is_idle_even_after_external_chain_change(peers, depl
         )
         with patch.object(effects, "request", side_effect=AssertionError("idle RPC")):
             for _ in range(5):
-                yield from poster.cycle()
+                yield from postingService.cycle()
             # Reading REST status is equally passive, even with no reachable RPC.
             assert (
                 client.simulate_get(f"/v1/endorsements/{association}").json
@@ -390,17 +394,17 @@ def test_completed_delivery_is_idle_even_after_external_chain_change(peers, depl
         assert (yield from observe(effects, wallet))[1][1] == ""
         return True
 
-    drive(poster.effects, workflow)
+    drive(postingService.effects, workflow)
 
 
 def test_reverts_exhaust_budget_then_require_explicit_retry(peers, deployment):
     """Real mined reverts become one dead letter; correction can resume the operation."""
     from falcon import testing
 
-    poster = poster_for(peers, deployment)
+    postingService = posting_service_for(peers, deployment)
     association = said("revert-budget")
     assert post(peers, event_body(peers, "revert-budget", 80)).status_code == 200
-    prepare = poster.effects.prepare
+    prepare = postingService.effects.prepare
 
     def insufficient_execution_gas(contractCall):
         """Enough intrinsic gas to mine, too little to register the identity."""
@@ -411,7 +415,7 @@ def test_reverts_exhaust_budget_then_require_explicit_retry(peers, deployment):
     def workflow(effects):
         with patch.object(effects, "prepare", insufficient_execution_gas):
             for _ in range(10):
-                yield from poster.cycle()
+                yield from postingService.cycle()
         state = (
             testing.TestClient(peers.receiver.app)
             .simulate_get(f"/v1/endorsements/{association}")
@@ -425,33 +429,35 @@ def test_reverts_exhaust_budget_then_require_explicit_retry(peers, deployment):
         with patch.object(
             effects, "request", side_effect=AssertionError("dead letter retried")
         ):
-            yield from poster.cycle()
+            yield from postingService.cycle()
         peers.inbox.close()
         peers.inbox.reopen()
-        retry_operation(peers.inbox, state["operation"]["operationId"])
-        yield from settle(poster, "0x" + "11" * 20, association)
+        RecoveryService(
+            OracleReader(peers.inbox), OracleWriter(peers.inbox)
+        ).retry_operation(state["operation"]["operationId"])
+        yield from settle(postingService, "0x" + "11" * 20, association)
         return True
 
-    drive(poster.effects, workflow)
+    drive(postingService.effects, workflow)
 
 
 def test_receipt_deadline_fences_writer_and_manual_retry_preserves_signature(
     peers, deployment
 ):
     """A timed-out signed operation must resolve before any later nonce is allocated."""
-    poster = poster_for(peers, deployment)
+    postingService = posting_service_for(peers, deployment)
     now = [1000.0]
-    poster.clock = lambda: now[0]
+    postingService.clock = lambda: now[0]
     assert post(peers, event_body(peers, "deadline", 90)).status_code == 200
 
     def workflow(effects):
         yield from effects.request("anvil_setAutomine", [False])
         try:
-            yield from poster.cycle()  # Signature is durable, before broadcast.
+            yield from postingService.cycle()  # Signature is durable, before broadcast.
             txRecord = pending_transaction(peers.inbox)
-            yield from poster.cycle()  # Submit without mining.
+            yield from postingService.cycle()  # Submit without mining.
             now[0] += 121
-            yield from poster.cycle()
+            yield from postingService.cycle()
             phase, postingOperation = OracleReader(peers.inbox).operation_for(
                 f"{said('deadline')}:1"
             )
@@ -462,40 +468,42 @@ def test_receipt_deadline_fences_writer_and_manual_retry_preserves_signature(
             with patch.object(
                 effects, "request", side_effect=AssertionError("fence bypassed")
             ):
-                yield from poster.cycle()
+                yield from postingService.cycle()
             assert peers.inbox.transactions.cntAll() == 1
             peers.inbox.close()
             peers.inbox.reopen()
-            retry_operation(peers.inbox, postingOperation.operationId)
+            RecoveryService(
+                OracleReader(peers.inbox), OracleWriter(peers.inbox)
+            ).retry_operation(postingOperation.operationId)
             assert pending_transaction(peers.inbox) == txRecord
             yield from effects.request("evm_mine", [])
-            yield from poster.cycle()
+            yield from postingService.cycle()
             assert (
                 peers.inbox.transactions.get(keys=(txRecord.txHash,)).state
                 == "confirmed"
             )
         finally:
             yield from effects.request("anvil_setAutomine", [True])
-        yield from settle(poster, "0x" + "11" * 20, said("after-deadline"))
+        yield from settle(postingService, "0x" + "11" * 20, said("after-deadline"))
         return True
 
-    drive(poster.effects, workflow)
+    drive(postingService.effects, workflow)
 
 
 def test_revocation_during_pending_publication_is_followed_by_withdrawal(
     peers, deployment
 ):
     """Resolve the signed publish, then honor the new off-chain revocation in order."""
-    poster = poster_for(peers, deployment)
+    postingService = posting_service_for(peers, deployment)
     assert post(peers, event_body(peers, "revocation-pending", 100)).status_code == 200
 
     def workflow(effects):
         for _ in range(3):
-            yield from poster.cycle()  # Confirm identity.
+            yield from postingService.cycle()  # Confirm identity.
         yield from effects.request("anvil_setAutomine", [False])
         try:
-            yield from poster.cycle()
-            yield from poster.cycle()  # Publication is now in the mempool.
+            yield from postingService.cycle()
+            yield from postingService.cycle()  # Publication is now in the mempool.
             txRecord = pending_transaction(peers.inbox)
             assert txRecord.functionName == "publishEndorsement"
             assert (
@@ -505,48 +513,48 @@ def test_revocation_during_pending_publication_is_followed_by_withdrawal(
                 == 200
             )
             yield from effects.request("evm_mine", [])
-            yield from poster.cycle()
+            yield from postingService.cycle()
         finally:
             yield from effects.request("anvil_setAutomine", [True])
-        yield from settle(poster, "0x" + "11" * 20, "")
+        yield from settle(postingService, "0x" + "11" * 20, "")
         assert (
             peers.inbox.walletEffects.get(keys=("0x" + "11" * 20,)).associationSaid
             == ""
         )
         return True
 
-    drive(poster.effects, workflow)
+    drive(postingService.effects, workflow)
 
 
 def test_newer_revocation_withdraws_published_predecessor(peers, deployment):
     """A revocation received before its acceptance still releases the older claim."""
-    poster = poster_for(peers, deployment)
+    postingService = posting_service_for(peers, deployment)
     wallet = "0x" + "11" * 20
     assert post(peers, event_body(peers, "predecessor", 110)).status_code == 200
 
     def workflow(effects):
-        yield from settle(poster, wallet, said("predecessor"))
+        yield from settle(postingService, wallet, said("predecessor"))
         assert (
             post(
                 peers, event_body(peers, "already-revoked", 111, revoked=True)
             ).status_code
             == 200
         )
-        yield from settle(poster, wallet, "")
+        yield from settle(postingService, wallet, "")
         assert (
             OracleReader(peers.inbox).selected_association("eip155:31337:" + wallet)
             is None
         )
         return True
 
-    drive(poster.effects, workflow)
+    drive(postingService.effects, workflow)
 
 
 def test_preparation_errors_stop_in_dead_letter(peers, deployment):
     """Unsigned RPC failure has a finite durable budget and never invalidates a claim."""
     from falcon import testing
 
-    poster = poster_for(peers, deployment)
+    postingService = posting_service_for(peers, deployment)
     association = said("prepare-exhausted")
     assert post(peers, event_body(peers, "prepare-exhausted", 120)).status_code == 200
 
@@ -557,7 +565,7 @@ def test_preparation_errors_stop_in_dead_letter(peers, deployment):
     def workflow(effects):
         with patch.object(effects, "prepare", unavailable):
             for attempt in range(3):
-                yield from poster.cycle()
+                yield from postingService.cycle()
                 state = (
                     testing.TestClient(peers.receiver.app)
                     .simulate_get(f"/v1/endorsements/{association}")
@@ -573,15 +581,15 @@ def test_preparation_errors_stop_in_dead_letter(peers, deployment):
         with patch.object(
             effects, "request", side_effect=AssertionError("automatic retry")
         ):
-            yield from poster.cycle()
+            yield from postingService.cycle()
         return True
 
-    drive(poster.effects, workflow)
+    drive(postingService.effects, workflow)
 
 
 def test_pending_rpc_errors_keep_signed_dead_letter(peers, deployment):
     """Repeated failed receipt RPCs stop, retaining the unresolved nonce across reopen."""
-    poster = poster_for(peers, deployment)
+    postingService = posting_service_for(peers, deployment)
     assert post(peers, event_body(peers, "pending-exhausted", 130)).status_code == 200
 
     def unavailable(tx_hash):
@@ -589,11 +597,11 @@ def test_pending_rpc_errors_keep_signed_dead_letter(peers, deployment):
         raise TimeoutError("receipt unavailable")
 
     def workflow(effects):
-        yield from poster.cycle()
+        yield from postingService.cycle()
         txRecord = pending_transaction(peers.inbox)
         with patch.object(effects, "receipt", unavailable):
             for _ in range(3):
-                yield from poster.cycle()
+                yield from postingService.cycle()
         peers.inbox.close()
         peers.inbox.reopen()
         phase, postingOperation = OracleReader(peers.inbox).operation_for(
@@ -605,7 +613,7 @@ def test_pending_rpc_errors_keep_signed_dead_letter(peers, deployment):
         with patch.object(
             effects, "request", side_effect=AssertionError("automatic retry")
         ):
-            yield from poster.cycle()
+            yield from postingService.cycle()
         return True
 
-    drive(poster.effects, workflow)
+    drive(postingService.effects, workflow)

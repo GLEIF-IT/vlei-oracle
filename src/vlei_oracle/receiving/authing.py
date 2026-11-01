@@ -7,8 +7,6 @@ This is transport authentication only. Callers retain exact body bytes and suppl
 trusted expected HTTP context; authentication does not commit application effects.
 """
 
-from vlei_oracle.persistence.writing import OracleWriter
-
 import base64
 import hashlib
 import secrets
@@ -76,13 +74,13 @@ class ServiceAuthenticator:
     supported. Rotation uses KERIpy key-state updates, never an arbitrary header key.
     """
 
-    def __init__(self, *, hab, baser, peer_aid, lifetime=60):
+    def __init__(self, *, hab, writer, peer_aid, lifetime=60):
         """Configure peer trust and maximum message lifetime in seconds.
 
-        baser owns durable replay claims. The lifetime is transport validity only;
+        writer persists durable transport replay claims. The lifetime is transport validity only;
         it does not limit accepted associations. KERIpy time helpers supply wall time.
         """
-        self.hab, self.baser, self.peer_aid = hab, baser, peer_aid
+        self.hab, self.writer, self.peer_aid = hab, writer, peer_aid
         self.lifetime = lifetime
         if (
             coring.Prefixer(qb64=peer_aid).qb64 != peer_aid
@@ -236,7 +234,7 @@ class ServiceAuthenticator:
                 raise AuthenticationError("signature does not verify")
         except (KeyError, TypeError, ValueError, kering.KeriError) as exc:
             raise AuthenticationError(str(exc)) from exc
-        if not OracleWriter(self.baser).claim_nonce(self.peer_aid, inp.nonce, inp.expires):
+        if not self.writer.claim_nonce(self.peer_aid, inp.nonce, inp.expires):
             raise AuthenticationError("message replay")
         return AuthenticatedMessage(
             self.peer_aid, inp.nonce, expected["content-digest"]

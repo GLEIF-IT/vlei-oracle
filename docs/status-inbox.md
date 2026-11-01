@@ -45,7 +45,7 @@ vlei-oracle server start \
 
 The writer needs the deployed registries' permissions and exclusive ownership of
 its Ethereum account. Status receipt commits selection and a queued operation
-before ACK. One operation progresses through native LMDB phase subdatabases:
+before ACK. One operation progresses through dedicated LMDB phase subdatabases:
 `queued.`, `preparing.`, `pending.`, `completed.` and `dead.`. `wallet-effects.` records
 only this writer's confirmed effects; `txns.` retains signed attempt history.
 `inbox.` and `statuses.` retain event and verifier-status history. None of these
@@ -126,3 +126,29 @@ remain a transaction record after confirmation or revert.
 The operation returned by the endorsement resource exposes `functionName`.
 This format replaces the former `action` field; use fresh application stores.
 There are no old-format readers, migrations or compatibility aliases.
+
+## Application and persistence boundaries
+
+`OracleBaser` owns only LMDB lifecycle and typed table bindings. `OracleReader`
+returns detached records from bounded lookups and closes every read transaction
+before returning. `OracleWriter` serializes prepared values before a short write
+transaction and exposes explicit source-to-destination transitions. Integrity
+checks inside those writes protect phase membership and immutable signed bytes;
+they do not select wallets, decide retries or perform RPC.
+
+`ReceiptService` validates event history and prepares selection and queued work.
+It runs synchronously without yielding between reads and its atomic commit.
+`PostingService` chooses contract steps and prepares receipt outcomes, retries,
+dead letters and confirmed effects. It never holds an LMDB transaction across
+RPC; after preparation yields, selection is checked again before signing.
+`PostingDoer` only schedules this service beside its RPC effect clients.
+`RecoveryService` prepares an explicit offline retry, and `EndorsementQuery`
+projects bounded local records for the thin HTTP resource. `ScopeService`
+validates configuration against the persistent deployment binding at startup.
+
+Run one receiver/posting process per application store. The runtime uses one
+cooperative application writer; it does not support concurrent independent
+receiver processes sharing the same store. Stop it before offline recovery.
+No additional mutex or lock is used. This API refactor changes no wire values,
+phase tables, journal layout or atomic commit boundaries and provides no old
+Python API aliases. See the [implementation plan](plans/application-persistence-separation.md).
