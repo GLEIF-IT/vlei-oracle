@@ -44,7 +44,7 @@ revision. Do not weaken assertions or change integration topology.
   receipt/status/selection/queue records atomically. Validation recorded in its PR.
 - Slice 2 implemented: OracleBaser now only binds tables and owns lifecycle.
   Feature readers return detached bounded reads; PostingWriter owns explicit atomic
-  phase writes and integrity guards. ScopeService validates deployment bindings.
+  phase writes and integrity guards. Startup functions record public settings and warn on changes.
   Old Baser workflow methods are removed.
 - Slice 3 implemented: PostingService owns policy, PostingDoer schedules it,
   RecoveryService prepares offline retries and EndorsementQuery prepares local
@@ -74,7 +74,7 @@ The earlier application-wide adapters are removed, not retained as facades.
 | AssociationReader | ReceiptService, PostingService and EndorsementQuery; event, status, claim and selected-association reads. |
 | ReceiptWriter | ReceiptService; old-event recording or one receipt/status/selection/queue/sequence commit. |
 | PostingReader / PostingWriter | PostingService and RecoveryService; explicit phases, signed journal, confirmed effects, progress and recovery fences. ReceiptService borrows sequence reads and EndorsementQuery borrows posting queries explicitly. |
-| ScopeStore | ScopeService deployment bindings only. |
+| ScopeStore | Advisory inbox/posting startup records; read/save only. |
 | transport.claim_nonce | A bound callable supplied to ServiceAuthenticator, not a posting writer. |
 
 No cross-feature atomic operation is split into independently committing calls.
@@ -87,5 +87,15 @@ ReceiptWriter.record_and_queue; PostingReader.seq / tx / effects; and
 PostingWriter.queued_to_prep / prep_to_pending / pending_to_prep.
 `prep` means the preparing phase, `tx` a signed transaction record, and `seq`
 the posting sequence and fence record. save_prep and save_pending persist
-progress within their named phase. ScopeStore.bind_inbox / bind_posting retain
-the existing deployment-binding semantics. No table or wire names change.
+progress within their named phase. ScopeStore.save_inbox / save_posting persist
+the last observed settings for startup warnings. No table or wire names change.
+
+## Advisory startup settings
+
+The operator owns compatibility with retained state. Replace ScopeService and
+immutable bindings with explicit note_inbox/note_posting startup functions:
+compare, warn, save the latest public settings, and continue. No journal,
+selection, phase, signature or confirmed-effect record changes with the settings.
+Tests cover every compared field, quiet first/unchanged starts, changes back,
+retained signed work/effects and real runtime composition. README and operator
+instructions explain that a warning performs no migration or replay.

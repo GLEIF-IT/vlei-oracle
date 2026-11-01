@@ -59,3 +59,11 @@ sole USDC assertion sequence remains `tests/qualification/test_two_services.py`.
 It verifies real balance changes and exact-SAID withdrawal, beyond receipt ACKs.
 Oracle never imports the Verifier fixture implementation; commands and explicit
 artifacts are the shared boundary. None of this tooling ships in the runtime wheel.
+
+## Configuration ownership
+
+The installed service warns and continues when its recorded startup settings
+change. Operators own compatibility with retained state; see the
+[configuration guidance](../../docs/status-inbox.md#configuration-changes-and-stored-state). Fixture manifests still select reproducible
+inputs: prepare a fresh run when changing its deployment or source inputs, and
+keep existing run directories for restart and diagnosis.

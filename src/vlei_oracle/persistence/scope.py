@@ -1,24 +1,24 @@
-"""Persistent receiver and posting deployment bindings."""
+"""Last observed inbox and posting settings for startup warnings."""
 
 
 class ScopeStore:
-    """Borrow storage only for deployment bindings."""
+    """Borrow storage for advisory startup records only."""
 
     def __init__(self, baser):
         self.baser = baser
 
-    def inbox_scope(self):
-        """Return the bound inbox scope, or None."""
+    def inbox(self):
+        """Return the previous inbox settings, or None on first use."""
         return self.baser.inbox_scope.get(keys=("receiver",))
 
-    def posting_scope(self):
-        """Return the bound posting scope, or None."""
+    def posting(self):
+        """Return the previous posting settings, or None on first use."""
         return self.baser.scope.get(keys=("posting",))
 
-    def bind_inbox(self, scope):
-        """Persist the prepared receiver deployment binding."""
-        self.baser.inbox_scope.put(keys=("receiver",), val=scope)
+    def save_inbox(self, scope):
+        """Replace the inbox baseline without changing received status or selection."""
+        self.baser.inbox_scope.pin(keys=("receiver",), val=scope)
 
-    def bind_posting(self, scope):
-        """Persist the prepared posting deployment binding."""
+    def save_posting(self, scope):
+        """Replace the posting baseline without changing the journal or queues."""
         self.baser.scope.pin(keys=("posting",), val=scope)

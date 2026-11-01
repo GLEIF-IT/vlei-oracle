@@ -7,7 +7,7 @@ from dataclasses import dataclass
 
 @dataclass
 class PostingScope:
-    """Immutable chain/deployment/writer scope of the recovery journal."""
+    """Last observed deployment/writer settings, used only for startup warnings."""
 
     chainId: int
     writer: str
@@ -36,7 +36,7 @@ class ReplayClaim:
 
 @dataclass
 class InboxScope:
-    """One trusted producer and chain for the durable status history."""
+    """Last observed producer/chain settings, used only for startup warnings."""
 
     verifierAid: str
     chainId: int
