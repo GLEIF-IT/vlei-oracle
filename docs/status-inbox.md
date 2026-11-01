@@ -74,10 +74,14 @@ Query local progress without querying Ethereum:
 curl "http://localhost:9723/v1/endorsements/$ASSOCIATION_SAID"
 ```
 
-This resource exposes selection, delivery phase, attempts, errors, transaction
-hashes and last confirmed wallet effects. `completed` is terminal until a new
-verifier event creates another obligation. Neither GET nor an idle worker reads
-contract mappings. Independent changes on-chain are outside this operating model.
+This resource exposes only the requested association, wallet, locally confirmed
+`publicationStatus`, requested `action`, `deliveryStatus`, and its `error`.
+Queue records, retry counters, wallet-wide bookkeeping and global posting
+blockage remain internal. See the
+[response contract](../protocol/oracle-api-v1/README.md#endorsement-resource).
+A completed operation stays terminal; replacement may make the old association
+report `superseded` and `not_published` without scheduling new work. Neither GET
+nor an idle worker reads contract mappings. Independent changes on-chain are outside this operating model.
 
 After correcting a dead letter, stop the service and explicitly retry its ID:
 
@@ -123,9 +127,10 @@ effects. A `contractCall` is `(contractName, functionName, args)`; the persisted
 `functionName` is only the function-name string, not that tuple. Signed bytes
 remain a transaction record after confirmation or revert.
 
-The operation returned by the endorsement resource exposes `functionName`.
-This format replaces the former `action` field; use fresh application stores.
-There are no old-format readers, migrations or compatibility aliases.
+Internal posting records retain `functionName`. The public endorsement resource
+exposes only the association-level `action` (`publish` or `withdraw`), not the
+internal contract function or serialized operation. No old response aliases are
+provided.
 
 ## Application and persistence boundaries
 

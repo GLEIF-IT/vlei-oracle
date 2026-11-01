@@ -102,15 +102,35 @@ expiry, nonce replacement/cancellation or comprehensive reorg recovery.
 
 `GET /v1/endorsements/{associationSaid}` returns 200 for a known association or
 404 for an unknown SAID. It needs no service signature and makes no RPC calls.
-The representation contains `associationSaid`, `wallet`, `verifierStatus`,
-`selection`, `phase`, `operation`, `confirmedEffect` and `writerBlockedBy`.
-`operation` includes its ID/event ID, contract `functionName`, attempt counts, pending
-transaction hash, last resolved transaction hash, failure reason and terminal
-outcome. `phase` is `queued`, `preparing`, `pending`, `completed` or `dead`.
-`confirmedEffect` is this writer's last confirmed wallet identity and endorsement;
-it is historical delivery evidence, not a claim about current chain truth. A
-completed old association may be superseded by a newer selected association.
-No raw transaction bytes, signing key or authenticated mutation endpoint is exposed.
+The response describes only the requested association:
+
+| Field | Meaning |
+|---|---|
+| `associationSaid` | The requested credential SAID. |
+| `wallet` | Its associated wallet address. |
+| `publicationStatus` | `published` only when the Oracle's last confirmed publication for that wallet names this exact SAID; otherwise `not_published`. |
+| `action` | `publish` for an accepted association's request, or `withdraw` for a revoked association's request. |
+| `deliveryStatus` | `queued`, `in_progress`, `completed`, `failed`, `superseded`, or `rejected`. |
+| `error` | This request's latest error, or an empty string. |
+
+`publicationStatus` describes local confirmed knowledge, not a fresh contract
+mapping read. A pending or failed withdrawal may still report `published`.
+`not_published` does not assert that the association was previously published:
+it also covers a never-published or replaced association.
+
+`deliveryStatus` describes the latest request. `completed` means no further
+contract step is required, including a withdrawal when that association is
+already absent. `failed` requires manual intervention after the bounded budget.
+An accepted association whose finished request is no longer eligible reports
+`superseded` or `rejected`; in-flight work remains `queued` or `in_progress`
+until processed. `action` identifies that association's request, not an internal
+identity-registry step or a transaction affecting a predecessor.
+
+The response excludes internal queue records, operation IDs, retry counters,
+wallet-level identity/endorsement records and global posting blockage. There
+are no legacy field aliases. Signed bytes and signing keys are never exposed.
+Offline recovery uses the operation ID from the operator's local dead-letter
+records; this public resource is not a recovery/debugging interface.
 
 Operate one writer against known initial empty registry state and preserve its
 store. This is a breaking storage change: use fresh stores, with no migration or
