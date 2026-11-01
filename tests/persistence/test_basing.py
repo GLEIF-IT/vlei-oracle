@@ -97,3 +97,45 @@ def test_receipt_and_phase_transition_are_atomic(peers):
     peers.inbox.reopen()
     assert peers.inbox.preparing.get(keys=("writer",)) == work
     assert peers.inbox.completed.cntAll() == 0
+
+
+def test_confirmation_rollback_retains_pending_intent_and_previous_effects(tmp_path):
+    """A failed phase write cannot record a receipt or applied effect independently."""
+    from dataclasses import replace
+
+    from keri.db import dbing
+
+    from vlei_oracle.persistence.records import AppliedWallet
+
+    with dbing.openLMDB(cls=OracleBaser, name="confirm-rollback", temp=True) as store:
+        intent = persist_intent(
+            store,
+            signed_intent(
+                {
+                    "nonce": 0,
+                    "gasPrice": 1,
+                    "gas": 21000,
+                    "to": WALLET,
+                    "value": 0,
+                    "chainId": 31337,
+                }
+            ),
+        )
+        original = store.pending.get(keys=("writer",))
+        resolved = replace(original, txHash="")
+        with (
+            patch.object(
+                store.preparing, "serializer", side_effect=RuntimeError("phase failed")
+            ),
+            pytest.raises(RuntimeError, match="phase failed"),
+        ):
+            store.move_operation(
+                resolved,
+                "pending",
+                "preparing",
+                intent=replace(intent, state="confirmed"),
+                applied=AppliedWallet(identityRef=IDENTITY),
+            )
+        assert store.pending.get(keys=("writer",)) == original
+        assert store.transactions.get(keys=(intent.txHash,)) == intent
+        assert store.applied.get(keys=(original.wallet,)) is None

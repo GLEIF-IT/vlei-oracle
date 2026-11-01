@@ -134,11 +134,31 @@ class USDCScenario:
         while True:
             _, current = yield from observe(self.effects, address or self.wallet)
             if current[1] == said:
+                if said:
+                    yield from self.endorsement(said, expected="accepted")
                 return current
             assert self.workflow.tyme < deadline, (
                 current,
                 str(self.root / "logs/oracle.log"),
             )
+            yield 0.05
+
+    def endorsement(self, said, *, expected):
+        """Observe terminal delivery through Oracle's public, local-only resource."""
+        deadline = self.workflow.tyme + 25
+        while True:
+            code, body = yield from request(
+                self.workflow,
+                self.configuration["oraclePort"],
+                f"/v1/endorsements/{said}",
+            )
+            value = json.loads(body)
+            if code == 200 and value["phase"] == "completed":
+                assert value["verifierStatus"] == expected
+                assert value["operation"]["error"] == ""
+                assert value["writerBlockedBy"] is None
+                return value
+            assert self.workflow.tyme < deadline, value
             yield 0.05
 
     def events(self):
@@ -218,6 +238,7 @@ class USDCScenario:
             retired = yield from self.status(descriptor["said"], "revoked")
             assert retired["delivery"]["eventId"] == f"{descriptor['said']}:2"
             yield from self.mapping(expected)
+            yield from self.endorsement(descriptor["said"], expected="revoked")
         yield from self.mapping(beneficiary["said"], self.recipient)
         yield from self.transfer(expected=False)
 

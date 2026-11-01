@@ -6,6 +6,12 @@ event storage and publishes or withdraws the selected association mapping as an 
 runs the same inbox without contract posting. Initial credential, wallet and
 account verification belongs to EOA Verifier; the oracle does not repeat it.
 
+Each event creates finite LMDB work that ends in completion or a dead letter.
+Completed work never triggers periodic contract reads or repair of independent
+on-chain changes. `GET /v1/endorsements/{associationSaid}` exposes local delivery
+progress without querying Ethereum. See the [operator guide](docs/status-inbox.md)
+for bounded retries and manual recovery.
+
 Verifier acceptance persists until verified association revocation. Oracle selection
 can supersede an older same-LE issuance without changing that upstream acceptance. Revocation withdraws only the matching
 association SAID. Storage ACKs do not mean an on-chain transaction has succeeded. The
