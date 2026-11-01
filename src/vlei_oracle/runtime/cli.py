@@ -94,7 +94,7 @@ def _receiver_arguments(receive):
 
 
 def receive_handler(args):
-    """Compose trusted receipt with optional posting, without credential verification."""
+    """Compose authenticated status-event processing with optional posting, without credential verification."""
     from vlei_oracle.runtime.config import ReceiverConfig
     from vlei_oracle.runtime.serving import run_receiver
 

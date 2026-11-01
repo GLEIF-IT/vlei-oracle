@@ -41,14 +41,14 @@ def test_other_le_requires_release_and_a_new_claim(peers):
     assert post(peers, owner).status_code == 200
     assert (
         post(peers, competitor).status_code == 200
-    )  # ACK is receipt, not ownership approval.
+    )  # ACK confirms status-event storage, not ownership approval.
     assert selected(peers).associationSaid == said("owner")
     assert peers.inbox.statuses.get(keys=(said("competitor"),)).selection == "rejected"
     assert post(peers, event_body(peers, "owner", 10, revoked=True)).status_code == 200
     assert post(peers, competitor).status_code == 200
     assert (
         selected(peers) is None
-    )  # A previously rejected receipt is not promoted by replay.
+    )  # A previously rejected selection is not promoted by replay.
 
     assert (
         post(peers, event_body(peers, "transfer", 901, issuer=other)).status_code == 200

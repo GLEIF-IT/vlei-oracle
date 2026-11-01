@@ -19,7 +19,7 @@ sequenceDiagram
     I->>V: Source chain and association proof over IPEX / CESR
     V->>V: Initial validation, account observation and acceptance-time nonce claim
     V->>O: Signed accepted status
-    O->>O: Commit receipt, selection and queued operation
+    O->>O: Commit status event, selection and queued operation
     O-->>V: Signed ACK (drop once, retry exact event)
     O->>C: Publish selected exact-wallet mapping
     C-->>O: Confirm transaction receipt
@@ -40,4 +40,4 @@ sequenceDiagram
 
 </details>
 
-Selection and receipt do not change upstream acceptance. The fixture also rejects reuse of an accepted nonce by another credential. Direct USDC transfers can bypass wUSDC; its role is auditable compliance for routed transfers. No production-readiness or malformed-stream liveness claim follows from this scenario.
+Selection and status-event storage do not change upstream acceptance. The fixture also rejects reuse of an accepted nonce by another credential. Direct USDC transfers can bypass wUSDC; its role is auditable compliance for routed transfers. No production-readiness or malformed-stream liveness claim follows from this scenario.

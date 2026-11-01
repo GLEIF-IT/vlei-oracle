@@ -15,7 +15,7 @@ WALLET = Account.from_key("0x" + "0" * 63 + "1").address
 IDENTITY = "0x" + "12" * 32
 
 
-def test_receipt_and_selection_rollback_together(peers):
+def test_status_event_and_selection_rollback_together(peers):
     """A failed claim write cannot ACK or partially supersede the prior selected association."""
     assert post(peers, event_body(peers, "older", 10)).status_code == 200
     body = event_body(peers, "newer", 12)
@@ -55,7 +55,7 @@ def test_signed_attempts_are_immutable_across_reopen(tmp_path):
         store.close(clear=True)
 
 
-def test_receipt_and_phase_transition_are_atomic(peers):
+def test_status_event_and_phase_transition_are_atomic(peers):
     """Queue creation cannot be lost at ACK; a failed phase move retains its source."""
     body = event_body(peers, "atomic-work", 99)
     with patch.object(
@@ -85,7 +85,7 @@ def test_receipt_and_phase_transition_are_atomic(peers):
 def test_confirmation_rollback_retains_pending_transaction_and_previous_effects(
     tmp_path,
 ):
-    """A failed phase write cannot record a receipt or applied effect independently."""
+    """A failed phase write cannot persist a transaction outcome or applied effect independently."""
     from dataclasses import replace
 
     from keri.db import dbing
@@ -117,9 +117,7 @@ def test_confirmation_rollback_retains_pending_transaction_and_previous_effects(
             raise RuntimeError("phase failed")
 
         with (
-            patch.object(
-                writer, "_put_tx", side_effect=fail_after_journal_write
-            ),
+            patch.object(writer, "_put_tx", side_effect=fail_after_journal_write),
             pytest.raises(RuntimeError, match="phase failed"),
         ):
             writer.pending_to_prep(
@@ -132,8 +130,8 @@ def test_confirmation_rollback_retains_pending_transaction_and_previous_effects(
         assert store.walletEffects.get(keys=(original.wallet,)) is None
 
 
-def test_receipt_write_failure_rolls_back_supersession(peers):
-    """Abort after real status writes; receipt and queue must not partially commit."""
+def test_status_event_write_failure_rolls_back_supersession(peers):
+    """Abort after real status writes; status event and queue must not partially commit."""
     from contextlib import contextmanager
 
     assert post(peers, event_body(peers, "prior", 10)).status_code == 200

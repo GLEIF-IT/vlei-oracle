@@ -1,12 +1,12 @@
-"""Application receipt policy for authenticated, parsed verifier status events."""
+"""Application policy for authenticated, parsed verifier status events."""
 
 from vlei_oracle.associations.records import WalletClaim
 from vlei_oracle.associations.selecting import update_selection
 from vlei_oracle.persistence.records import PostingOperation, PostingSequence
 
 
-class ReceiptService:
-    """Prepare receipt and selection using detached reads, then commit once.
+class StatusEventService:
+    """Prepare event storage and selection using detached reads, then commit once.
 
     The caller authenticates and parses first and ACKs only after return. This
     synchronous service never yields between reads and commit. The runtime owns
@@ -15,7 +15,7 @@ class ReceiptService:
     """
 
     def __init__(self, reader, writer, posting_reader):
-        """Borrow association reads, atomic receipt writes and sequence reads."""
+        """Borrow association reads, atomic status-event writes and sequence reads."""
         self.reader, self.writer = reader, writer
         self.posting_reader = posting_reader
 

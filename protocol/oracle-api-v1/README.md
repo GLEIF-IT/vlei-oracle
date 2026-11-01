@@ -32,18 +32,18 @@ Credential, proof and account verification are trusted producer responsibilities
 
 | Result | HTTP response | Durable application effect |
 | --- | --- | --- |
-| Valid new event | 200, authenticated producer-profile ACK | Receipt, newest status, selection and queued work commit together |
+| Valid new event | 200, authenticated producer-profile ACK | Status event, newest status, selection and queued work commit together |
 | Exact duplicate | 200, newly authenticated ACK | No repeated selection/effect |
-| Valid older revision | 200, authenticated ACK | Receipt retained; newer status preserved |
-| Wrong path/query or malformed/unsupported event | 400 | No event receipt |
-| Invalid/missing signature, wrong peer or replay | 401 | No event receipt |
+| Valid older revision | 200, authenticated ACK | Status event retained; newer status preserved |
+| Wrong path/query or malformed/unsupported event | 400 | No status-event storage |
+| Invalid/missing signature, wrong peer or replay | 401 | No status-event storage |
 | Conflicting bytes at an event revision, changed association facts, reacceptance after revocation, or revocation revision before accepted revision | 409 | Application transaction aborts |
 
-Authentication claims a transport nonce before decoding or application receipt.
+Authentication claims a transport nonce before decoding or application event storage.
 Thus a validly signed malformed/conflicting event may consume that attempt nonce;
 retry with fresh transport authentication. Error responses never complete delivery.
 Sign the success ACK only after LMDB commit. A crash/signing failure after commit
-is safe to redeliver. **ACK means durable receipt, not selected ownership or
+is safe to redeliver. **ACK means durable status-event storage, not selected ownership or
 confirmed endorsement.**
 
 ## Selection and replacement
@@ -74,7 +74,7 @@ requests withdrawal. Derive wallet from extId and the contract identity referenc
 from the issuer AID using Comply's encoding. Identity registration alone supplies
 no endorsement.
 
-Receipt queues work atomically; duplicate receipt never schedules it again. The
+Status-event acceptance queues work atomically; duplicate delivery never schedules it again. The
 writer advances one operation through `queued`, `preparing`, `pending`, then
 `completed` or `dead`. Phase moves, confirmed effects and journal outcomes commit
 atomically. Cursors close before RPC yields. Completed history is never scanned
@@ -89,12 +89,12 @@ preparation. Resolve an already signed transaction before applying newer status.
 
 Persist signed bytes/hash before submission. Preparation and definite reverted
 transactions have a finite per-step budget (default three attempts). Interrupted
-pending RPCs also have a three-failure budget; receipt waiting has a persistent
+pending RPCs also have a three-failure budget; transaction-receipt waiting has a persistent
 120-second deadline. An uncertain submission can retry only the same signed
-bytes after checking its receipt. Exhaustion moves work to `dead`. An unresolved
+bytes after checking its transaction receipt. Exhaustion moves work to `dead`. An unresolved
 signed dead letter fences the writer; no new nonce is allocated until manual
 retry resolves it. Failure does not revoke verifier acceptance or erase prior
-confirmed effects. Successful receipt processing ends with no further polling
+confirmed effects. Successful transaction-receipt processing ends with no further polling
 once all operation steps complete. There is no mapping-drift repair, automatic
 expiry, nonce replacement/cancellation or comprehensive reorg recovery.
 

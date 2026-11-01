@@ -1,6 +1,6 @@
 # Operate the trusted-status Oracle
 
-Oracle authenticates Verifier status, commits receipt/selection, then optionally
+Oracle authenticates Verifier status, commits status-event storage and selection, then optionally
 publishes or withdraws contract endorsements. [Oracle API v1](../protocol/oracle-api-v1/README.md)
 owns validation/errors, duplicate handling and selection. The shared delivery
 profile belongs to [Verifier API v1](https://github.com/GLEIF-IT/eoa-verifier/blob/master/protocol/verifier-api-v1/README.md).
@@ -43,7 +43,7 @@ vlei-oracle server start \
 ```
 
 The writer needs the deployed registries' permissions and exclusive ownership of
-its Ethereum account. Status receipt commits selection and a queued operation
+its Ethereum account. Status-event acceptance commits selection and a queued operation
 before ACK. One operation progresses through dedicated LMDB phase subdatabases:
 `queued.`, `preparing.`, `pending.`, `completed.` and `dead.`. `wallet-effects.` records
 only this writer's confirmed effects; `txns.` retains signed attempt history.
@@ -57,13 +57,13 @@ fixed source and destination tables (`queued_to_prep`,
 There is no phase-string dispatcher. Preparation failures and pending RPC failures
 have separate operations and budgets. Offline recovery prepares the reset record
 and writer fence before the dead-to-preparing or dead-to-pending commit.
-Signed transaction bytes, receipt progress and confirmed effects retain their
+Signed transaction bytes, transaction-receipt progress and confirmed effects retain their
 atomic commit boundaries.
 
 `--confirmations` defaults to 2, `--posting-interval` to one second,
 `--max-attempts` to 3 and `--pending-timeout` to 120 seconds. Each completed step
 resets the preparation/revert attempt budget. Pending RPC failures are bounded
-separately; receipt waiting survives restart using the persisted signing time.
+separately; transaction-receipt waiting survives restart using the persisted signing time.
 A timeout or error is delivery progress, not credential invalidity. The service
 continues receiving signed status while posting is waiting or dead-lettered.
 
@@ -90,7 +90,7 @@ vlei-oracle retry "$OPERATION_ID" --name vlei-oracle-inbox
 
 Pass the same `--base` and `--head-dir` used by the service. Restart normally.
 Retry renews the bounded attempt/deadline budget. If signed bytes already exist,
-retry retains their exact hash/nonce and checks the receipt before resubmission.
+retry retains their exact hash/nonce and checks the transaction receipt before resubmission.
 An unresolved signed dead letter blocks every later operation; unsigned failures
 or confirmed reverts do not fence unrelated work. Do not clear that fence or
 allocate another nonce by editing LMDB. There is no automatic cancellation,
@@ -164,15 +164,15 @@ provided.
 ## Application and persistence boundaries
 
 `OracleBaser` owns only LMDB lifecycle and typed table bindings. Feature readers (`AssociationReader` and `PostingReader`)
-return detached records from bounded lookups and closes every read transaction
-before returning. `ReceiptWriter` and `PostingWriter` serialize prepared values before a short write
-transaction and exposes explicit source-to-destination transitions. Integrity
+return detached records from bounded lookups and close every read transaction
+before returning. `StatusEventWriter` and `PostingWriter` serialize prepared values before a short write
+transaction and expose explicit source-to-destination transitions. Integrity
 checks inside those writes protect phase membership and immutable signed bytes;
 they do not select wallets, decide retries or perform RPC.
 
-`ReceiptService` validates event history and prepares selection and queued work.
+`StatusEventService` validates event history and prepares selection and queued work.
 It runs synchronously without yielding between reads and its atomic commit.
-`PostingService` chooses contract steps and prepares receipt outcomes, retries,
+`PostingService` chooses contract steps and prepares transaction-receipt outcomes, retries,
 dead letters and confirmed effects. It never holds an LMDB transaction across
 RPC; after preparation yields, selection is checked again before signing.
 `PostingDoer` only schedules this service beside its RPC effect clients.

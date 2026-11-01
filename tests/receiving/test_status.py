@@ -2,7 +2,6 @@
 
 import json
 
-
 from tests.support.status_events import event_body, post, said, selected
 
 
@@ -83,17 +82,17 @@ def test_missing_facts_cannot_displace_owner(peers):
 
 
 def test_selection_and_serialization_finish_before_write_transaction(peers):
-    """Receipt policy and serialization run outside even a short LMDB writer."""
+    """Status-event policy and serialization run outside even a short LMDB writer."""
     from contextlib import contextmanager
     from unittest.mock import patch
 
-    from vlei_oracle.receiving import receipt
+    from vlei_oracle.receiving import status_events
 
     env = peers.inbox.env
     active = False
     selected_outside_write = False
     serialized_outside_write = False
-    select = receipt.update_selection
+    select = status_events.update_selection
     serialize = peers.inbox.statuses.serializer
 
     class ObservedEnvironment:
@@ -126,7 +125,7 @@ def test_selection_and_serialization_finish_before_write_transaction(peers):
 
     with (
         patch.object(peers.inbox, "env", ObservedEnvironment()),
-        patch.object(receipt, "update_selection", select_without_writer),
+        patch.object(status_events, "update_selection", select_without_writer),
         patch.object(peers.inbox.statuses, "serializer", serialize_without_writer),
     ):
         assert post(peers, event_body(peers, "outside-writer", 10)).status_code == 200

@@ -1,8 +1,8 @@
-"""Receipts persistence: bounded reads and explicit atomic writes."""
+"""Status-event persistence: explicit atomic writes."""
 
 
-class ReceiptWriter:
-    """Borrow the open store for receipts persistence only."""
+class StatusEventWriter:
+    """Borrow the open store for status-event persistence only."""
 
     def __init__(self, baser):
         self.baser = baser
@@ -23,7 +23,7 @@ class ReceiptWriter:
         postingOperation,
         postingSequence,
     ):
-        """Commit receipt, selected records and one queued operation together.
+        """Commit status event, selected records and one queued operation together.
 
         All policy and record construction is complete before this call. The
         receiver runs synchronously in the sole application writer; no yield or

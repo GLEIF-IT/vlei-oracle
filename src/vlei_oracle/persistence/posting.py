@@ -55,7 +55,7 @@ class PostingReader:
         return self.baser.walletEffects.get(keys=(wallet,))
 
     def tx(self, txHash):
-        """Return one persisted signed transaction and its receipt state."""
+        """Return the signed transaction record, including its recorded outcome."""
         return self.baser.transactions.get(keys=(txHash,))
 
     def dead(self, operationId):
@@ -135,7 +135,7 @@ class PostingWriter:
             txn.put(target_key, raw, db=self.baser.dead.sdb)
 
     def pending_to_prep(self, postingOperation, txRecord, walletEffects=None):
-        """Record a resolved receipt and optional confirmed effects before the next step."""
+        """Save the resolved transaction record and optional effects before the next step."""
         source_key, target_key = b"writer", b"writer"
         raw = self.baser.preparing.serializer(postingOperation)
         tx_raw = self.baser.transactions.serializer(txRecord)
@@ -164,7 +164,7 @@ class PostingWriter:
             txn.put(target_key, raw, db=self.baser.preparing.sdb)
 
     def pending_to_dead(self, postingOperation, sequence, txRecord=None):
-        """Stop pending work with its prepared writer fence and optional resolved receipt."""
+        """Stop pending work with its prepared fence and optional resolved transaction record."""
         source_key, target_key = b"writer", postingOperation.operationId.encode()
         raw = self.baser.dead.serializer(postingOperation)
         tx_raw = (

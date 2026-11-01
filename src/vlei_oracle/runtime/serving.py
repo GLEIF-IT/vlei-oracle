@@ -15,13 +15,13 @@ from vlei_oracle.endorsement.resources import EndorsementEnd
 from vlei_oracle.persistence.associations import AssociationReader
 from vlei_oracle.persistence.basing import OracleBaser
 from vlei_oracle.persistence.posting import PostingReader, PostingWriter
-from vlei_oracle.persistence.receipts import ReceiptWriter
 from vlei_oracle.persistence.records import InboxScope, PostingScope
 from vlei_oracle.persistence.scope import ScopeStore
+from vlei_oracle.persistence.status_events import StatusEventWriter
 from vlei_oracle.persistence.transport import claim_nonce
 from vlei_oracle.receiving.authing import ServiceAuthenticator
-from vlei_oracle.receiving.receipt import ReceiptService
 from vlei_oracle.receiving.status import StatusEnd
+from vlei_oracle.receiving.status_events import StatusEventService
 from vlei_oracle.runtime.identity import incept_if_new
 from vlei_oracle.runtime.scoping import note_inbox, note_posting
 
@@ -57,7 +57,9 @@ class StatusReceiver(doing.DoDoer):
             "/v1/status-events",
             StatusEnd(
                 auth=auth,
-                service=ReceiptService(associations, ReceiptWriter(baser), posting),
+                service=StatusEventService(
+                    associations, StatusEventWriter(baser), posting
+                ),
                 target=config.webhook_url,
                 chain_id=config.chain_id,
             ),

@@ -106,26 +106,28 @@ class ContractEffects(doing.DoDoer):
             "chainId": self.chain_id,
         }
 
-    def receipt(self, tx_hash):
-        """Return only canonical receipt progress; orphaned receipts stay pending."""
-        receipt = yield from self.request("eth_getTransactionReceipt", [tx_hash])
-        if receipt is None:
+    def transaction_receipt(self, tx_hash):
+        """Return a canonical transaction receipt with confirmation progress, or None."""
+        txReceipt = yield from self.request("eth_getTransactionReceipt", [tx_hash])
+        if txReceipt is None:
             return None
-        if receipt["transactionHash"].lower() != tx_hash or receipt["status"] not in (
+        if txReceipt["transactionHash"].lower() != tx_hash or txReceipt[
+            "status"
+        ] not in (
             "0x0",
             "0x1",
         ):
             raise ValueError("RPC returned an invalid transaction receipt")
         block = yield from self.request(
-            "eth_getBlockByNumber", [receipt["blockNumber"], False]
+            "eth_getBlockByNumber", [txReceipt["blockNumber"], False]
         )
-        if block is None or block["hash"] != receipt["blockHash"]:
+        if block is None or block["hash"] != txReceipt["blockHash"]:
             return None
         head = yield from self.request("eth_blockNumber", [])
-        receipt["confirmed"] = (
-            int(head, 16) - int(receipt["blockNumber"], 16) + 1 >= self.confirmations
+        txReceipt["confirmed"] = (
+            int(head, 16) - int(txReceipt["blockNumber"], 16) + 1 >= self.confirmations
         )
-        return receipt
+        return txReceipt
 
     def submit(self, rawTransaction, tx_hash):
         """Broadcast an already persisted signed identity; never allocate a nonce."""

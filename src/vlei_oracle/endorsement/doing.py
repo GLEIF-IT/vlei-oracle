@@ -12,7 +12,7 @@ class PostingDoer(doing.DoDoer):
         super().__init__(doers=[service.effects, doing.doify(self.post_do)])
 
     def post_do(self, tymth, tock=0.0, **opts):
-        """Let receipt ingestion run between steps and during yielded RPC waits."""
+        """Let status-event ingestion run between steps and during yielded RPC waits."""
         self.wind(tymth)
         yield tock
         while True:
