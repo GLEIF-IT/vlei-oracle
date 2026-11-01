@@ -9,6 +9,7 @@ from keri.app import configing, habbing, keeping
 from keri.db import basing, dbing
 from keri.end import ending
 
+from vlei_oracle.endorsement.resources import EndorsementEnd
 from vlei_oracle.persistence.basing import OracleBaser
 from vlei_oracle.persistence.records import InboxScope
 from vlei_oracle.receiving.authing import ServiceAuthenticator
@@ -46,6 +47,7 @@ class StatusReceiver(doing.DoDoer):
                 chain_id=config.chain_id,
             ),
         )
+        self.app.add_route("/v1/endorsements/{said}", EndorsementEnd(baser))
         # KERIpy OOBI export lets the verifier learn this receiver's signing AID.
         self.app.add_route("/oobi/{aid}", ending.OOBIEnd(hby=hby))
         self.server = http.Server(host=config.host, port=config.http_port, app=self.app)
@@ -70,6 +72,8 @@ class StatusReceiver(doing.DoDoer):
                     effects=effects,
                     key=config.posting_key,
                     interval=config.posting_interval,
+                    max_attempts=config.max_attempts,
+                    pending_timeout=config.pending_timeout,
                 )
             )
         super().__init__(doers=doers)

@@ -18,7 +18,7 @@ from scripts.integration.environment import (
     start_verifier,
 )
 from scripts.integration.processes import stop
-from tests.support.contracts import KEY, contract, effects_for, read, send
+from tests.support.contracts import KEY, contract, effects_for, observe, read, send
 from tests.support.processes import request
 
 
@@ -132,7 +132,7 @@ class USDCScenario:
         """Require actual canonical registry state, beyond an HTTP ACK or tx hash."""
         deadline = self.workflow.tyme + 25
         while True:
-            _, current = yield from self.effects.observe(address or self.wallet)
+            _, current = yield from observe(self.effects, address or self.wallet)
             if current[1] == said:
                 return current
             assert self.workflow.tyme < deadline, (

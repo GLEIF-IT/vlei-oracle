@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import pytest
 
-from tests.support.contracts import KEY, drive
+from tests.support.contracts import KEY, drive, observe, pending_intent
 from tests.support.status_events import event_body, post, said
 from vlei_oracle.endorsement.posting import StatusPoster
 from vlei_oracle.runtime.serving import StatusReceiver
@@ -28,12 +28,14 @@ def poster_for(peers, deployment):
 
 def settle(poster, wallet, expected_said):
     """Drive the ordinary worker until both its receipt and actual mapping agree."""
-    for _ in range(12):
+    for _ in range(36):
         yield from poster.cycle()
-        _, endorsement = yield from poster.effects.observe(wallet)
+        _, endorsement = yield from observe(poster.effects, wallet)
         if (
             endorsement[1] == expected_said
-            and poster.baser.unfinished_transaction() is None
+            and pending_intent(poster.baser) is None
+            and poster.baser.preparing.get(keys=("writer",)) is None
+            and poster.baser.queued.cntAll() == 0
         ):
             return endorsement
     pytest.fail(f"mapping did not settle to {expected_said}")
@@ -65,7 +67,7 @@ def test_accepted_replaced_and_revoked_status_changes_real_mapping(peers, deploy
             == 200
         )
         yield from poster.cycle()
-        assert (yield from effects.observe(wallet))[1][1] == said("published-new")
+        assert (yield from observe(effects, wallet))[1][1] == said("published-new")
         assert (
             post(
                 peers, event_body(peers, "published-new", 11, revoked=True)
@@ -86,16 +88,17 @@ def test_pending_receipt_survives_restart_and_replacement(peers, deployment):
 
     def workflow(effects):
         # First establish the identity registry, then leave publication unmined.
-        yield from poster.cycle()
-        yield from poster.cycle()
+        # Prepare, broadcast, then confirm identity registration.
+        for _ in range(3):
+            yield from poster.cycle()
         yield from effects.request("anvil_setAutomine", [False])
         try:
             yield from poster.cycle()
-            intent = peers.inbox.unfinished_transaction()
+            intent = pending_intent(peers.inbox)
             assert intent is not None
             yield from poster.cycle()
-            assert peers.inbox.unfinished_transaction().txHash == intent.txHash
-            assert (yield from effects.observe(wallet))[1][1] != said("pending-old")
+            assert pending_intent(peers.inbox).txHash == intent.txHash
+            assert (yield from observe(effects, wallet))[1][1] != said("pending-old")
             peers.inbox.close()
             peers.inbox.reopen()
             assert post(peers, event_body(peers, "pending-new", 21)).status_code == 200
@@ -130,8 +133,8 @@ def test_preparation_failure_retries_and_rechecks_replacement(peers, deployment)
 
     def workflow(effects):
         with patch.object(effects, "prepare", unavailable):
-            with pytest.raises(TimeoutError, match="unavailable"):
-                yield from poster.cycle()
+            yield from poster.cycle()
+            assert "unavailable" in peers.inbox.preparing.get(keys=("writer",)).error
         assert peers.inbox.transactions.cntAll() == 0
         with patch.object(effects, "prepare", interrupted):
             yield from poster.cycle()
@@ -155,10 +158,13 @@ def test_lost_broadcast_response_is_pending_until_confirmed(peers, deployment):
 
     def workflow(effects):
         with patch.object(effects, "submit", lose_response):
-            with pytest.raises(TimeoutError):
-                yield from poster.cycle()
-        intent = peers.inbox.unfinished_transaction()
-        assert intent.state == "pending" and "lost response" in intent.failureReason
+            yield from poster.cycle()  # Persist the signature.
+            yield from poster.cycle()  # Broadcast, then lose its response.
+        intent = pending_intent(peers.inbox)
+        assert (
+            intent.state == "pending"
+            and "lost response" in peers.inbox.pending.get(keys=("writer",)).error
+        )
         peers.inbox.close()
         peers.inbox.reopen()
         yield from poster.cycle()
@@ -229,7 +235,7 @@ def test_bad_rpc_response_preserves_pending_intent_and_signed_ack(
         return True
 
     drive(initial_poster.effects, submit)
-    intent = peers.inbox.unfinished_transaction()
+    intent = pending_intent(peers.inbox)
     assert intent is not None
     # Switch only the RPC peer; retain the deployment/writer and signed journal.
     _, addresses = deployment
@@ -284,11 +290,300 @@ def test_bad_rpc_response_preserves_pending_intent_and_signed_ack(
     assert json.loads(responses[0]["body"])["stored"] is True
     assert peers.inbox.selected_association("eip155:31337:0x" + "11" * 20) is not None
     assert rpc_clients and all(not client.connector.opened for client in rpc_clients)
-    assert peers.inbox.unfinished_transaction() == intent
+    assert pending_intent(peers.inbox) == intent
     assert (
         peers.inbox.transactions.cntAll() == 1
     )  # Failure cannot allocate another nonce.
     # Durable recovery still has exactly the original signed attempt after reopen.
     peers.inbox.close()
     peers.inbox.reopen()
-    assert peers.inbox.unfinished_transaction() == intent
+    assert pending_intent(peers.inbox) == intent
+
+
+def test_rpc_yields_do_not_retain_lmdb_read_transactions(
+    peers, deployment, monkeypatch
+):
+    """Actual HTTP RPC may suspend at any step without retaining a native reader."""
+    from tests.support.readers import active_readers
+
+    poster = poster_for(peers, deployment)
+    wallet = "0x" + "11" * 20
+    assert post(peers, event_body(peers, "reader-lifetime", 60)).status_code == 200
+    request = poster.effects.request
+    yielded = []
+
+    def checked_request(method, params):
+        """Wrap the real client and check the actual reader table at each RPC yield."""
+        operation = request(method, params)
+        try:
+            while True:
+                try:
+                    delay = next(operation)
+                except StopIteration as completed:
+                    return completed.value
+                assert not active_readers(peers.inbox.env), peers.inbox.env.readers()
+                yielded.append(method)
+                yield delay
+        finally:
+            operation.close()
+
+    monkeypatch.setattr(poster.effects, "request", checked_request)
+
+    def workflow(effects):
+        yield from settle(poster, wallet, said("reader-lifetime"))
+        return True
+
+    drive(poster.effects, workflow)
+    assert {"eth_call", "eth_sendRawTransaction", "eth_getTransactionReceipt"} <= set(
+        yielded
+    )
+    assert not active_readers(peers.inbox.env), peers.inbox.env.readers()
+
+
+def test_completed_delivery_is_idle_even_after_external_chain_change(peers, deployment):
+    """Completion removes work; external drift does not create a new obligation."""
+    from falcon import testing
+
+    from tests.support.contracts import send
+
+    poster = poster_for(peers, deployment)
+    wallet = "0x" + "11" * 20
+    association = said("idle")
+    assert post(peers, event_body(peers, "idle", 70)).status_code == 200
+    client = testing.TestClient(peers.receiver.app)
+    assert (
+        client.simulate_get(f"/v1/endorsements/{association}").json["phase"] == "queued"
+    )
+    assert client.simulate_get("/v1/endorsements/unknown").status_code == 404
+
+    def workflow(effects):
+        yield from settle(poster, wallet, association)
+        response = client.simulate_get(f"/v1/endorsements/{association}")
+        assert response.json["phase"] == "completed"
+        assert response.json["confirmedEffect"]["associationSaid"] == association
+        yield from send(
+            effects,
+            effects.contracts["endorsement"],
+            "withdrawEndorsement",
+            [wallet, association],
+            KEY,
+        )
+        with patch.object(effects, "request", side_effect=AssertionError("idle RPC")):
+            for _ in range(5):
+                yield from poster.cycle()
+            # Reading REST status is equally passive, even with no reachable RPC.
+            assert (
+                client.simulate_get(f"/v1/endorsements/{association}").json
+                == response.json
+            )
+        assert (yield from observe(effects, wallet))[1][1] == ""
+        return True
+
+    drive(poster.effects, workflow)
+
+
+def test_reverts_exhaust_budget_then_require_explicit_retry(peers, deployment):
+    """Real mined reverts become one dead letter; correction can resume the operation."""
+    from falcon import testing
+
+    poster = poster_for(peers, deployment)
+    association = said("revert-budget")
+    assert post(peers, event_body(peers, "revert-budget", 80)).status_code == 200
+    prepare = poster.effects.prepare
+
+    def insufficient_execution_gas(action):
+        """Enough intrinsic gas to mine, too little to register the identity."""
+        tx = yield from prepare(action)
+        tx["gas"] = 40000
+        return tx
+
+    def workflow(effects):
+        with patch.object(effects, "prepare", insufficient_execution_gas):
+            for _ in range(10):
+                yield from poster.cycle()
+        state = (
+            testing.TestClient(peers.receiver.app)
+            .simulate_get(f"/v1/endorsements/{association}")
+            .json
+        )
+        assert state["phase"] == "dead" and state["operation"]["attempts"] == 3
+        assert "reverted" in state["operation"]["error"]
+        assert state["verifierStatus"] == "accepted"
+        assert state["confirmedEffect"]["identityRef"] == ""
+        assert peers.inbox.transactions.cntAll() == 3
+        with patch.object(
+            effects, "request", side_effect=AssertionError("dead letter retried")
+        ):
+            yield from poster.cycle()
+        peers.inbox.close()
+        peers.inbox.reopen()
+        peers.inbox.retry_operation(state["operation"]["operationId"])
+        yield from settle(poster, "0x" + "11" * 20, association)
+        return True
+
+    drive(poster.effects, workflow)
+
+
+def test_receipt_deadline_fences_writer_and_manual_retry_preserves_signature(
+    peers, deployment
+):
+    """A timed-out signed operation must resolve before any later nonce is allocated."""
+    poster = poster_for(peers, deployment)
+    now = [1000.0]
+    poster.clock = lambda: now[0]
+    assert post(peers, event_body(peers, "deadline", 90)).status_code == 200
+
+    def workflow(effects):
+        yield from effects.request("anvil_setAutomine", [False])
+        try:
+            yield from poster.cycle()  # Signature is durable, before broadcast.
+            intent = pending_intent(peers.inbox)
+            yield from poster.cycle()  # Submit without mining.
+            now[0] += 121
+            yield from poster.cycle()
+            phase, work = peers.inbox.operation_for(f"{said('deadline')}:1")
+            assert phase == "dead" and work.txHash == intent.txHash
+            assert (
+                post(peers, event_body(peers, "after-deadline", 91)).status_code == 200
+            )
+            with patch.object(
+                effects, "request", side_effect=AssertionError("fence bypassed")
+            ):
+                yield from poster.cycle()
+            assert peers.inbox.transactions.cntAll() == 1
+            peers.inbox.close()
+            peers.inbox.reopen()
+            peers.inbox.retry_operation(work.operationId)
+            assert pending_intent(peers.inbox) == intent
+            yield from effects.request("evm_mine", [])
+            yield from poster.cycle()
+            assert (
+                peers.inbox.transactions.get(keys=(intent.txHash,)).state == "confirmed"
+            )
+        finally:
+            yield from effects.request("anvil_setAutomine", [True])
+        yield from settle(poster, "0x" + "11" * 20, said("after-deadline"))
+        return True
+
+    drive(poster.effects, workflow)
+
+
+def test_revocation_during_pending_publication_is_followed_by_withdrawal(
+    peers, deployment
+):
+    """Resolve the signed publish, then honor the new off-chain revocation in order."""
+    poster = poster_for(peers, deployment)
+    assert post(peers, event_body(peers, "retire-pending", 100)).status_code == 200
+
+    def workflow(effects):
+        for _ in range(3):
+            yield from poster.cycle()  # Confirm identity.
+        yield from effects.request("anvil_setAutomine", [False])
+        try:
+            yield from poster.cycle()
+            yield from poster.cycle()  # Publication is now in the mempool.
+            intent = pending_intent(peers.inbox)
+            assert intent.action == "publishEndorsement"
+            assert (
+                post(
+                    peers, event_body(peers, "retire-pending", 100, revoked=True)
+                ).status_code
+                == 200
+            )
+            yield from effects.request("evm_mine", [])
+            yield from poster.cycle()
+        finally:
+            yield from effects.request("anvil_setAutomine", [True])
+        yield from settle(poster, "0x" + "11" * 20, "")
+        assert peers.inbox.applied.get(keys=("0x" + "11" * 20,)).associationSaid == ""
+        return True
+
+    drive(poster.effects, workflow)
+
+
+def test_newer_retirement_withdraws_published_predecessor(peers, deployment):
+    """A retirement received before its acceptance still releases the older claim."""
+    poster = poster_for(peers, deployment)
+    wallet = "0x" + "11" * 20
+    assert post(peers, event_body(peers, "predecessor", 110)).status_code == 200
+
+    def workflow(effects):
+        yield from settle(poster, wallet, said("predecessor"))
+        assert (
+            post(
+                peers, event_body(peers, "already-retired", 111, revoked=True)
+            ).status_code
+            == 200
+        )
+        yield from settle(poster, wallet, "")
+        assert peers.inbox.selected_association("eip155:31337:" + wallet) is None
+        return True
+
+    drive(poster.effects, workflow)
+
+
+def test_preparation_errors_stop_in_dead_letter(peers, deployment):
+    """Unsigned RPC failure has a finite durable budget and never invalidates a claim."""
+    from falcon import testing
+
+    poster = poster_for(peers, deployment)
+    association = said("prepare-exhausted")
+    assert post(peers, event_body(peers, "prepare-exhausted", 120)).status_code == 200
+
+    def unavailable(action):
+        yield 0.0
+        raise TimeoutError("preparation unavailable")
+
+    def workflow(effects):
+        with patch.object(effects, "prepare", unavailable):
+            for attempt in range(3):
+                yield from poster.cycle()
+                state = (
+                    testing.TestClient(peers.receiver.app)
+                    .simulate_get(f"/v1/endorsements/{association}")
+                    .json
+                )
+                assert state["operation"]["attempts"] == attempt + 1
+                assert state["phase"] == ("dead" if attempt == 2 else "preparing")
+                assert "unavailable" in state["operation"]["error"]
+        assert (
+            state["verifierStatus"] == "accepted" and state["selection"] == "selected"
+        )
+        assert peers.inbox.transactions.cntAll() == 0
+        with patch.object(
+            effects, "request", side_effect=AssertionError("automatic retry")
+        ):
+            yield from poster.cycle()
+        return True
+
+    drive(poster.effects, workflow)
+
+
+def test_pending_rpc_errors_keep_signed_dead_letter(peers, deployment):
+    """Repeated failed receipt RPCs stop, retaining the unresolved nonce across reopen."""
+    poster = poster_for(peers, deployment)
+    assert post(peers, event_body(peers, "pending-exhausted", 130)).status_code == 200
+
+    def unavailable(tx_hash):
+        yield 0.0
+        raise TimeoutError("receipt unavailable")
+
+    def workflow(effects):
+        yield from poster.cycle()
+        intent = pending_intent(peers.inbox)
+        with patch.object(effects, "receipt", unavailable):
+            for _ in range(3):
+                yield from poster.cycle()
+        peers.inbox.close()
+        peers.inbox.reopen()
+        phase, work = peers.inbox.operation_for(f"{said('pending-exhausted')}:1")
+        assert phase == "dead" and work.rpcFailures == 3
+        assert work.txHash == intent.txHash
+        assert peers.inbox.transactions.get(keys=(intent.txHash,)) == intent
+        with patch.object(
+            effects, "request", side_effect=AssertionError("automatic retry")
+        ):
+            yield from poster.cycle()
+        return True
+
+    drive(poster.effects, workflow)

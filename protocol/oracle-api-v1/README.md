@@ -18,7 +18,7 @@ Trust exactly the configured verifier AID, chain and absolute destination URL.
 The peer key must come from locally accepted KERI state, not an incoming header.
 `server receive` serves the inbox; `server start` adds publication. Both expose
 `POST /v1/status-events` and the receiver's native KERIpy OOBI introduction route.
-There is no public Oracle association-status GET endpoint.
+Both also expose GET /v1/endorsements/{associationSaid}, a passive local resource.
 
 ## Validation and responses
 
@@ -32,7 +32,7 @@ Credential, proof and account verification are trusted producer responsibilities
 
 | Result | HTTP response | Durable application effect |
 | --- | --- | --- |
-| Valid new event | 200, authenticated producer-profile ACK | Receipt, newest status and selection commit together |
+| Valid new event | 200, authenticated producer-profile ACK | Receipt, newest status, selection and queued work commit together |
 | Exact duplicate | 200, newly authenticated ACK | No repeated selection/effect |
 | Valid older revision | 200, authenticated ACK | Receipt retained; newer status preserved |
 | Wrong path/query or malformed/unsupported event | 400 | No event receipt |
@@ -74,15 +74,45 @@ requests withdrawal. Derive wallet from extId and the contract identity referenc
 from the issuer AID using Comply's encoding. Identity registration alone supplies
 no endorsement.
 
-Receipt, selection, signed transaction submission, confirmed transaction and actual
-current registry state are distinct milestones. Recheck durable selection after
-RPC preparation. An already broadcast transaction may still land after replacement
-or revocation; after its receipt the next cycle applies current desired state.
-Withdrawal of an older SAID must not remove its replacement.
+Receipt queues work atomically; duplicate receipt never schedules it again. The
+writer advances one operation through `queued`, `preparing`, `pending`, then
+`completed` or `dead`. Phase moves, confirmed effects and journal outcomes commit
+atomically. Cursors close before RPC yields. Completed history is never scanned
+for work. A no-effect selection still completes its operation visibly.
 
-This runtime journals signed intent before submission and polls confirmation. It
-does not cancel/rebroadcast automatically, reconcile nonce conflicts or recover
-reorgs comprehensively. A permanently unresolved attempt can block later actions.
-There is no periodic credential/account revalidation or automatic mapping expiry.
-See [operations](../../docs/status-inbox.md) for scope, keys, recovery and limitations,
-and [qualification](../../docs/two-service-qualification.md) for maintained evidence.
+Contract steps come from current local selection and this writer's confirmed
+effects, not periodic contract mapping reads. First publication registers identity
+then endorses. Same-identity replacement publishes the new SAID. Entity changes
+withdraw, remove identity, register identity, then publish. Revocation withdraws
+the exact association; the identity hint can remain. Recheck selection after RPC
+preparation. Resolve an already signed transaction before applying newer status.
+
+Persist signed bytes/hash before submission. Preparation and definite reverted
+transactions have a finite per-step budget (default three attempts). Interrupted
+pending RPCs also have a three-failure budget; receipt waiting has a persistent
+120-second deadline. An uncertain submission can retry only the same signed
+bytes after checking its receipt. Exhaustion moves work to `dead`. An unresolved
+signed dead letter fences the writer; no new nonce is allocated until manual
+retry resolves it. Failure does not revoke verifier acceptance or erase prior
+confirmed effects. Successful receipt processing ends with no further polling
+once all operation steps complete. There is no mapping-drift repair, automatic
+expiry, nonce replacement/cancellation or comprehensive reorg recovery.
+
+## Endorsement resource
+
+`GET /v1/endorsements/{associationSaid}` returns 200 for a known association or
+404 for an unknown SAID. It needs no service signature and makes no RPC calls.
+The representation contains `associationSaid`, `wallet`, `verifierStatus`,
+`selection`, `phase`, `operation`, `confirmedEffect` and `writerBlockedBy`.
+`operation` includes its ID/event ID, current action, attempt counts, pending
+transaction hash, last resolved transaction hash, failure reason and terminal
+outcome. `phase` is `queued`, `preparing`, `pending`, `completed` or `dead`.
+`confirmedEffect` is this writer's last confirmed wallet identity and endorsement;
+it is historical delivery evidence, not a claim about current chain truth. A
+completed old association may be superseded by a newer selected association.
+No raw transaction bytes, signing key or authenticated mutation endpoint is exposed.
+
+Operate one writer against known initial empty registry state and preserve its
+store. This is a breaking storage change: use fresh stores, with no migration or
+old-format reader. See [operations](../../docs/status-inbox.md) for local dead-letter
+retry and [qualification](../../docs/two-service-qualification.md) for evidence.

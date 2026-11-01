@@ -25,7 +25,6 @@ class TransactionRecord:
     associationSaid: str
     action: str
     state: str = "pending"
-    failureReason: str = ""
 
 
 @dataclass
@@ -41,3 +40,44 @@ class InboxScope:
 
     verifierAid: str
     chainId: int
+
+
+@dataclass
+class PostingOperation:
+    """One event's delivery work; membership in a phase table owns its lifecycle.
+
+    attempts counts preparations of the current contract step. rpcFailures bounds
+    interrupted pending I/O. signedAt starts the finite receipt waiting period.
+    A persisted txHash fences the writer even when this operation is dead-lettered.
+    """
+
+    operationId: str
+    eventId: str
+    associationSaid: str
+    wallet: str
+    attempts: int = 0
+    rpcFailures: int = 0
+    action: str = ""
+    txHash: str = ""
+    signedAt: float = 0.0
+    lastTransactionHash: str = ""
+    submitted: bool = False
+    error: str = ""
+    outcome: str = ""
+
+
+@dataclass
+class AppliedWallet:
+    """Only this writer's confirmed effects, never a refreshed chain-state cache."""
+
+    identityRef: str = ""
+    endorsementIdentity: str = ""
+    associationSaid: str = ""
+
+
+@dataclass
+class PostingSequence:
+    """Durable arrival order and unresolved signed dead-letter fence for one writer."""
+
+    next: int = 0
+    blockedBy: str = ""

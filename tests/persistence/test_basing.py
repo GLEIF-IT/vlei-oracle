@@ -5,7 +5,7 @@ from unittest.mock import patch
 import pytest
 from eth_account import Account
 
-from tests.support.contracts import signed_intent
+from tests.support.contracts import persist_intent, signed_intent
 from tests.support.status_events import event_body, post, said, selected
 from vlei_oracle.persistence.basing import OracleBaser
 from vlei_oracle.persistence.records import PostingScope
@@ -64,13 +64,36 @@ def test_signed_attempts_are_immutable_across_reopen(tmp_path):
         "value": 0,
         "chainId": 31337,
     }
-    intent = store.pin_transaction(signed_intent(transaction))
+    intent = persist_intent(store, signed_intent(transaction))
     store.close()
     store.reopen()
     try:
         with pytest.raises(ValueError, match="signed attempt"):
-            store.pin_transaction(replace(intent, associationSaid="different"))
+            persist_intent(store, replace(intent, associationSaid="different"))
         with pytest.raises(ValueError, match="signed attempt"):
-            store.pin_transaction(replace(intent, rawTransaction="0x00"))
+            persist_intent(store, replace(intent, rawTransaction="0x00"))
     finally:
         store.close(clear=True)
+
+
+def test_receipt_and_phase_transition_are_atomic(peers):
+    """Queue creation cannot be lost at ACK; a failed phase move retains its source."""
+    body = event_body(peers, "atomic-work", 99)
+    with patch.object(
+        peers.inbox.queued, "serializer", side_effect=RuntimeError("queue failed")
+    ):
+        assert post(peers, body).status_code == 500
+    assert peers.inbox.statuses.get(keys=(said("atomic-work"),)) is None
+    assert post(peers, body).status_code == 200
+    assert post(peers, body).status_code == 200
+    assert peers.inbox.queued.cntAll() == 1
+    work = peers.inbox.begin_operation()
+    with patch.object(
+        peers.inbox.completed, "serializer", side_effect=RuntimeError("move failed")
+    ):
+        with pytest.raises(RuntimeError, match="move failed"):
+            peers.inbox.move_operation(work, "preparing", "completed")
+    peers.inbox.close()
+    peers.inbox.reopen()
+    assert peers.inbox.preparing.get(keys=("writer",)) == work
+    assert peers.inbox.completed.cntAll() == 0

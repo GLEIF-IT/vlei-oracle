@@ -9,7 +9,15 @@ from keri.db import dbing, koming
 from vlei_oracle.associations.records import AssociationStatus, StatusEvent, WalletClaim
 from vlei_oracle.associations.selecting import update_selection
 
-from .records import InboxScope, PostingScope, ReplayClaim, TransactionRecord
+from .records import (
+    AppliedWallet,
+    InboxScope,
+    PostingOperation,
+    PostingScope,
+    PostingSequence,
+    ReplayClaim,
+    TransactionRecord,
+)
 
 
 class OracleBaser(dbing.LMDBer):
@@ -41,6 +49,19 @@ class OracleBaser(dbing.LMDBer):
         self.inbox_scope = koming.Komer(
             db=self, subkey="inbox-scope.", schema=InboxScope
         )
+        self.queued = koming.Komer(db=self, subkey="queued.", schema=PostingOperation)
+        self.preparing = koming.Komer(
+            db=self, subkey="preparing.", schema=PostingOperation
+        )
+        self.pending = koming.Komer(db=self, subkey="pending.", schema=PostingOperation)
+        self.completed = koming.Komer(
+            db=self, subkey="completed.", schema=PostingOperation
+        )
+        self.dead = koming.Komer(db=self, subkey="dead.", schema=PostingOperation)
+        self.applied = koming.Komer(db=self, subkey="applied.", schema=AppliedWallet)
+        self.sequence = koming.Komer(
+            db=self, subkey="sequence.", schema=PostingSequence
+        )
         return self.env
 
     def bind_inbox_scope(self, scope):
@@ -66,7 +87,7 @@ class OracleBaser(dbing.LMDBer):
         with self.env.begin(write=True) as txn:
             prior = self.inbox.deserializer(txn.get(event_key, db=self.inbox.sdb))
             if prior is not None:
-                if prior != event:
+                if prior.body != event.body:
                     raise ValueError("conflicting event revision")
                 return
             current = self.statuses.deserializer(
@@ -87,11 +108,31 @@ class OracleBaser(dbing.LMDBer):
                     and status.statusRevision < current.statusRevision
                 ):
                     raise ValueError("revocation revision precedes acceptance")
-            txn.put(event_key, self.inbox.serializer(event), db=self.inbox.sdb)
             if current is None or status.statusRevision > current.statusRevision:
                 if current is not None:
                     status.selection = current.selection
                 self._apply_status(txn, status)
+                sequence = (
+                    self.sequence.deserializer(txn.get(b"writer", db=self.sequence.sdb))
+                    or PostingSequence()
+                )
+                sequence.next += 1
+                event.operationId = f"{sequence.next:016x}"
+                work = PostingOperation(
+                    event.operationId,
+                    event.eventId,
+                    status.associationSaid,
+                    status.wallet,
+                )
+                txn.put(
+                    event.operationId.encode(),
+                    self.queued.serializer(work),
+                    db=self.queued.sdb,
+                )
+                txn.put(
+                    b"writer", self.sequence.serializer(sequence), db=self.sequence.sdb
+                )
+            txn.put(event_key, self.inbox.serializer(event), db=self.inbox.sdb)
 
     def _apply_status(self, txn, status):
         """Apply selection and persist all changed records inside the receipt transaction."""
@@ -139,28 +180,111 @@ class OracleBaser(dbing.LMDBer):
             raise ValueError("store belongs to a different posting scope")
         self.scope.pin(keys=("posting",), val=scope)
 
-    def pin_transaction(self, intent: TransactionRecord):
-        """Keep signed attempts immutable while recording chain progress."""
-        existing = self.transactions.get(keys=(intent.txHash,))
-        if existing is not None:
-            for field in ("rawTransaction", "nonce", "associationSaid", "action"):
-                if getattr(existing, field) != getattr(intent, field):
+    def begin_operation(self):
+        """Move the oldest queued operation into the sole writer slot atomically."""
+        with self.env.begin(write=True) as txn:
+            sequence = (
+                self.sequence.deserializer(txn.get(b"writer", db=self.sequence.sdb))
+                or PostingSequence()
+            )
+            if sequence.blockedBy or txn.get(b"writer", db=self.pending.sdb):
+                return None
+            active = self.preparing.deserializer(
+                txn.get(b"writer", db=self.preparing.sdb)
+            )
+            if active:
+                return active
+            with txn.cursor(db=self.queued.sdb) as cursor:
+                if not cursor.first():
+                    return None
+                key, raw = cursor.item()
+                work = self.queued.deserializer(raw)
+                txn.put(
+                    b"writer", self.preparing.serializer(work), db=self.preparing.sdb
+                )
+                txn.delete(key, db=self.queued.sdb)
+                return work
+
+    def move_operation(self, work, source, destination, *, applied=None, intent=None):
+        """Commit one phase transition with its journal/effect changes or nothing.
+
+        Active phases use one writer slot; terminal phases use the operation ID.
+        The signed intent is durable before any network submission. A dead signed
+        intent fences all later work until explicitly resumed and resolved.
+        """
+        source_key = work.operationId.encode() if source == "dead" else b"writer"
+        target_key = (
+            b"writer"
+            if destination in ("preparing", "pending")
+            else work.operationId.encode()
+        )
+        origin, target = getattr(self, source), getattr(self, destination)
+        with self.env.begin(write=True) as txn:
+            current = origin.deserializer(txn.get(source_key, db=origin.sdb))
+            if current is None or current.operationId != work.operationId:
+                raise ValueError("operation is not in the expected phase")
+            if intent is not None:
+                existing = self.transactions.deserializer(
+                    txn.get(intent.txHash.encode(), db=self.transactions.sdb)
+                )
+                if existing is not None and any(
+                    getattr(existing, field) != getattr(intent, field)
+                    for field in (
+                        "rawTransaction",
+                        "nonce",
+                        "associationSaid",
+                        "action",
+                    )
+                ):
                     raise ValueError("cannot change a persisted signed attempt")
-        self.transactions.pin(keys=(intent.txHash,), val=intent)
-        return intent
+                txn.put(
+                    intent.txHash.encode(),
+                    self.transactions.serializer(intent),
+                    db=self.transactions.sdb,
+                )
+            if applied is not None:
+                txn.put(
+                    work.wallet.encode(),
+                    self.applied.serializer(applied),
+                    db=self.applied.sdb,
+                )
+            txn.delete(source_key, db=origin.sdb)
+            txn.put(target_key, target.serializer(work), db=target.sdb)
+            sequence = (
+                self.sequence.deserializer(txn.get(b"writer", db=self.sequence.sdb))
+                or PostingSequence()
+            )
+            if destination == "dead" and work.txHash:
+                sequence.blockedBy = work.operationId
+            elif source == "dead" and sequence.blockedBy == work.operationId:
+                sequence.blockedBy = ""
+            txn.put(b"writer", self.sequence.serializer(sequence), db=self.sequence.sdb)
 
-    def complete_transaction(self, intent, tx_hash, succeeded):
-        """Save the attempt outcome, not its reconstructible receipt snapshot."""
-        if tx_hash != intent.txHash:
-            raise ValueError("completion belongs to another signed attempt")
-        state = "confirmed" if succeeded else "reverted"
-        if intent.state != state or intent.failureReason:
-            intent.state, intent.failureReason = state, ""
-            self.pin_transaction(intent)
+    def retry_operation(self, operation_id):
+        """Explicit local operator retry; signed dead letters retain their exact intent."""
+        if self.preparing.get(keys=("writer",)) or self.pending.get(keys=("writer",)):
+            raise ValueError("writer already has active work")
+        sequence = self.sequence.get(keys=("writer",)) or PostingSequence()
+        if sequence.blockedBy and sequence.blockedBy != operation_id:
+            raise ValueError("another unresolved signed operation blocks the writer")
+        work = self.dead.get(keys=(operation_id,))
+        if work is None:
+            raise ValueError("unknown dead-letter operation")
+        work.attempts = work.rpcFailures = 0
+        work.error = ""
+        # The caller restarts the pending deadline on its first resumed cycle.
+        work.signedAt = 0.0
+        work.submitted = False
+        self.move_operation(work, "dead", "pending" if work.txHash else "preparing")
 
-    def unfinished_transaction(self):
-        """The single writer reconciles its outstanding nonce before new work."""
-        for _, intent in self.transactions.getItemIter():
-            if intent.state == "pending":
-                return intent
-        return None
+    def operation_for(self, event_id):
+        """Return a detached phase/record for one event, without history iteration."""
+        event = self.inbox.get(keys=(event_id,))
+        if event is None or not event.operationId:
+            return None, None
+        for phase in ("queued", "preparing", "pending", "completed", "dead"):
+            key = "writer" if phase in ("preparing", "pending") else event.operationId
+            work = getattr(self, phase).get(keys=(key,))
+            if work is not None and work.operationId == event.operationId:
+                return phase, work
+        raise ValueError("stored event has no delivery phase")

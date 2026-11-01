@@ -43,32 +43,51 @@ vlei-oracle server start \
   --endorsement-registry "$ORACLE_REGISTRY" --identity-registry "$IDENTITY_REGISTRY"
 ```
 
-The writer needs the deployed registries' permissions. One worker serializes
-contract actions using the existing identity registration and endorsement
-operations. A selected accepted association publishes its mapping; a retired
-association withdraws only its own SAID. Stored selection is checked again after
-RPC preparation. A transaction already broadcast may still land after replacement
-or revocation; after its receipt, the next cycle applies current stored status.
-No cancellation is attempted.
+The writer needs the deployed registries' permissions and exclusive ownership of
+its Ethereum account. Status receipt commits selection and a queued operation
+before ACK. One operation progresses through native LMDB phase subdatabases:
+`queued.`, `preparing.`, `pending.`, `completed.` and `dead.`. `applied.` records
+only this writer's confirmed effects; `txns.` retains signed attempt history.
+`inbox.` and `statuses.` retain event and verifier-status history. None of these
+history tables is scanned to schedule completed work.
 
-`--confirmations` defaults to 2 and `--posting-interval` to one second. The existing
-transaction journal records signed transaction identity before submission, then
-`pending`, `confirmed` or `reverted` receipt outcomes. A receipt is not a claim that
-the mapping still exists: the worker reads actual contract state before choosing
-another action. Duplicates do not require another send when the mapping agrees.
-The worker never calls EOA Verifier, checks observation age or repeats account or
-credential verification. RPC errors are logged; pre-submission errors retry on
-later cycles. Reverts are recorded and current desired actions can retry.
-Malformed HTTP chunks, non-object JSON-RPC envelopes and missing `result` fields
-fail the RPC operation while signed status receipt remains available. The affected
-client closes, and an existing pending signed transaction stays in the journal.
+`--confirmations` defaults to 2, `--posting-interval` to one second,
+`--max-attempts` to 3 and `--pending-timeout` to 120 seconds. Each completed step
+resets the preparation/revert attempt budget. Pending RPC failures are bounded
+separately; receipt waiting survives restart using the persisted signing time.
+A timeout or error is delivery progress, not credential invalidity. The service
+continues receiving signed status while posting is waiting or dead-lettered.
 
-An uncertain broadcast keeps its hash and failure reason pending across restart.
-The worker polls receipts and does not allocate another nonce until it resolves.
-A permanently dropped transaction therefore needs operator investigation; automatic
-rebroadcast, cancellation, nonce reconciliation and reorg recovery are outside this
-runtime. Never share its writer with another process. Use fresh demonstration
-stores. Changing chain, writer or contract addresses requires another store.
+Query local progress without querying Ethereum:
+
+```sh
+curl "http://localhost:9723/v1/endorsements/$ASSOCIATION_SAID"
+```
+
+This resource exposes selection, delivery phase, attempts, errors, transaction
+hashes and last confirmed wallet effects. `completed` is terminal until a new
+verifier event creates another obligation. Neither GET nor an idle worker reads
+contract mappings. Independent changes on-chain are outside this operating model.
+
+After correcting a dead letter, stop the service and explicitly retry its ID:
+
+```sh
+vlei-oracle retry "$OPERATION_ID" --name vlei-oracle-inbox
+```
+
+Pass the same `--base` and `--head-dir` used by the service. Restart normally.
+Retry renews the bounded attempt/deadline budget. If signed bytes already exist,
+retry retains their exact hash/nonce and checks the receipt before resubmission.
+An unresolved signed dead letter blocks every later operation; unsigned failures
+or confirmed reverts do not fence unrelated work. Do not clear that fence or
+allocate another nonce by editing LMDB. There is no automatic cancellation,
+replacement, full nonce reconciliation or comprehensive reorg recovery.
+
+Use a known empty initial registry deployment and fresh application stores for
+this breaking storage layout. Preserve the application store across restart;
+there are no migrations, history reconstruction or backward-compatible readers.
+Changing writer, chain or contract addresses requires a separate deployment/store.
+Storage remains under KERIpy's name/base/head-dir conventions in `vlei-oracle/db`.
 
 ## Tests and limitations
 

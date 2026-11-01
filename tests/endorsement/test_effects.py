@@ -10,7 +10,14 @@ from hio.base import doing
 from hio.core import http
 from web3 import Web3
 
-from tests.support.contracts import drive, effects_for, signed_intent
+from tests.support.contracts import (
+    drive,
+    effects_for,
+    observe,
+    pending_intent,
+    persist_intent,
+    signed_intent,
+)
 from vlei_oracle.associations.statusing import read_status
 from vlei_oracle.endorsement.effects import ContractEffects
 from vlei_oracle.persistence.basing import OracleBaser
@@ -82,7 +89,7 @@ def test_lost_submission_result_recovers_saved_identity(deployment, tmp_path):
         tx = yield from effects.prepare(
             ("endorsement", "publishEndorsement", [WALLET, IDENTITY, "association"])
         )
-        intent = store.pin_transaction(signed_intent(tx))
+        intent = persist_intent(store, signed_intent(tx))
         yield from effects.submit(intent.rawTransaction, intent.txHash)
         # Deliberately lose all in-memory effect/receipt progress.
         return intent
@@ -91,12 +98,12 @@ def test_lost_submission_result_recovers_saved_identity(deployment, tmp_path):
     store.close()
     reopened = OracleBaser(name="posting", headDirPath=str(tmp_path))
     try:
-        saved = reopened.unfinished_transaction()
+        saved = pending_intent(reopened)
         assert saved == intent
 
         def recover(effects):
             result = yield from effects.receipt(saved.txHash)
-            identity, endorsement = yield from effects.observe(WALLET)
+            identity, endorsement = yield from observe(effects, WALLET)
             nonce = yield from effects.request(
                 "eth_getTransactionCount", [effects.writer, "latest"]
             )
@@ -242,14 +249,15 @@ def test_rpc_outage_is_unknown_not_transaction_absence(tmp_path, unavailable):
         identity=address,
     )
     store = OracleBaser(name="rpc-unknown", headDirPath=str(tmp_path))
-    intent = store.pin_transaction(
+    intent = persist_intent(
+        store,
         TransactionRecord(
             txHash="0x" + "12" * 32,
             rawTransaction="0x1234",
             nonce=0,
             associationSaid="association",
             action="publishEndorsement",
-        )
+        ),
     )
     completed = []
 
@@ -260,7 +268,7 @@ def test_rpc_outage_is_unknown_not_transaction_absence(tmp_path, unavailable):
                 yield from effects.receipt(intent.txHash)
         else:
             assert (yield from effects.receipt(intent.txHash)) is None
-        assert store.unfinished_transaction() == intent
+        assert pending_intent(store) == intent
         assert "eth_sendRawTransaction" not in calls
         completed.append(True)
         parent.remove([effects, server_doer])

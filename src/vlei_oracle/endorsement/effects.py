@@ -73,31 +73,6 @@ class ContractEffects(doing.DoDoer):
         if int(chain, 16) != self.chain_id:
             raise ValueError("RPC chain does not match posting deployment")
 
-    def observe(self, wallet):
-        """Read both policy inputs at one identified canonical block."""
-        yield from self.check_chain()
-        block = yield from self.request("eth_getBlockByNumber", ["latest", False])
-        selector = {"blockHash": block["hash"], "requireCanonical": True}
-        values = []
-        for key, function, types in (
-            ("identity", "getIdentity", ["bytes32"]),
-            ("endorsement", "getEndorsement", ["(bytes32,string)"]),
-        ):
-            contract = self.contracts[key]
-            data = contract.encode_abi(
-                function, args=[Web3.to_checksum_address(wallet)]
-            )
-            raw = yield from self.request(
-                "eth_call",
-                [
-                    {"to": contract.address, "data": data},
-                    selector,
-                ],
-            )
-            values.append(self.web3.codec.decode(types, bytes.fromhex(raw[2:]))[0])
-        identity, (entity, said) = values
-        return "0x" + identity.hex(), ("0x" + entity.hex(), said)
-
     def prepare(self, action):
         """Fetch unsigned transaction inputs without broadcasting."""
         yield from self.check_chain()

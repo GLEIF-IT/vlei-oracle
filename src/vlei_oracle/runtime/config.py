@@ -1,5 +1,6 @@
 """Validated oracle identity, trust and posting configuration."""
 
+import math
 from dataclasses import dataclass, field
 from urllib.parse import urlsplit
 
@@ -29,6 +30,8 @@ class ReceiverConfig:
     posting_key: str = field(default="", repr=False)
     confirmations: int = 2
     posting_interval: float = 1.0
+    max_attempts: int = 3
+    pending_timeout: float = 120.0
 
     def __post_init__(self):
         """Reject invalid operational configuration before opening stores."""
@@ -40,7 +43,14 @@ class ReceiverConfig:
             for address in (self.endorsement_registry, self.identity_registry):
                 if not Web3.is_address(address):
                     raise ValueError("posting requires both registry addresses")
-            if self.confirmations < 1 or self.posting_interval <= 0:
+            if (
+                self.confirmations < 1
+                or self.max_attempts < 1
+                or not all(
+                    math.isfinite(value) and value > 0
+                    for value in (self.posting_interval, self.pending_timeout)
+                )
+            ):
                 raise ValueError("confirmations and posting interval must be positive")
         parts = urlsplit(self.webhook_url)
         if (

@@ -1,25 +1,25 @@
 """conftest.py."""
 
-import os
 import json
+import os
 import shutil
 import socket
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from vlei_oracle.receiving.authing import ServiceAuthenticator as SenderAuthenticator
 from eth_account import Account
 from falcon import testing
 from keri.app import habbing
 from keri.db import dbing
 
+from scripts.integration.artifacts import source_revision
+from scripts.integration.contracts import deploy
 from tests.support.contracts import KEY
 from tests.support.status_events import said
 from vlei_oracle.persistence.basing import OracleBaser
+from vlei_oracle.receiving.authing import ServiceAuthenticator as SenderAuthenticator
 from vlei_oracle.runtime.config import ReceiverConfig
-from scripts.integration.artifacts import source_revision
-from scripts.integration.contracts import deploy
 from vlei_oracle.runtime.serving import StatusReceiver
 
 WALLET = Account.from_key("0x" + "0" * 63 + "1").address
@@ -116,7 +116,7 @@ def comply_checkout(tmp_path_factory):
 
 
 @pytest.fixture(scope="module")
-def deployment(tmp_path_factory, comply_checkout):
+def deployed_chain(tmp_path_factory, comply_checkout):
     """Own Anvil and build/deploy the shared isolated Comply fixture checkout."""
     from scripts.integration.environment import start_chain
     from scripts.integration.processes import free_port, stop
@@ -144,6 +144,30 @@ def deployment(tmp_path_factory, comply_checkout):
 
 
 @pytest.fixture
+def deployment(deployed_chain):
+    """Give each fresh Oracle store the same known initial contract deployment.
+
+    The module owns Anvil/build; snapshots isolate tests without changing topology.
+    No test may depend on a previous test's registry writes or writer nonce.
+    """
+    from tests.support.contracts import drive, effects_for
+
+    def checkpoint(effects):
+        return (yield from effects.request("evm_snapshot", []))
+
+    snapshot = drive(effects_for(deployed_chain), checkpoint)
+    try:
+        yield deployed_chain
+    finally:
+
+        def restore(effects):
+            assert (yield from effects.request("evm_revert", [snapshot])) is True
+            return True
+
+        drive(effects_for(deployed_chain), restore)
+
+
+@pytest.fixture
 def integration_run(tmp_path):
     """Attach an explicit started run, or own a fresh installed-wheel stack.
 
@@ -151,10 +175,10 @@ def integration_run(tmp_path):
     closes all child processes even when qualification fails, retaining evidence.
     """
     from scripts.integration.environment import (
+        load_run,
         prepare_run,
         start_run,
         stop_run,
-        load_run,
     )
 
     selected = os.getenv("ORACLE_INTEGRATION_RUN")

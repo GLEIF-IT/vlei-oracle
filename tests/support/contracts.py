@@ -105,3 +105,50 @@ def signed_intent(tx, *, said="association", action="publishEndorsement"):
         associationSaid=said,
         action=action,
     )
+
+
+def observe(effects, wallet):
+    """Independently inspect contract mappings for qualification assertions only."""
+    yield from effects.check_chain()
+    block = yield from effects.request("eth_getBlockByNumber", ["latest", False])
+    selector = {"blockHash": block["hash"], "requireCanonical": True}
+    values = []
+    for key, function, types in (
+        ("identity", "getIdentity", ["bytes32"]),
+        ("endorsement", "getEndorsement", ["(bytes32,string)"]),
+    ):
+        contract = effects.contracts[key]
+        data = contract.encode_abi(function, args=[Web3.to_checksum_address(wallet)])
+        raw = yield from effects.request(
+            "eth_call",
+            [
+                {"to": contract.address, "data": data},
+                selector,
+            ],
+        )
+        values.append(effects.web3.codec.decode(types, bytes.fromhex(raw[2:]))[0])
+    identity, (entity, said) = values
+    return "0x" + identity.hex(), ("0x" + entity.hex(), said)
+
+
+def persist_intent(store, intent):
+    """Set up a signed pending phase through the same atomic transition as posting."""
+    from vlei_oracle.persistence.records import PostingOperation
+
+    work = PostingOperation(
+        "0000000000000001",
+        "event",
+        intent.associationSaid,
+        WALLET,
+        action=intent.action,
+        txHash=intent.txHash,
+    )
+    store.preparing.pin(keys=("writer",), val=work)
+    store.move_operation(work, "preparing", "pending", intent=intent)
+    return intent
+
+
+def pending_intent(store):
+    """Read the pending operation's journal entry without history scans."""
+    work = store.pending.get(keys=("writer",))
+    return store.transactions.get(keys=(work.txHash,)) if work else None
