@@ -25,7 +25,7 @@ Both also expose GET /v1/endorsements/{associationSaid}, a passive local resourc
 Match the configured path/query, authenticate the exact body first, then decode
 the producer's v1 object. Require canonical association/LE SAIDs and issuer AID,
 a positive integer status revision and matching event identity. Accept producer
-acceptance or explicit verified retirement. Validate nonnegative integer issuance
+acceptance or explicit verified revocation. Validate nonnegative integer issuance
 sequence and anchor SAID, and a canonical EOA extId on the configured chain.
 Observation metadata is informational and is not required by this consumer.
 Credential, proof and account verification are trusted producer responsibilities.
@@ -53,7 +53,7 @@ status separately from Oracle selection: selected, superseded, rejected or revok
 
 - Same issuer: a strictly higher issuer-KEL issuance-anchor sequence supersedes
   the predecessor. LE credential SAIDs, status revisions and arrival timestamps do
-  not establish priority. A later same-issuer retirement arriving before acceptance
+  not establish priority. A later same-issuer revocation arriving before acceptance
   still prevents an older claim from remaining selected.
 - Different issuer: retain/reject the competing claim while a current claim is
   active. Current-SAID verified revocation releases that claim. An earlier rejected
@@ -69,7 +69,7 @@ Selection never revokes upstream Verifier acceptance. See the
 
 ## Publication and withdrawal
 
-A selected accepted association is eligible for publication; exact-SAID retirement
+A selected accepted association is eligible for publication; exact-SAID revocation
 requests withdrawal. Derive wallet from extId and the contract identity reference
 from the issuer AID using Comply's encoding. Identity registration alone supplies
 no endorsement.

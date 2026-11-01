@@ -14,7 +14,7 @@ def read_status(body: bytes, *, chain_id: int):
     """Return event and status from the small v1 object, or raise ValueError.
 
     The caller must authenticate the exact bytes first. Only accepted associations and
-    explicit REVOKED retirement are supported. Observation metadata is ignored:
+    revoked status with reason REVOKED are supported. Observation metadata is ignored:
     the configured verifier already performed the initial account/chain checks.
     """
     try:

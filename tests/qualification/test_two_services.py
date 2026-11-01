@@ -43,7 +43,7 @@ class USDCScenario:
         self.workflow = doing.DoDoer(doers=[self.effects, doing.doify(self.run)])
 
     def run(self, tymth, tock=0.0, **kwargs):
-        """Sequence independent setup, acceptance, restart and retirement phases."""
+        """Sequence independent setup, acceptance, restart and revocation phases."""
         yield tock
         yield from self.prepare_wallets()
         first = self.issue()
@@ -61,7 +61,7 @@ class USDCScenario:
         second = self.issue()
         yield from self.status(second["said"], "accepted")
         yield from self.mapping(second["said"])
-        yield from self.retire(first, second, beneficiary)
+        yield from self.revoke_associations(first, second, beneficiary)
         save_json(
             self.root / "flow.json",
             {
@@ -230,7 +230,7 @@ class USDCScenario:
             "eventId"
         ] == associationStatus["eventId"]
 
-    def retire(self, first, second, beneficiary):
+    def revoke_associations(self, first, second, beneficiary):
         """Old revocation preserves replacement; current revocation removes only it."""
         for descriptor, expected in ((first, second["said"]), (second, "")):
             call_verifier(self.root, "revoke", "--said", descriptor["said"])
@@ -243,7 +243,7 @@ class USDCScenario:
         yield from self.transfer(expected=False)
 
 
-def test_two_installed_services_publish_replace_and_retire(integration_run):
+def test_two_installed_services_publish_replace_and_revoke(integration_run):
     """Keep the full witnessed, two-wallet, lost-ACK and restart qualification."""
     marker = integration_run / "flow-started"
     with marker.open("x") as stream:

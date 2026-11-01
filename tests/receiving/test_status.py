@@ -7,7 +7,7 @@ from tests.support.status_events import event_body, post, said, selected
 
 
 def test_status_commit_survives_reordering_reopen_and_conflict(peers):
-    """Revocation arriving first stays retired; duplicate ACKs never revive or rewrite it."""
+    """Revocation arriving first stays revoked; duplicate ACKs never revive or rewrite it."""
     acceptedEvent = json.loads(peers.event.body)
     revokedEvent = {
         **acceptedEvent,
@@ -37,7 +37,7 @@ def test_status_commit_survives_reordering_reopen_and_conflict(peers):
 
 
 def test_issued_then_revoked_is_terminal_and_chain_scoped(peers):
-    """Normal retirement advances status; a new acceptance cannot undo it or change chain."""
+    """Normal revocation advances status; a new acceptance cannot undo it or change chain."""
     acceptedEvent = json.loads(peers.event.body)
     assert post(peers, peers.event.body.encode()).status_code == 200
     revokedEvent = {

@@ -76,8 +76,8 @@ def test_other_le_requires_release_and_a_new_claim(peers):
     )  # Never compare 11 against 901.
 
 
-def test_newer_retirement_before_acceptance_preserves_supersession(peers):
-    """A newer same-LE retirement still prevents its older predecessor remaining selected."""
+def test_newer_revocation_before_acceptance_preserves_supersession(peers):
+    """A newer issuance supersedes its predecessor even when revoked status arrives first."""
     assert post(peers, event_body(peers, "older", 10)).status_code == 200
     assert post(peers, event_body(peers, "newer", 12, revoked=True)).status_code == 200
     assert selected(peers) is None

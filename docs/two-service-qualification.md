@@ -22,7 +22,7 @@ The test follows these boundaries:
    verify its stored account observation is unchanged.
 5. Present a higher-issuance same-LE replacement. Deliver the predecessor's verified
    revocation and confirm the successor remains mapped. Revoke the successor and
-   require both its acknowledged retirement event and actual contract withdrawal.
+   require both its acknowledged revocation event and actual contract withdrawal.
    Submit another token transfer and confirm that both balances remain unchanged,
    even though the policy-failure transaction itself has a successful receipt.
 
