@@ -3,6 +3,7 @@
 import json
 
 from tests.support.status_events import event_body, post, said, selected
+from vlei_oracle.persistence.associations import AssociationReader
 
 
 def test_status_commit_survives_reordering_reopen_and_conflict(peers):
@@ -130,3 +131,83 @@ def test_selection_and_serialization_finish_before_write_transaction(peers):
     ):
         assert post(peers, event_body(peers, "outside-writer", 10)).status_code == 200
     assert selected_outside_write and serialized_outside_write
+
+
+def test_revoked_burst_queues_fifo_and_selects_per_wallet(peers):
+    """A burst of revocations across wallets keeps arrival order and per-wallet selection.
+
+    Covers an unselected (superseded) claim and a revocation whose revision 1 never arrived.
+    """
+    wallets = {n: "0x" + f"{n}{n}" * 20 for n in (1, 2, 3, 4)}
+
+    def accepted(label, sequence, wallet):
+        return post(
+            peers, event_body(peers, label, sequence, wallet=wallets[wallet])
+        ).status_code
+
+    def revoked(label, sequence, wallet):
+        return event_body(peers, label, sequence, wallet=wallets[wallet], revoked=True)
+
+    assert accepted("burst-one", 10, 1) == 200
+    assert accepted("burst-two", 10, 2) == 200
+    assert accepted("burst-old", 10, 3) == 200
+    assert accepted("burst-new", 11, 3) == 200  # Supersedes burst-old on wallet 3.
+    assert peers.inbox.statuses.get(keys=(said("burst-old"),)).selection == "superseded"
+
+    burst = [
+        ("burst-one", 10, 1),
+        ("burst-old", 10, 3),  # Not selected: its revocation changes no selection.
+        ("burst-orphan", 12, 4),  # Revision 1 never arrived.
+        ("burst-two", 10, 2),
+    ]
+    for label, sequence, wallet in burst:
+        assert post(peers, revoked(label, sequence, wallet)).status_code == 200
+
+    def queued():
+        return [
+            (operation.operationId, operation.eventId, operation.wallet)
+            for _, operation in peers.inbox.queued.getItemIter()
+        ]
+
+    expected = [
+        (said(label) + ":1", wallets[wallet])
+        for label, wallet in (
+            ("burst-one", 1),
+            ("burst-two", 2),
+            ("burst-old", 3),
+            ("burst-new", 3),
+        )
+    ] + [(said(label) + ":2", wallets[wallet]) for label, _, wallet in burst]
+    operations = queued()
+    assert [(eventId, wallet) for _, eventId, wallet in operations] == expected
+    ids = [int(operationId, 16) for operationId, _, _ in operations]
+    assert ids == list(range(1, len(expected) + 1))
+    assert peers.inbox.sequence.get(keys=("writer",)).next == len(expected)
+
+    def check():
+        reader = AssociationReader(peers.inbox)
+        for label in ("burst-one", "burst-two", "burst-old", "burst-orphan"):
+            status = peers.inbox.statuses.get(keys=(said(label),))
+            assert (status.status, status.statusRevision) == ("revoked", 2)
+            assert status.selection == "revoked"
+        assert reader.selected("eip155:31337:" + wallets[1]) is None
+        assert reader.selected("eip155:31337:" + wallets[2]) is None
+        assert reader.selected("eip155:31337:" + wallets[4]) is None
+        # The unselected revocation leaves wallet 3's replacement untouched.
+        assert reader.selected("eip155:31337:" + wallets[3]).associationSaid == said(
+            "burst-new"
+        )
+        assert peers.inbox.inbox.get(keys=(f"{said('burst-orphan')}:1",)) is None
+        assert peers.inbox.inbox.get(keys=(f"{said('burst-orphan')}:2",)) is not None
+
+    check()
+    peers.inbox.close()
+    peers.inbox.reopen()
+    check()
+    assert queued() == operations
+
+    # Redelivering the whole burst adds no operation and changes no order.
+    for label, sequence, wallet in burst:
+        assert post(peers, revoked(label, sequence, wallet)).status_code == 200
+    assert queued() == operations
+    check()
