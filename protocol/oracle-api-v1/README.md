@@ -24,7 +24,8 @@ Both also expose GET /v1/endorsements/{associationSaid}, a passive local resourc
 Match the configured path/query, authenticate the exact body first, then decode
 the producer's v1 object. Require canonical association/LE SAIDs and issuer AID,
 a positive integer status revision and matching event identity. Accept producer
-acceptance or explicit verified revocation. Validate nonnegative integer issuance
+acceptance or an explicit `revoked` status (which includes revocation of the LE or QVI
+credential in the association's chain; the event carries no cause). Validate nonnegative integer issuance
 sequence and anchor SAID, and a canonical EOA extId on the configured chain.
 Observation metadata is informational and is not required by this consumer.
 Credential, proof and account verification are trusted producer responsibilities.
@@ -64,6 +65,9 @@ status separately from Oracle selection: selected, superseded, rejected or revok
   active. Current-SAID verified revocation releases that claim. An earlier rejected
   association does not activate on duplicates or later revisions; a new association
   is required. Never compare sequence numbers from different issuers' KELs.
+- A withdrawn mapping is not replaced automatically. After a release, an already
+  accepted but unselected claim stays unselected; it must be presented again as a
+  new association before it can be published.
 - Revocation is terminal for its association SAID. Old-SAID revocation cannot release
   a successor. Issuance history survives release, transfer and restart; a superseded
   predecessor cannot return. Distinct associations sharing an issuance anchor have
@@ -89,7 +93,12 @@ Contract steps come from current local selection and this writer's confirmed
 effects, not periodic contract mapping reads. First publication registers identity
 then endorses. Same-identity replacement publishes the new SAID. Entity changes
 withdraw, remove identity, register identity, then publish. Revocation withdraws
-the exact association; the identity hint can remain. Recheck selection after RPC
+the exact association; the identity hint can remain. A revoked LE or QVI credential
+revokes every association chained to it, so a burst of events queues serial
+withdrawals in arrival order, each its own transaction and nonce; fund the writer
+for all of them. A revoked association that is not selected completes with no
+transaction. Withdrawal is idempotent on the registry, so a retry after the first
+landed has no second effect. Recheck selection after RPC
 preparation. Resolve an already signed transaction before applying newer status.
 
 Persist signed bytes/hash before submission. Preparation and definite reverted
