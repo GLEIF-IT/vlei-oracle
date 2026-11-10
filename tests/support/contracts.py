@@ -157,3 +157,22 @@ def pending_transaction(store):
         if postingOperation
         else None
     )
+
+
+def withdrawal_logs(effects):
+    """Return every EndorsementWithdrawn log the registry emitted on this chain."""
+    registry = effects.contracts["endorsement"]
+    abi = registry.events.EndorsementWithdrawn().abi
+    signature = f"{abi['name']}({','.join(i['type'] for i in abi['inputs'])})"
+    logs = yield from effects.request(
+        "eth_getLogs",
+        [
+            {
+                "fromBlock": "0x0",
+                "toBlock": "latest",
+                "address": registry.address,
+                "topics": [Web3.to_hex(Web3.keccak(text=signature))],
+            }
+        ],
+    )
+    return logs

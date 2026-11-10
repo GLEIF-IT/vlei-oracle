@@ -26,7 +26,7 @@ def post(peers, body, *, auth=None, headers=None):
     )
 
 
-def event_body(peers, label, sequence, *, issuer=None, revoked=False):
+def event_body(peers, label, sequence, *, issuer=None, revoked=False, wallet=None):
     """Make post-verification fixture facts; this helper does not assert credential validity."""
     body = json.loads(peers.event.body)
     body["associationSaid"] = said(label)
@@ -40,6 +40,8 @@ def event_body(peers, label, sequence, *, issuer=None, revoked=False):
         ),  # LE credential SAID is not the holder's identity.
         "issuanceAnchor": {"sequenceNumber": sequence, "said": said(f"anchor-{label}")},
     }
+    if wallet:
+        body["association"]["extId"] = f"eip155:31337:{wallet}"
     if revoked:
         body.update(status="revoked", reasonCode="REVOKED")
     return json.dumps(body).encode()

@@ -26,6 +26,12 @@ The test follows these boundaries:
    Submit another token transfer and confirm that both balances remain unchanged,
    even though the policy-failure transaction itself has a successful transaction receipt.
 
+6. Issue fresh associations for both wallets, confirm both mappings and a successful
+   transfer. Revoke the LE credential with the Verifier fixture (`revoke-source --kind le`)
+   and present that evidence (`present-source`). Require both statuses `revoked` with
+   `revocationSource.role` `le`, both endorsements `withdraw`/`completed`, both contract
+   mappings empty and another transfer that leaves both balances unchanged.
+
 A Grant alone is not a revocation proof: the test supplies verified revocation
 TEL and witnessed KEL anchor. Authenticated storage ACK, application status and contract state
 are asserted separately. Detailed ownership and delivery edge cases remain in the

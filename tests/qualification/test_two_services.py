@@ -38,6 +38,7 @@ class USDCScenario:
         self.keys = {n: "0x" + "0" * 63 + str(n) for n in (1, 2, 3)}
         self.wallet = Account.from_key(self.keys[1]).address
         self.recipient = Account.from_key(self.keys[2]).address
+        self.moved = 0  # Underlying USDC the recipient has received so far.
         self.finished = False
         self.workflow = doing.DoDoer(doers=[self.effects, doing.doify(self.run)])
 
@@ -61,6 +62,7 @@ class USDCScenario:
         yield from self.status(second["said"], "accepted")
         yield from self.mapping(second["said"])
         yield from self.revoke_associations(first, second, beneficiary)
+        yield from self.revoke_upstream(beneficiary)
         save_json(
             self.root / "flow.json",
             {
@@ -209,7 +211,9 @@ class USDCScenario:
             [self.recipient, 1000000],
             self.keys[1],
         )
-        expectedRecipientBalance = 0 if initial else 1000000
+        if expected:
+            self.moved += 1000000
+        expectedRecipientBalance = self.moved
         assert (
             yield from read(self.effects, self.token, "balanceOf", [self.recipient])
         ) == (expectedRecipientBalance,)
@@ -252,6 +256,28 @@ class USDCScenario:
             yield from self.mapping(expected)
             yield from self.endorsement(descriptor["said"], expected="revoked")
         yield from self.mapping(beneficiary["said"], self.recipient)
+        yield from self.transfer(expected=False)
+
+    def revoke_upstream(self, beneficiary):
+        """Revoking the shared LE credential withdraws both fresh wallets' mappings."""
+        fresh = {1: self.issue(wallet=1), 2: self.issue(wallet=2)}
+        for descriptor in fresh.values():
+            yield from self.status(descriptor["said"], "accepted")
+        yield from self.mapping(fresh[1]["said"])
+        yield from self.mapping(fresh[2]["said"], self.recipient)
+        yield from self.transfer(expected=True)
+
+        call_verifier(self.root, "revoke-source", "--kind", "le")
+        call_verifier(self.root, "present-source", "--kind", "le")
+        for descriptor in (*fresh.values(), beneficiary):
+            revokedStatus = yield from self.status(descriptor["said"], "revoked")
+            assert revokedStatus["revocationSource"]["role"] == "le"
+            assert revokedStatus["delivery"]["eventId"] == f"{descriptor['said']}:2"
+        for number, address in ((1, self.wallet), (2, self.recipient)):
+            yield from self.mapping("", address)
+            yield from self.endorsement(fresh[number]["said"], expected="revoked")
+            assert (yield from observe(self.effects, address))[1][1] == ""
+        # The upstream revocation promotes nothing: the next transfer is blocked on chain.
         yield from self.transfer(expected=False)
 
 

@@ -12,9 +12,11 @@ on-chain changes. `GET /v1/endorsements/{associationSaid}` exposes local deliver
 progress without querying Ethereum. See the [operator guide](docs/status-inbox.md)
 for bounded retries and manual recovery.
 
-Verifier acceptance persists until verified association revocation. Oracle selection
+Verifier acceptance persists until the Verifier reports `revoked`, which includes revocation
+of the LE or QVI credential in its chain. Oracle selection
 can supersede an older same-LE issuance without changing that upstream acceptance. Revocation withdraws only the matching
-association SAID. Storage ACKs do not mean an on-chain transaction has succeeded. The
+association SAID, and a withdrawn mapping is not replaced automatically: a claim must be
+presented again as a new association. Storage ACKs do not mean an on-chain transaction has succeeded. The
 [two-service qualification](docs/two-service-qualification.md) exercises the installed
 applications with witnessed KEL/TEL evidence, signed HTTP and Anvil.
 
